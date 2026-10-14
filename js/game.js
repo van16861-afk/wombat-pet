@@ -87,9 +87,9 @@ knitTex.wrapS = knitTex.wrapT = THREE.RepeatWrapping; knitTex.repeat.set(10,3);
 const fx = [];
 function floatSprite(tex, at, o={}){
   const s = new THREE.Sprite(new THREE.SpriteMaterial({map:tex, transparent:true, depthWrite:false, depthTest:o.depthTest !== false, blending:o.add ? THREE.AdditiveBlending : THREE.NormalBlending}));
-  s.position.copy(at); s.scale.setScalar(o.size || 0.4); s.renderOrder = 5; s.visible = !o.delay;
+  s.position.copy(at); s.scale.setScalar(o.size || 0.4); s.renderOrder = 5; s.visible = !o.delay; if (o.rot) s.material.rotation = o.rot;
   scene.add(s);
-  fx.push({s, life:0, max:o.max || 1.4, vy:o.vy ?? 1, vx:o.vx || 0, vz:o.vz || 0, g:o.g || 0, delay:o.delay || 0, size:o.size || 0.4, grow:o.grow ?? 0.2});
+  fx.push({s, life:0, max:o.max || 1.4, vy:o.vy ?? 1, vx:o.vx || 0, vz:o.vz || 0, g:o.g || 0, delay:o.delay || 0, size:o.size || 0.4, grow:o.grow ?? 0.2, fade:o.fade || 0.5, spin:o.spin || 0});
   return s;
 }
 function updateFx(dt){
@@ -99,7 +99,7 @@ function updateFx(dt){
     f.s.visible = true; f.life += dt;
     f.vy -= f.g*dt;
     f.s.position.x += f.vx*dt; f.s.position.y += f.vy*dt; f.s.position.z += f.vz*dt;
-    f.s.material.opacity = clamp((f.max - f.life)/0.5, 0, 1);
+    f.s.material.opacity = clamp((f.max - f.life)/f.fade, 0, 1); if (f.spin) f.s.material.rotation += f.spin*dt;
     f.s.scale.setScalar(f.size*(1 + Math.min(f.life*3,1)*f.grow));
     if (f.life > f.max){ scene.remove(f.s); f.s.material.dispose(); fx.splice(i,1); }
   }
@@ -218,13 +218,18 @@ const shadow = makeShadow(2.8, 4.4);
 const FORMS = {
   normal: {name:'袋熊',     desc:'照顧得剛剛好。'},
   skinny: {name:'瘦瘦熊',   body:[0.72,0.8,0.95], head:0.9, tint:['#b59c80',0.18], speed:1.05, desc:'進化時太餓，或這個階段常常餓肚子。'},
-  sickly: {name:'病懨懨熊', body:[0.9,0.88,1], tint:['#8f9c76',0.42], acc:'bandage', droopy:true, speed:0.7, desc:'進化的時候正在生病。'},
+  sickly: {name:'病懨懨熊', body:[0.9,0.88,1], tint:['#8f9c76',0.42], acc:['bandage','thermo'], droopy:true, speed:0.7, desc:'進化的時候正在生病。'},
   stinky: {name:'臭臭熊',   tint:['#7b7150',0.2], acc:'poop', desc:'進化的時候，場上有 3 坨以上的便便沒清。'},
   chubby: {name:'胖胖熊',   body:[1.26,1.14,1.05], head:1.06, speed:0.75, desc:'這個階段常常在牠不餓的時候還一直餵。'},
   sporty: {name:'活力熊',   body:[0.98,1.03,1.05], acc:'headband', speed:1.25, desc:'這個階段陪牠玩了很多次（8 次以上）。'},
-  royal:  {name:'皇家袋熊', acc:'crown', desc:'完全體以後，照顧得幾乎沒有失誤，心情又很好。'},
-  golden: {name:'黃金袋熊', tint:['#d9a933',0.55], acc:'crown', glow:true, speed:1.1, desc:'皇家袋熊在究極體依然被完美照顧。'}
+  royal:  {name:'皇家袋熊', acc:['crown','cape'], desc:'完全體時照顧得幾乎沒有失誤，心情又很好。'},
+  forest: {name:'森靈袋熊', acc:['leafcape','sprout'], desc:'完全體時照顧得很好，而且成熟期拔了很多雜草（12 株以上），或家裡同時有小水池和花圃。'},
+  wind:   {name:'疾風袋熊', body:[0.98,1.03,1.05], acc:['windband','windscarf'], speed:1.4, desc:'活力熊在完全體時照顧得很好，成熟期也常常陪牠玩。'},
+  golden: {name:'黃金袋熊', tint:['#d9a933',0.55], acc:['crown','cape'], glow:'#ffd76a', speed:1.1, desc:'皇家袋熊在究極體依然被完美照顧。'},
+  forestx:{name:'森羅袋熊', tint:['#7d6a3e',0.12], acc:['leafcape','antler'], glow:'#a6f08a', desc:'森靈袋熊在究極體依然被完美照顧。'},
+  thunder:{name:'雷光袋熊', body:[0.98,1.03,1.05], acc:['boltband','boltcape'], glow:'#ffe45c', speed:1.5, desc:'疾風袋熊在究極體依然被完美照顧。'}
 };
+const formAcc = F => [].concat(F.acc || []);
 const ACC = {};
 (function buildAcc(){
   const brown = mat('#6e4c35',0.9);
@@ -233,7 +238,7 @@ const ACC = {};
     const b = new THREE.Mesh(new THREE.TorusGeometry(0.13,0.08,10,20), brown); b.rotation.x = Math.PI/2; b.position.y = 0.17; g.add(b);
     const c = new THREE.Mesh(new THREE.SphereGeometry(0.1,12,10), brown); c.position.y = 0.26; g.add(c);
     const tip = new THREE.Mesh(new THREE.ConeGeometry(0.06,0.14,10), brown); tip.position.y = 0.38; tip.rotation.z = 0.3; g.add(tip);
-    const flies = new THREE.Group(); for (let i=0;i<2;i++){ const f = new THREE.Mesh(new THREE.SphereGeometry(0.025,6,4), mat('#111',0.4)); f.position.set(0.35,0.3+i*0.1,0); f.userData.ph = i*3; flies.add(f); }
+    const flies = new THREE.Group(); for (let i=0;i<3;i++){ const f = new THREE.Mesh(new THREE.SphereGeometry(0.025,6,4), mat('#111',0.4)); f.position.set(0.35,0.3+i*0.1,0); f.userData.ph = i*2.1; flies.add(f); }
     g.add(flies); g.userData.flies = flies;
     g.position.set(0,0.64,0.42); head.add(g); ACC.poop = g; }
   { const g = new THREE.Group(), w = mat('#f4f1ea',0.9);
@@ -249,6 +254,117 @@ const ACC = {};
     for (let i=0;i<5;i++){ const a = i/5*Math.PI*2; const c = new THREE.Mesh(new THREE.ConeGeometry(0.06,0.16,8), gold); c.position.set(Math.sin(a)*0.3,0.23,Math.cos(a)*0.3); g.add(c);
       const gem = new THREE.Mesh(new THREE.SphereGeometry(0.035,8,6), mat(['#e0607e','#4f86c6','#5aa469'][i%3],0.2)); gem.position.set(Math.sin(a)*0.31,0.08,Math.cos(a)*0.31); g.add(gem); }
     g.position.set(0,0.64,0.42); head.add(g); ACC.crown = g; }
+
+  // --- perfect / ultimate branch outfits ---
+  // Point + outward normal on the body ellipsoid (bodyFit space, front = +z), and the "downhill" tangent.
+  const BA = 1.0, BB = 0.85, BC = 1.5;
+  const surf = (th, ph, k) => {
+    const a = BA*k, b = BB*k, c = BC*k;
+    const p = V3(a*Math.sin(th)*Math.cos(ph), b*Math.cos(th), c*Math.sin(th)*Math.sin(ph));
+    return {p, n: V3(p.x/(a*a), p.y/(b*b), p.z/(c*c)).normalize(), t: V3(a*Math.cos(th)*Math.cos(ph), -b*Math.sin(th), c*Math.cos(th)*Math.sin(ph)).normalize()};
+  };
+  const leafGeo = new THREE.SphereGeometry(1, 10, 6); leafGeo.scale(0.15, 0.03, 0.3); leafGeo.translate(0, 0, 0.22);
+  const flower = s => { const g = new THREE.Group(), w = mat('#fbf8f0',0.8);
+    for (let i=0;i<5;i++){ const a = i/5*Math.PI*2, p = new THREE.Mesh(new THREE.SphereGeometry(1,8,6), w); p.scale.set(0.07*s,0.025*s,0.05*s); p.position.set(Math.cos(a)*0.07*s, 0, Math.sin(a)*0.07*s); p.rotation.y = -a; g.add(p); }
+    const c = new THREE.Mesh(new THREE.SphereGeometry(0.035*s,8,6), mat('#f3c94a',0.6)); c.position.y = 0.015*s; g.add(c); return g; };
+  // Overlapping leaves draped over the shoulders and back, like a leafy cloak.
+  function leafMantle(k, th0, th1){
+    const pts = [];
+    for (let th = th0, row = 0; th <= th1; th += 0.19, row++){
+      const n = Math.round(28*Math.sin(th));
+      for (let i=0;i<n;i++){ const ph = (i + (row%2)*0.5)/n*Math.PI*2; if (Math.sin(ph) > 0.5 && th < 1.25) continue; pts.push([th, ph]); }
+    }
+    const m = new THREE.InstancedMesh(leafGeo, new THREE.MeshStandardMaterial({roughness:0.65, side:THREE.DoubleSide}), pts.length);
+    const M = new THREE.Matrix4(), R = new THREE.Matrix4().makeRotationX(-0.45), col = new THREE.Color(), greens = ['#5f9a3e','#76b24a','#4c8434','#8cc25a'];
+    pts.forEach(([th, ph], i) => {
+      const {p, n, t} = surf(th, ph, k), x = new THREE.Vector3().crossVectors(n, t), s = rnd(0.85, 1.2);
+      M.makeBasis(x, n, t).multiply(R).scale(V3(s,s,s)).setPosition(p.addScaledVector(n, 0.07));
+      m.setMatrixAt(i, M); m.setColorAt(i, col.set(greens[i % greens.length]).offsetHSL(0, 0, rnd(-0.04, 0.04)));
+    });
+    return m;
+  }
+  { const g = new THREE.Group();
+    g.add(leafMantle(1.06, 0.3, 1.8));
+    const vine = new THREE.Mesh(new THREE.TorusGeometry(0.9,0.06,8,40), mat('#4f7a33',0.8)); vine.scale.set(1,0.86,1); vine.position.set(0,0.02,0.82); g.add(vine);
+    const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.11), new THREE.MeshStandardMaterial({color:'#5fe07a', emissive:'#2fbf55', emissiveIntensity:0.6, roughness:0.2})); gem.scale.y = 1.5; gem.position.set(0,-0.72,0.98); g.add(gem);
+    [[0.6,1.1],[1.9,1.25],[3.4,1.0],[4.4,1.35],[5.5,1.15]].forEach(([ph, th]) => { const {p, n} = surf(th, ph, 1.1), f = flower(1.3);
+      f.position.copy(p.addScaledVector(n, 0.1)); f.quaternion.setFromUnitVectors(UP, n); g.add(f); });
+    g.userData.gem = gem.material; bodyFit.add(g); ACC.leafcape = g; }
+  { const g = new THREE.Group(), leaf = mat('#6aa845',0.6);
+    for (const s of [-1,1]){ const l = new THREE.Mesh(leafGeo, leaf); l.position.set(0.04*s,0.05,0); l.rotation.set(-1.0, 0, -0.5*s); l.rotation.order = 'ZXY'; l.scale.setScalar(0.9); g.add(l); }
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.02,0.025,0.14,6), leaf); stem.position.y = 0.02; g.add(stem);
+    const f = flower(1.4); f.position.set(-0.5,-0.12,0.18); f.rotation.set(0.3,0,0.6); g.add(f);
+    g.position.set(0,0.62,0.42); head.add(g); ACC.sprout = g; }
+  { const g = new THREE.Group(), horn = new THREE.MeshStandardMaterial({color:'#c79a45', roughness:0.35, metalness:0.4});
+    const beam = (from, dir, len, r) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(r*0.7, r, len, 8), horn);
+      m.position.copy(from).addScaledVector(dir, len/2); m.quaternion.setFromUnitVectors(UP, dir); g.add(m); return from.clone().addScaledVector(dir, len); };
+    for (const s of [-1,1]){
+      const base = V3(0.28*s, 0.5, 0.35), mid = beam(base, V3(0.55*s,1,-0.15).normalize(), 0.42, 0.05), top = beam(mid, V3(0.25*s,1,-0.25).normalize(), 0.3, 0.035);
+      beam(mid, V3(0.9*s,0.55,0.15).normalize(), 0.22, 0.03); beam(top, V3(0.6*s,0.8,0.1).normalize(), 0.14, 0.025); beam(top, V3(-0.2*s,1,-0.3).normalize(), 0.14, 0.025);
+      for (let i=0;i<3;i++){ const l = new THREE.Mesh(leafGeo, mat('#5f9a3e',0.6)); l.position.copy(mid).lerp(base, i/3); l.rotation.set(rnd(-1,1), rnd(0,6), rnd(-1,1)); l.scale.setScalar(0.55); g.add(l); }
+    }
+    const vine = new THREE.Mesh(new THREE.TorusGeometry(0.74,0.05,8,48), mat('#4f7a33',0.8)); vine.rotation.x = Math.PI/2; vine.scale.set(1,0.9,1); vine.position.set(0,0.34,0.45); g.add(vine);
+    const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.1), new THREE.MeshStandardMaterial({color:'#6af08a', emissive:'#2fd060', emissiveIntensity:0.8, roughness:0.15})); gem.scale.y = 1.5; gem.position.set(0,0.4,1.1); g.add(gem);
+    const f = flower(1.3); f.position.set(0.45,0.5,0.75); f.rotation.set(0.4,0,-0.5); g.add(f);
+    g.userData.gem = gem.material; head.add(g); ACC.antler = g; }
+  // Royal cape: red cloak over the back with white fur collar and hem.
+  // Cape surface: a shell just outside the body whose hem flares out like hanging cloth.
+  const CS = [1.09, BB*1.1, BC*1.06];
+  const flare = (th, len) => 1 + 0.14*Math.pow(clamp((th - 0.6)/(len - 0.6), 0, 1), 2);
+  const capeShell = (red, open, len, teeth) => {
+    const geo = new THREE.SphereGeometry(1, teeth ? 24 : 40, 12, Math.PI/2 + open, Math.PI*2 - open*2, 0, len);
+    const p = geo.attributes.position;
+    for (let i=0;i<p.count;i++){
+      const f = flare(Math.acos(clamp(p.getY(i), -1, 1)), len);
+      let y = p.getY(i)*CS[1];
+      if (teeth && Math.floor(i/25) === 12 && i%2) y += 0.28; // lift every other bottom vertex → zig-zag hem
+      p.setXYZ(i, p.getX(i)*CS[0]*f, y, p.getZ(i)*CS[2]*f);
+    }
+    geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, red); m.material.side = THREE.DoubleSide; return m;
+  };
+  const hemCurve = (open, th, len, off) => { const pts = [], f = flare(th, len)*off;
+    for (let i=0;i<=40;i++){ const ph = Math.PI/2 + open + i/40*(Math.PI*2 - open*2);
+      pts.push(V3(-Math.cos(ph)*Math.sin(th)*CS[0]*f, Math.cos(th)*CS[1]*off, Math.sin(ph)*Math.sin(th)*CS[2]*f)); }
+    return new THREE.CatmullRomCurve3(pts); };
+  { const g = new THREE.Group(), white = mat('#f6f1e6',0.95), gold = new THREE.MeshStandardMaterial({color:'#e2b53b', roughness:0.3, metalness:0.5});
+    g.add(capeShell(mat('#b8323a',0.55), 0.75, 1.48));
+    g.add(new THREE.Mesh(new THREE.TubeGeometry(hemCurve(0.75, 1.48, 1.48, 1.02), 64, 0.06, 8), white));
+    g.add(new THREE.Mesh(new THREE.TubeGeometry(hemCurve(0.75, 1.32, 1.48, 1.015), 64, 0.02, 6), gold));
+    const collar = new THREE.Mesh(new THREE.TorusGeometry(0.9,0.17,10,40), white); collar.scale.set(1,0.86,1); collar.position.set(0,0.02,0.8); g.add(collar);
+    const brooch = new THREE.Mesh(new THREE.CylinderGeometry(0.11,0.11,0.04,16), gold); brooch.rotation.x = Math.PI/2; brooch.position.set(0,-0.7,0.98); g.add(brooch);
+    const ruby = new THREE.Mesh(new THREE.SphereGeometry(0.07,12,8), new THREE.MeshStandardMaterial({color:'#d22d3c', emissive:'#6a0d16', roughness:0.15})); ruby.position.set(0,-0.7,1.02); g.add(ruby);
+    bodyFit.add(g); ACC.cape = g; }
+  // Ribbon tails that flutter (animated in updateFormFx).
+  const ribbonTail = (m, side) => { const root_ = new THREE.Group(); let p = root_;
+    for (let i=0;i<4;i++){ const seg = new THREE.Group(), b = new THREE.Mesh(new THREE.BoxGeometry(0.11 - i*0.015, 0.02, 0.24), m); b.position.z = -0.12; seg.add(b); seg.position.z = i ? -0.24 : 0; p.add(seg); p = seg; }
+    root_.rotation.set(-0.35, 0.3*side, 0); return root_; };
+  const band = (red, gold, emblem) => { const g = new THREE.Group();
+    const b = new THREE.Mesh(new THREE.TorusGeometry(0.74,0.075,8,48), red); b.rotation.x = Math.PI/2; b.scale.set(1,0.9,1); b.position.set(0,0.32,0.45); g.add(b);
+    for (const dy of [-0.07, 0.07]){ const tr = new THREE.Mesh(new THREE.TorusGeometry(0.745,0.018,6,48), gold); tr.rotation.x = Math.PI/2; tr.scale.set(1,0.9,1); tr.position.set(0,0.32+dy,0.45); g.add(tr); }
+    emblem.position.set(0,0.33,1.1); g.add(emblem);
+    const knot = new THREE.Mesh(new THREE.SphereGeometry(0.09,10,8), red); knot.position.set(0,0.3,-0.2); g.add(knot);
+    const tails = [ribbonTail(red, 1), ribbonTail(red, -1)]; tails.forEach(t_ => { t_.position.set(0,0.3,-0.24); g.add(t_); });
+    g.userData.tails = tails; head.add(g); return g; };
+  const boltShape = s => { const sh = new THREE.Shape(); [[0.1,0.5],[-0.25,0],[0,0],[-0.1,-0.5],[0.25,0.05],[0,0.05]].forEach(([x,y],i) => i ? sh.lineTo(x*s,y*s) : sh.moveTo(x*s,y*s)); return sh; };
+  { const gold = new THREE.MeshStandardMaterial({color:'#e2b53b', roughness:0.3, metalness:0.5});
+    const swirl = new THREE.Mesh(new THREE.TorusGeometry(0.08,0.025,6,20,Math.PI*1.6), gold);
+    ACC.windband = band(mat('#c8333a',0.6), gold, swirl);
+    const bolt = new THREE.Mesh(extrude(boltShape(0.42), 0.05), new THREE.MeshStandardMaterial({color:'#ffd84a', emissive:'#ffb000', emissiveIntensity:0.6, roughness:0.3}));
+    ACC.boltband = band(mat('#c8333a',0.6), gold, bolt); ACC.boltband.userData.bolt = bolt.material; }
+  { const g = new THREE.Group(), red = mat('#c8333a',0.7);
+    g.add(capeShell(red, 0.9, 1.05));
+    const tails = [ribbonTail(red, 1), ribbonTail(red, -1)]; tails.forEach((t_, i) => { t_.position.set(0.22*(i ? -1 : 1), 0.98, 0.6); t_.rotation.x = -0.12; t_.scale.setScalar(1.4); g.add(t_); });
+    g.userData.tails = tails; bodyFit.add(g); ACC.windscarf = g; }
+  { const g = new THREE.Group(), gold = new THREE.MeshStandardMaterial({color:'#e2b53b', emissive:'#7a5500', emissiveIntensity:0.4, roughness:0.3, metalness:0.5});
+    g.add(capeShell(mat('#b8323a',0.55), 0.8, 1.45, true));
+    const gemB = new THREE.Mesh(new THREE.OctahedronGeometry(0.1), new THREE.MeshStandardMaterial({color:'#5aa8ff', emissive:'#1a5fd0', emissiveIntensity:0.6, roughness:0.15})); gemB.scale.y = 1.4; gemB.position.set(0,-0.7,1.0); g.add(gemB);
+    const trim = new THREE.Mesh(new THREE.TubeGeometry(hemCurve(0.8, 1.15, 1.45, 1.015), 64, 0.025, 6), gold); g.add(trim);
+    bodyFit.add(g); ACC.boltcape = g; }
+  { const g = new THREE.Group();
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.022,0.022,0.42,8), mat('#f4f6f8',0.3)); tube.position.y = 0.21; g.add(tube);
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.035,10,8), mat('#d23b32',0.3)); bulb.position.y = 0.42; g.add(bulb);
+    g.position.set(0.12,-0.36,1.3); g.rotation.set(0.5,0,-1.15); head.add(g); ACC.thermo = g; }
   Object.values(ACC).forEach(g => g.visible = false);
 })();
 
@@ -723,6 +839,12 @@ function sfx(name){
     case 'roll':  for (let i=0;i<14;i++) noiseHit(t+i*0.1, 0.06, 0.06 + i*0.012, 'bandpass', 220, out); break;
     case 'hatch': [60,64,67,72,76,79,84].forEach((m,i)=>tone('square',mtof(m),t+i*0.06,0.05,0.5,out)); tone('sine',mtof(84),t+0.5,0.15,1.4,out); noiseHit(t+0.4, 1.0, 0.12, 'highpass', 6000, out, SND.noiseLong); break;
     case 'grow':  [60,64,67,72,76,79,84].forEach((m,i)=>tone('sine',mtof(m),t+i*0.08,0.15,0.5,out)); break;
+    case 'zap':   for (let i=0;i<4;i++) noiseHit(t+i*0.03, 0.05, 0.18, 'highpass', 2500+i*800, out);
+                  o = tone('square', rnd(1100,1600), t, 0.035, 0.1, out); o.frequency.exponentialRampToValueAtTime(260, t+0.1); break;
+    case 'buzz':  o = tone('sawtooth', 200, t, 0.018, 1.1, out, 0.15);
+                  for (let i=1;i<=10;i++) o.frequency.linearRampToValueAtTime(i%2 ? 235 : 180, t+i*0.1); break;
+    case 'sneeze': o = tone('sine', 420, t, 0.09, 0.35, out, 0.12); o.frequency.exponentialRampToValueAtTime(820, t+0.3);
+                  noiseHit(t+0.42, 0.22, 0.4, 'bandpass', 2600, out, null, 0.7); break;
     case 'evolve': {
       let time = 0, i = 0; const arp = [60,64,67,72,64,67,72,76,67,72,76,79];
       while (time < 3.6){ tone('square', mtof(arp[i % arp.length] + 12*Math.floor(time/1.4)), t+time, 0.045, 0.1, out); time += Math.max(0.045, 0.2 - time*0.05); i++; }
@@ -751,7 +873,7 @@ function cry(kind){
 
 // ---------- save ----------
 const KEY = 'wombat-pet-save-v1';
-const freshCare = () => ({hungry:0, thirsty:0, dirty:0, sick:0, meals:0, overfed:0, plays:0});
+const freshCare = () => ({hungry:0, thirsty:0, dirty:0, sick:0, meals:0, overfed:0, plays:0, nature:0});
 function freshSave(){
   return {v:2, stage:'egg', form:'normal', warm:0, name:'', ageMs:0, growth:0, st:{hunger:80, thirst:80, happy:75, energy:85, health:100}, care:freshCare(),
     coins:30, owned:{}, worn:{}, colors:{}, fur:0, builds:{}, poops:[], weeds:[], snowmen:[], poopQ:[], weedTimer:4, speed:1,
@@ -796,6 +918,11 @@ if (boot0.user && boot0.remote && await pickSave(S, boot0.remote, boot0.user.uid
 if (boot0.user && boot0.checked){ lsSet(SYNC_UID, boot0.user.uid); lsSet(PREFER_REMOTE, null); }
 $('#petSub').textContent = '';
 if (!S) S = freshSave();
+// ?preview=<form> shows that evolution form straight away; nothing is saved locally or to the cloud.
+const PREVIEW = FORMS[new URLSearchParams(location.search).get('preview')] ? new URLSearchParams(location.search).get('preview') : null;
+if (PREVIEW) S = Object.assign(freshSave(), {name:'預覽', form:PREVIEW, seenGuide:true, dayMode:'preview', coins:0, ageMs:3*86400000, growth:400,
+  stage: ['golden','forestx','thunder'].includes(PREVIEW) ? 'ultimate' : ['royal','forest','wind'].includes(PREVIEW) ? 'perfect' : 'adult',
+  st:{hunger:90, thirst:90, happy:95, energy:90, health: PREVIEW === 'sickly' ? 60 : 100}});
 
 // ---------- runtime state ----------
 const pos = V3(0,0,0), vel = V3(0,0,0), walkVel = V3(0,0,0), forceSm = V3(0,0,0);
@@ -854,7 +981,7 @@ function spawnWeed(){
 }
 function pullWeed(w){
   if (!weeds.includes(w)) return;
-  weeds.splice(weeds.indexOf(w),1);
+  weeds.splice(weeds.indexOf(w),1); S.care.nature = (S.care.nature || 0) + 1;
   const p = w.g.position.clone(); fxPull.push({g:w.g, t:0});
   addCoins(2, p.add(V3(0,0.6,0))); sfx('pop');
 }
@@ -930,8 +1057,8 @@ function applyForm(){
   const F = form(), bd = F.body || [1,1,1];
   bodyFit.scale.set(bd[0], bd[1], bd[2]); head.scale.setScalar(F.head || 1);
   legs.forEach(l => l.g.position.x = l.baseX * clamp(bd[0], 0.85, 1.12));
-  Object.entries(ACC).forEach(([k,g]) => g.visible = F.acc === k);
-  hatLift = (F.acc === 'poop' || F.acc === 'crown') ? 0.34 : 0;
+  const accs = formAcc(F); Object.entries(ACC).forEach(([k,g]) => g.visible = accs.includes(k));
+  hatLift = accs.some(a => ['poop','crown','sprout','antler'].includes(a)) ? 0.34 : 0;
   applyFur(); applyClothes();
 }
 function wear(id, on){ const c = CLOTHES.find(x => x.id === id); if (on) CLOTHES.forEach(o => { if (o.slot === c.slot) S.worn[o.id] = false; }); S.worn[id] = on; applyClothes(); }
@@ -941,6 +1068,71 @@ function applyClothes(){
     const cl = CL[c.id]; cl.g.visible = v; cl.mats.forEach(m => m.color.set(S.colors[c.id] || c.def));
     if (c.slot === 'hat' && cl.g.userData.baseY !== undefined) cl.g.position.y = cl.g.userData.baseY + hatLift;
   });
+}
+
+// ---------- form effects (aura, lightning, leaves, wind, flies, sick cloud) ----------
+const leafTexs = ['#6aa845','#8cc25a','#4c8434'].map(c => canvasTex(64,64,(x)=>{ x.fillStyle = c; x.beginPath(); x.moveTo(32,4);
+  x.quadraticCurveTo(60,30,32,60); x.quadraticCurveTo(4,30,32,4); x.fill(); x.strokeStyle = 'rgba(255,255,255,.35)'; x.lineWidth = 2; x.beginPath(); x.moveTo(32,8); x.lineTo(32,56); x.stroke(); }));
+const boltTex = canvasTex(64,128,(x)=>{ const pts = [[34,2],[20,50],[36,52],[18,126],[48,62],[30,60],[44,2]];
+  x.shadowColor = '#fff2a0'; x.shadowBlur = 14; x.fillStyle = '#fff6c0'; x.beginPath(); pts.forEach(([a,b],i) => i ? x.lineTo(a,b) : x.moveTo(a,b)); x.closePath(); x.fill();
+  x.shadowBlur = 0; x.fillStyle = '#ffffff'; x.beginPath(); pts.forEach(([a,b],i) => i ? x.lineTo(a*0.6+12.8,b) : x.moveTo(a*0.6+12.8,b)); x.closePath(); x.fill(); });
+const windTex = canvasTex(128,16,(x,w,h)=>{ const g = x.createLinearGradient(0,0,w,0); g.addColorStop(0,'rgba(255,255,255,0)'); g.addColorStop(0.7,'rgba(255,255,255,.85)'); g.addColorStop(1,'rgba(255,255,255,0)');
+  x.fillStyle = g; x.fillRect(0,6,w,3); });
+const cloudTex = canvasTex(128,80,(x)=>{ x.fillStyle = '#8d949c'; [[40,48,24],[64,36,28],[90,48,22],[64,54,22]].forEach(([a,b,r]) => { x.beginPath(); x.arc(a,b,r,0,Math.PI*2); x.fill(); }); });
+const dropTex = canvasTex(32,48,(x)=>{ x.fillStyle = '#7fb2e0'; x.beginPath(); x.moveTo(16,2); x.quadraticCurveTo(30,30,16,46); x.quadraticCurveTo(2,30,16,2); x.fill(); });
+const flowerTex = canvasTex(64,64,(x)=>{ x.fillStyle = '#fbf8f0'; for (let i=0;i<5;i++){ const a = i/5*Math.PI*2; x.beginPath(); x.ellipse(32+Math.cos(a)*14, 32+Math.sin(a)*14, 11, 8, a, 0, Math.PI*2); x.fill(); }
+  x.fillStyle = '#f3c94a'; x.beginPath(); x.arc(32,32,8,0,Math.PI*2); x.fill(); });
+const FX = {zapT:1, zapGlow:0, sneezeT:8, buzzT:3, sweatT:4};
+FX.aura = new THREE.Sprite(new THREE.SpriteMaterial({map:radialTex('rgba(255,255,255,0.9)','rgba(255,255,255,0)'), transparent:true, depthWrite:false, blending:THREE.AdditiveBlending}));
+FX.aura.position.set(0, 1.0, -0.1); FX.aura.scale.setScalar(4.6); FX.aura.renderOrder = -1; FX.aura.visible = false; root.add(FX.aura);
+FX.orbit = new THREE.Group(); FX.orbit.visible = false; root.add(FX.orbit);
+for (let i=0;i<8;i++){ const s = new THREE.Sprite(new THREE.SpriteMaterial({map:leafTexs[i%3], transparent:true, depthWrite:false}));
+  const a = i/8*Math.PI*2; s.position.set(Math.cos(a)*2.3, 0.6 + (i%3)*0.45, Math.sin(a)*2.3); s.scale.setScalar(0.4); s.userData.y = s.position.y; s.userData.ph = i; FX.orbit.add(s); }
+FX.cloud = new THREE.Sprite(new THREE.SpriteMaterial({map:cloudTex, transparent:true, depthWrite:false})); FX.cloud.visible = false; scene.add(FX.cloud);
+function updateFormFx(dt, t){
+  const F = form(), k = S.form, on = petActive() && root.visible && !evo && B.mode !== 'dying';
+  const at = (dx, y0, y1, dz) => root.position.clone().add(V3(rnd(-dx,dx)*petS, rnd(y0,y1)*petS, rnd(-dz,dz)*petS));
+  // glowing aura behind the body
+  FX.aura.visible = on && !!F.glow;
+  if (FX.aura.visible){ FX.aura.material.color.set(F.glow);
+    FX.aura.material.opacity = k === 'thunder' ? 0.35 + FX.zapGlow*1.6 + Math.random()*0.08 : 0.42 + 0.12*Math.sin(t*2.2); }
+  if (!evo) U.uWhite.value = !on ? 0 : k === 'golden' ? 0.1 + 0.05*Math.sin(t*2.2) : k === 'thunder' ? FX.zapGlow : k === 'forestx' ? 0.03 : 0;
+  // golden: rising light motes + an occasional twinkle burst
+  if (on && k === 'golden' && Math.random() < dt*1.2) sparkles(at(1, 0.8, 1.8, 1.2), 3, 0.3*petS);
+  // thunder: crackling lightning around the body
+  FX.zapGlow = Math.max(0, FX.zapGlow - dt*1.4);
+  if (on && k === 'thunder'){ FX.zapT -= dt;
+    if (FX.zapT <= 0){ FX.zapT = rnd(0.35, 1.6); FX.zapGlow = 0.22;
+      for (let i = 0, n = Math.random() < 0.35 ? 2 : 1; i < n; i++)
+        floatSprite(boltTex, at(1.5, 0.3, 1.9, 1.9), {size:rnd(0.8,1.3)*petS, vy:0, max:0.2, fade:0.2, add:true, grow:0.15, rot:rnd(-0.7,0.7)});
+      if (Math.random() < 0.3) flashV = Math.max(flashV, 0.15);
+      sfx('zap'); }
+    if (Math.random() < dt*6) floatSprite(sparkTex, at(1.1, 0.2, 1.6, 1.5), {size:0.16, vy:rnd(-0.5,0.5), vx:rnd(-1,1), max:0.3, fade:0.3, add:true, grow:0}); }
+  if (ACC.boltband.visible) ACC.boltband.userData.bolt.emissiveIntensity = 0.5 + FX.zapGlow*3;
+  // wind & thunder: speed lines while running
+  if (on && (k === 'wind' || k === 'thunder') && Math.random() < dt*(gaitW > 0.3 ? 9 : 0.8)){
+    const back = V3(-Math.sin(root.rotation.y), 0, -Math.cos(root.rotation.y)), p = at(0.9, 0.3, 1.6, 0.9).addScaledVector(back, 1.4*petS);
+    const s0 = p.clone().project(camera), s1 = p.clone().add(back).project(camera);
+    floatSprite(windTex, p, {size:0.9*petS, vy:0, vx:back.x*3, vz:back.z*3, max:0.45, fade:0.3, grow:0.3, rot:Math.atan2(s1.y - s0.y, (s1.x - s0.x)*camera.aspect)}); }
+  for (const a of ['windband','boltband','windscarf']) if (ACC[a].visible) ACC[a].userData.tails.forEach((tl, j) => {
+    let seg = tl.children[0], i = 0; const amp = 0.18 + 0.25*gaitW;
+    while (seg){ seg.rotation.x = Math.sin(t*7 - i*0.9 + j)*amp; seg.rotation.y = Math.sin(t*5 - i*0.7 + j*2)*amp*0.6; seg = seg.children.find(c => c.isGroup); i++; } });
+  // forest: drifting leaves; 森羅 adds an orbit of leaves, flowers popping up and a pulsing gem
+  if (on && (k === 'forest' || k === 'forestx') && Math.random() < dt*(k === 'forestx' ? 2.2 : 0.8))
+    floatSprite(leafTexs[Math.floor(Math.random()*3)], at(1.3, 1.8, 2.5, 1.6), {size:0.28, vy:-0.45, vx:rnd(-0.4,0.4), max:3, fade:0.8, grow:0, rot:rnd(0,6), spin:rnd(-2,2)});
+  FX.orbit.visible = on && k === 'forestx';
+  if (FX.orbit.visible){ FX.orbit.rotation.y += dt*0.7; FX.orbit.children.forEach(s => { s.position.y = s.userData.y + Math.sin(t*1.6 + s.userData.ph)*0.15; s.material.rotation = Math.sin(t + s.userData.ph); }); }
+  if (on && k === 'forestx' && Math.random() < dt*0.5){ const p = at(1.8, 0, 0, 2); p.y = 0.15; floatSprite(flowerTex, p, {size:0.3, vy:0.03, max:2.6, fade:1, grow:0.8}); }
+  for (const a of ['antler','leafcape']) if (ACC[a].visible) ACC[a].userData.gem.emissiveIntensity = 0.55 + 0.4*Math.sin(t*3);
+  // stinky: buzzing flies
+  if (on && k === 'stinky'){ FX.buzzT -= dt; if (FX.buzzT <= 0){ FX.buzzT = rnd(4,8); sfx('buzz'); } }
+  // sickly: a little rain cloud, cold sweat and the odd sneeze
+  FX.cloud.visible = on && k === 'sickly' && B.mode !== 'inHouse';
+  if (FX.cloud.visible){ const p = headTop(); FX.cloud.position.set(p.x, p.y + 0.55*Math.max(petS,0.6) + Math.sin(t*1.5)*0.05, p.z); FX.cloud.scale.set(0.9, 0.56, 1).multiplyScalar(Math.max(petS,0.6));
+    if (Math.random() < dt*5) floatSprite(dropTex, FX.cloud.position.clone().add(V3(rnd(-0.3,0.3), -0.12, rnd(-0.2,0.2))), {size:0.1, vy:-1.6, max:0.45, fade:0.25, grow:0}); }
+  if (on && k === 'sickly' && !asleep()){
+    FX.sweatT -= dt; if (FX.sweatT <= 0){ FX.sweatT = rnd(3,6); floatSprite(dropTex, head.localToWorld(V3(0.6, 0.5, 0.6)), {size:0.16, vy:-0.35, max:1.2, grow:0, fade:0.6}); }
+    FX.sneezeT -= dt; if (FX.sneezeT <= 0 && !act){ FX.sneezeT = rnd(12,22); showEmote('🤧', 1.4); sfx('sneeze'); setTimeout(() => { sqv += 2; }, 420); } }
 }
 
 // ---------- tricks & special activities ----------
@@ -1116,8 +1308,15 @@ function decideForm(next){
   if (st.health < 35) return 'sickly';
   if (st.hunger < 30 || c.hungry >= 40) return 'skinny';
   if (c.overfed >= 4) return 'chubby';
-  const mistakes = c.hungry + c.thirsty + c.dirty + c.sick;
-  if ((next === 'perfect' || next === 'ultimate') && mistakes < 30 && st.happy >= 70) return (next === 'ultimate' && (S.form === 'royal' || S.form === 'golden')) ? 'golden' : 'royal';
+  const mistakes = c.hungry + c.thirsty + c.dirty + c.sick, good = mistakes < 30 && st.happy >= 70;
+  // Perfect-stage branches: 疾風 (sporty + lots of play), 森靈 (nature lover), otherwise 皇家.
+  // Each one becomes its own ultimate form if the care stays perfect.
+  if (next === 'perfect' && good){
+    if (S.form === 'sporty' && c.plays >= 8) return 'wind';
+    if (c.nature >= 12 || (BG.pond && BG.flowers)) return 'forest';
+    return 'royal';
+  }
+  if (next === 'ultimate' && good) return {royal:'golden', forest:'forestx', wind:'thunder'}[S.form] || 'royal';
   if (next !== 'child' && c.plays >= 8) return 'sporty';
   return 'normal';
 }
@@ -1126,7 +1325,7 @@ function readyToEvolve(){
   return ageMin() >= sd.age && S.growth >= sd.growth;
 }
 function checkStage(){
-  if (S.dead || S.stage === 'egg' || !petActive() || evo) return;
+  if (S.dead || S.stage === 'egg' || !petActive() || evo || PREVIEW) return;
   if (ageMin() >= LIFE){ die('old'); return; }
   if (S.st.health <= 0){ die('sick'); return; }
   if (readyToEvolve() && !act && !dragging && pos.y < 0.02 && ['idle','walk','goto'].includes(B.mode)) startEvolution(STAGES[S.stage].next);
@@ -1444,6 +1643,7 @@ const PHASE_NAME = {morning:'早上', day:'白天', evening:'傍晚', night:'晚
 let wxAnnounced = null, lastTheme = null, lastPhase = null;
 function dayInfo(){
   const d = new Date();
+  if (S.dayMode === 'preview') return {d, n:0, dusk:0, phase:'day', left:null};
   if (S.dayMode === 'real'){
     const h = d.getHours() + d.getMinutes()/60;
     let n; if (h < 5.5 || h >= 19) n = 1; else if (h < 7) n = 1-(h-5.5)/1.5; else if (h < 17.5) n = 0; else n = (h-17.5)/1.5;
@@ -1638,6 +1838,8 @@ function renderSheet(){
       + `<p class="sec">天氣</p><div class="opts">` + wx.map(([k,l]) => `<button class="icon" data-wx="${k}" aria-pressed="${(S.weather.forced||'auto')===k}">${l}</button>`).join('') + `</div>`
       + `<p class="sec">節日預覽（看背景和音樂，限定商品只能在真正的節日當天買）</p><div class="opts"><button class="icon" data-hol="" aria-pressed="${!previewHoliday}">關閉</button>` + HOLIDAYS.map(x => `<button class="icon" data-hol="${x.id}" aria-pressed="${previewHoliday===x.id}">${x.name}</button>`).join('') + `</div>`
       + `<p class="sec">介面</p><div class="opts"><button class="icon" data-hideui>隱藏全部介面</button><button class="icon" data-guide>打開說明書</button></div>`
+      + `<p class="sec">進化型態預覽（看看長什麼樣子，不會存檔，也不會影響你的袋熊）</p><div class="opts">` + (PREVIEW ? `<button class="btn" data-exitpreview>回到我的袋熊</button>` : '')
+      + Object.keys(FORMS).filter(k => k !== 'normal').map(k => `<button class="icon" data-preview="${k}" aria-pressed="${PREVIEW===k}">${FORMS[k].name}</button>`).join('') + `</div>`
       + installPanel()
       + `<p class="sec">帳號與雲端存檔</p>` + cloudPanel()
       + `<p class="sec">存檔碼（備份，或把舊版的袋熊搬過來）</p><div class="opts"><button class="btn ghost" data-export>匯出存檔碼</button><button class="btn ghost" data-import>匯入存檔碼</button></div>`
@@ -1672,6 +1874,8 @@ sheetBody.addEventListener('click', e => {
   if ('guide' in d){ closeSheet(); openGuide(0); return; }
   if ('export' in d){ closeSheet(); exportSave(); return; }
   if ('import' in d){ closeSheet(); importSave(); return; }
+  if (d.preview){ location.href = location.pathname + '?preview=' + d.preview; return; }
+  if ('exitpreview' in d){ location.href = location.pathname; return; }
   if ('install' in d){ const p = window.installPrompt; if (p){ p.prompt(); p.userChoice.then(() => { window.installPrompt = null; renderSheet(); }); } return; }
   if ('login' in d){ login(); return; }
   if ('logout' in d){ cloud.signOut().then(() => toast('登出了。進度還是會存在這台裝置。')); return; }
@@ -1700,18 +1904,28 @@ $('#btnMed').onclick = giveMedicine;
 // ---------- guide (illustrated manual) ----------
 function wbSvg(x, y, s=1, o={}){
   const c = o.c || '#8b6b50', bx = o.bx || 1, by = o.by || 1, hx = 34*bx;
-  let acc = '';
-  if (o.acc === 'poop') acc = `<g fill="#6e4c35"><ellipse cx="${hx}" cy="-24" rx="9" ry="4.5"/><ellipse cx="${hx}" cy="-29" rx="6.5" ry="3.8"/><ellipse cx="${hx}" cy="-33.5" rx="4" ry="3"/><path d="M${hx} -40 l3 4 h-5z"/></g><path d="M${hx-12} -36 q-3 -5 0 -10 M${hx+12} -36 q3 -5 0 -10" stroke="#8a9a4a" stroke-width="1.6" fill="none"/>`;
-  if (o.acc === 'bandage') acc = `<path d="M${hx-16} -12 L${hx+15} -16" stroke="#f4f1ea" stroke-width="5" stroke-linecap="round"/><path d="M${hx-4} -24 l7 7 M${hx+3} -24 l-7 7" stroke="#e8c9a6" stroke-width="3"/>`;
-  if (o.acc === 'headband') acc = `<path d="M${hx-16} -13 Q${hx} -18 ${hx+16} -13" stroke="#d94b45" stroke-width="5" fill="none" stroke-linecap="round"/>`;
-  if (o.acc === 'crown') acc = `<path d="M${hx-9} -20 l0 -9 l4.5 5 l4.5 -8 l4.5 8 l4.5 -5 l0 9z" fill="#e2b53b" stroke="#b88a1c" stroke-width="1"/>`;
-  if (o.acc === 'hat') acc = `<path d="M${hx-8} -19 L${hx+1} -40 L${hx+9} -19z" fill="#e45b5b"/><circle cx="${hx+1}" cy="-41" r="3" fill="#fff"/>`;
+  let acc = '', under = '', aura = o.glow ? `<ellipse cx="6" cy="-4" rx="56" ry="38" fill="${o.glow}" opacity=".35"/>` : '';
+  const has = a => [].concat(o.acc || []).includes(a);
+  if (has('cape')) under += `<path d="M-30 -10 Q0 -30 30 -10 L36 14 Q0 22 -36 14z" fill="#b8323a"/><path d="M-36 14 Q0 22 36 14" stroke="#f6f1e6" stroke-width="5" fill="none"/><path d="M-30 -10 Q0 -30 30 -10" stroke="#f6f1e6" stroke-width="6" fill="none"/>`;
+  if (has('leafcape')) under += [-4,-3,-2,-1,0,1,2,3,4].map(i => `<ellipse cx="${i*7.5}" cy="${-12+Math.abs(i)*2.2}" rx="6" ry="12" fill="${['#5f9a3e','#76b24a','#4c8434'][(i+4)%3]}" transform="rotate(${i*8} ${i*7.5} ${-12+Math.abs(i)*2.2})"/>`).join('') + `<circle cx="-12" cy="-6" r="3.5" fill="#fbf8f0"/><circle cx="14" cy="-4" r="3.5" fill="#fbf8f0"/>`;
+  if (has('windscarf') || has('boltcape')) under += `<path d="M-6 -20 Q-30 -26 -50 -12 M-4 -14 Q-28 -10 -48 -2" stroke="#c8333a" stroke-width="5" fill="none" stroke-linecap="round"/>`;
+  if (has('boltcape')) under += `<path d="M-30 -10 Q0 -28 30 -10 L34 12 l-8 -6 l-8 8 l-8 -7 l-8 8 l-8 -7 l-8 8 l-8 -7 l-8 6z" fill="#b8323a" stroke="#e2b53b" stroke-width="1.5"/>`;
+  if (has('sprout')) acc += `<path d="M${hx} -21 q-8 -10 -12 -4 q6 6 12 4 q8 -10 12 -4 q-6 6 -12 4" fill="#6aa845"/><circle cx="${hx-12}" cy="-17" r="3.5" fill="#fbf8f0"/>`;
+  if (has('antler')) acc += `<path d="M${hx-6} -20 l-6 -14 l-6 -4 M${hx-12} -34 l2 -7 M${hx+6} -21 l6 -14 l6 -4 M${hx+12} -35 l-2 -7" stroke="#c79a45" stroke-width="2.6" fill="none" stroke-linecap="round"/><path d="M${hx} -26 l4 6 l-4 6 l-4 -6z" fill="#6af08a"/>`;
+  if (has('windband') || has('boltband')) acc += `<path d="M${hx-16} -14 Q${hx} -19 ${hx+16} -14" stroke="#c8333a" stroke-width="5" fill="none" stroke-linecap="round"/><path d="M${hx-16} -14 q-12 -6 -24 -2 M${hx-16} -13 q-10 4 -22 6" stroke="#c8333a" stroke-width="3.5" fill="none" stroke-linecap="round"/>`;
+  if (has('boltband')) acc += `<path d="M${hx+3} -24 l-5 7 h4 l-3 7 l7 -9 h-4 l3 -5z" fill="#ffd84a"/><path d="M-44 -30 l-6 10 h5 l-4 10 M48 -28 l-5 9 h5 l-4 10" stroke="#ffd84a" stroke-width="2.5" fill="none"/>`;
+  if (has('thermo')) acc += `<path d="M${hx+18} 3 l12 6" stroke="#f4f6f8" stroke-width="3" stroke-linecap="round"/><circle cx="${hx+31}" cy="9.5" r="2.5" fill="#d23b32"/>`;
+  if (has('poop')) acc += `<g fill="#6e4c35"><ellipse cx="${hx}" cy="-24" rx="9" ry="4.5"/><ellipse cx="${hx}" cy="-29" rx="6.5" ry="3.8"/><ellipse cx="${hx}" cy="-33.5" rx="4" ry="3"/><path d="M${hx} -40 l3 4 h-5z"/></g><path d="M${hx-12} -36 q-3 -5 0 -10 M${hx+12} -36 q3 -5 0 -10" stroke="#8a9a4a" stroke-width="1.6" fill="none"/>`;
+  if (has('bandage')) acc += `<path d="M${hx-16} -12 L${hx+15} -16" stroke="#f4f1ea" stroke-width="5" stroke-linecap="round"/><path d="M${hx-4} -24 l7 7 M${hx+3} -24 l-7 7" stroke="#e8c9a6" stroke-width="3"/>`;
+  if (has('headband')) acc += `<path d="M${hx-16} -13 Q${hx} -18 ${hx+16} -13" stroke="#d94b45" stroke-width="5" fill="none" stroke-linecap="round"/>`;
+  if (has('crown')) acc += `<path d="M${hx-9} -20 l0 -9 l4.5 5 l4.5 -8 l4.5 8 l4.5 -5 l0 9z" fill="#e2b53b" stroke="#b88a1c" stroke-width="1"/>`;
+  if (has('hat')) acc += `<path d="M${hx-8} -19 L${hx+1} -40 L${hx+9} -19z" fill="#e45b5b"/><circle cx="${hx+1}" cy="-41" r="3" fill="#fff"/>`;
   const eye = o.droopy ? `<path d="M${hx+7} -10 h6" stroke="#141110" stroke-width="2.2" stroke-linecap="round"/>` : `<circle cx="${hx+10}" cy="-10" r="2.6" fill="#141110"/>`;
   return `<g transform="translate(${x} ${y}) scale(${s})">
-    <ellipse cx="2" cy="26" rx="${38*bx}" ry="5" fill="rgba(0,0,0,.12)"/>
+    ${aura}<ellipse cx="2" cy="26" rx="${38*bx}" ry="5" fill="rgba(0,0,0,.12)"/>
     ${[-22,-10,10,22].map(lx => `<rect x="${lx*bx-5}" y="8" width="10" height="17" rx="5" fill="${c}"/>`).join('')}
     <ellipse cx="0" cy="0" rx="${34*bx}" ry="${21*by}" fill="${c}"/>
-    <ellipse cx="0" cy="${9*by}" rx="${24*bx}" ry="${9*by}" fill="#fff" opacity=".18"/>
+    <ellipse cx="0" cy="${9*by}" rx="${24*bx}" ry="${9*by}" fill="#fff" opacity=".18"/>${under}
     <circle cx="${hx}" cy="-5" r="17" fill="${c}"/>
     <path d="M${hx-12} -16 l2 -11 l8 7z" fill="${c}"/><path d="M${hx+2} -20 l5 -10 l5 10z" fill="${c}"/>
     <ellipse cx="${hx+16}" cy="-1" rx="8" ry="6" fill="#2a2220"/>${eye}${acc}
@@ -1781,11 +1995,18 @@ const GUIDE = [
     <defs><marker id="ar2" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8z" fill="var(--soft)"/></marker></defs>
     ${T(160,24,'進化時會發光旋轉，還有進化音樂',12,'middle','var(--soft)')}<path d="M147 52 v40 M175 52 v40" stroke="#fff1c2" stroke-width="10" opacity=".5"/>`),
     html:`<p>每個階段的「成長」條滿了、年紀也到了，就會開始<b>進化</b>：牠會浮起來、越轉越快、變成一團白光，最後換成新的樣子。</p><ul><li>幼兒期 → 成長期：大約 20 分鐘</li><li>成長期 → 成熟期：大約 6 小時</li><li>成熟期 → 完全體：大約 2 天</li><li>完全體 → 究極體：大約 4 天</li><li>大約第 8 天走完一生。</li></ul><p class="note">上面是 1 倍速的時間。想快點看，可以到設定調成 10 倍或 60 倍。</p>`},
-  {title:'不同的進化型態', svg:svgWrap(`
-    ${[['normal',40,46,{}],['skinny',120,46,{bx:.72,by:.8,c:'#9c8064'}],['sickly',200,46,{c:'#8c8a6a',acc:'bandage',droopy:true}],['stinky',280,46,{c:'#837152',acc:'poop'}],
-       ['chubby',40,128,{bx:1.25,by:1.12}],['sporty',120,128,{acc:'headband'}],['royal',200,128,{acc:'crown'}],['golden',280,128,{c:'#c49a3a',acc:'crown'}]]
-      .map(([k,x,y,o])=>`${wbSvg(x-6,y,0.42,o)}${T(x,y+30,FORMS[k].name,11)}`).join('')}`),
-    html:`<p>進化成什麼樣子，要看<b>進化那一刻</b>和這個階段你怎麼照顧牠：</p><ul>${['stinky','sickly','skinny','chubby','sporty','royal','golden'].map(k=>`<li><b>${FORMS[k].name}</b>：${FORMS[k].desc}</li>`).join('')}<li><b>袋熊</b>（一般型）：以上都沒有，正常長大。</li></ul><p class="note">判斷順序就是上面列出來的順序。歪掉的型態，下一次進化前照顧好，還有機會變回來。</p>`},
+  {title:'成熟期的型態', svg:svgWrap(`
+    ${[['normal',55,50,{}],['skinny',160,50,{bx:.72,by:.8,c:'#9c8064'}],['sickly',265,50,{c:'#8c8a6a',acc:['bandage','thermo'],droopy:true}],
+       ['stinky',55,132,{c:'#837152',acc:'poop'}],['chubby',160,132,{bx:1.25,by:1.12}],['sporty',265,132,{acc:'headband'}]]
+      .map(([k,x,y,o])=>`${wbSvg(x-6,y,0.46,o)}${T(x,y+32,FORMS[k].name,11)}`).join('')}`),
+    html:`<p>進化成什麼樣子，要看<b>進化那一刻</b>和這個階段你怎麼照顧牠：</p><ul>${['stinky','sickly','skinny','chubby','sporty'].map(k=>`<li><b>${FORMS[k].name}</b>：${FORMS[k].desc}</li>`).join('')}<li><b>袋熊</b>（一般型）：以上都沒有，正常長大。</li></ul><p class="note">判斷順序就是上面列出來的順序。歪掉的型態，下一次進化前照顧好，還有機會變回來。</p>`},
+  {title:'完全體與究極體：三條路線', svg:svgWrap(`
+    ${[['royal','golden',{acc:['crown','cape']},{c:'#c49a3a',acc:['crown','cape'],glow:'#ffd76a'}],
+       ['forest','forestx',{acc:['leafcape','sprout']},{acc:['leafcape','antler'],glow:'#a6f08a'}],
+       ['wind','thunder',{acc:['windband','windscarf']},{acc:['boltband','boltcape'],glow:'#ffe45c'}]]
+      .map(([a,b,oa,ob],i)=>{ const y = 34 + i*56; return `${wbSvg(78,y,0.4,oa)}${T(84,y+26,FORMS[a].name,11)}<path d="M128 ${y} h46" stroke="var(--soft)" stroke-width="2" marker-end="url(#ar3)"/>${wbSvg(224,y,0.44,ob)}${T(230,y+27,FORMS[b].name,11)}`; }).join('')}
+    <defs><marker id="ar3" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8z" fill="var(--soft)"/></marker></defs>`),
+    html:`<p>成熟期照顧得幾乎沒有失誤、心情又好，進化成完全體時會走上三條路線之一：</p><ul>${['wind','forest','royal'].map(k=>`<li><b>${FORMS[k].name}</b>：${FORMS[k].desc}</li>`).join('')}</ul><p>完全體時繼續完美照顧，就會進化成各自的究極體：<b>黃金袋熊</b>（金光閃閃）、<b>森羅袋熊</b>（樹葉圍繞、腳邊開花）、<b>雷光袋熊</b>（全身劈啪閃電）。</p><p class="note">想先看看長什麼樣子？到「設定 → 進化型態預覽」。</p>`},
   {title:'天氣、晝夜和特別活動', svg:svgWrap(`
     <rect x="0" y="0" width="160" height="90" fill="#d9e1d2"/><rect x="160" y="0" width="160" height="90" fill="#1a2130"/>
     ${ICON.sun(80,40)}${ICON.moon(240,40)}${T(80,78,'整點偶數小時：白天',11,'middle','#2c3a31')}${T(240,78,'奇數小時：晚上',11,'middle','#e2e9de')}
@@ -1953,7 +2174,7 @@ addEventListener('keydown', e => { if (e.key === 'Escape'){ if (!$('#modal').hid
 // ---------- persistence ----------
 let halted = false; // set when another device takes over; stops the sim and all saving
 function save(force){
-  if (halted) return;
+  if (halted || PREVIEW) return;
   try {
     S.poops = cubes.map(c => [+c.m.position.x.toFixed(2), +c.m.position.z.toFixed(2), +c.m.rotation.y.toFixed(2), +c.sc.toFixed(2)]);
     S.weeds = weeds.map(w => [w.x, w.z, w.s]);
@@ -1970,7 +2191,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) save(
 addEventListener('pagehide', () => save(true));
 
 // ---------- cloud sync ----------
-const claimCloud = knownRev => cloud.claim(S, knownRev, !!lsGet(FORCE_LOCAL));
+const claimCloud = knownRev => { if (!PREVIEW) cloud.claim(S, knownRev, !!lsGet(FORCE_LOCAL)); };
 cloud.on('synced', () => { lsSet(FORCE_LOCAL, null); if (cloud.user) lsSet(SYNC_UID, cloud.user.uid); });
 cloud.on('takeover', reason => {
   halted = true; lsSet(PREFER_REMOTE, '1'); closeSheet();
@@ -2052,7 +2273,8 @@ if (S.dead) setTimeout(showMemorial, 600);
 if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
-if (boot0.user) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
+if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
+if (PREVIEW) setTimeout(() => toast(`預覽模式：${form().name}。這裡的變化不會存檔，關掉網址後面的 ?preview 就回到你的袋熊。`), 900);
 
 // ---------- main loop ----------
 const clock = new THREE.Clock();
@@ -2206,7 +2428,7 @@ function step(){
     if (p.flat){ p.g.material.opacity = Math.max(0, 0.75*(1 - p.t/1.2)); if (p.t > 1.2){ scene.remove(p.g); fxPull.splice(i,1); } continue; }
     p.g.position.y = p.t*3; p.g.rotation.z += dt*8; p.g.scale.multiplyScalar(Math.exp(-3*dt)); if (p.t > 0.6){ scene.remove(p.g); fxPull.splice(i,1); } }
   if (bowl && BG.pond){ scene.remove(bowl.g); bowl = null; }
-  updateFx(dt);
+  updateFormFx(dt, t); updateFx(dt);
 
   if (dragging){
     scene.updateMatrixWorld(true);
