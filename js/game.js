@@ -1647,7 +1647,8 @@ function renderSheet(){
 function cloudPanel(){
   if (!cloud.available) return `<p class="note">雲端功能沒有載入（可能沒有網路），進度先存在這台裝置。</p>`;
   if (!cloud.user) return `<p class="note">登入後，進度會存到雲端，電腦和手機可以共用同一隻袋熊。沒登入也能玩，只存在這台裝置。</p>`
-    + `<div class="opts"><button class="btn" data-login>用 Google 登入</button></div>`;
+    + (IN_APP ? `<p class="note">你現在是在 App（例如 LINE）裡面開的網頁，要先改用 Chrome 或 Safari 打開才能登入。</p><div class="opts"><button class="btn" data-login>用瀏覽器打開</button></div>`
+              : `<div class="opts"><button class="btn" data-login>用 Google 登入</button></div>`);
   const st = {saving:'同步中……', synced:`已同步（${when(cloud.lastSync)}）`, offline:'暫時連不上雲端，連上網後會自動同步。', error:'同步失敗，稍後會再試。'}[cloud.status] || '準備同步……';
   return `<p class="note">已登入：${esc(cloud.user.email || cloud.user.displayName || '')}<br>${st}</p>`
     + `<div class="opts"><button class="btn ghost" data-syncnow>立即同步</button><button class="btn ghost" data-logout>登出</button></div>`;
@@ -1967,7 +1968,18 @@ cloud.on('takeover', reason => {
     [{label: reason === 'newer' ? '載入最新進度' : '在這台繼續玩', onClick:() => location.reload()}]);
 });
 cloud.on('change', () => { if (sheetKind === 'settings') renderSheet(); });
+// In-app browsers (LINE, Facebook, Instagram, WeChat, Android WebView) break Google's sign-in popup.
+const IN_APP = /\bLine\/|FBAN|FBAV|Instagram|MicroMessenger|; wv\)/i.test(navigator.userAgent);
+function openOutside(){
+  if (/\bLine\//i.test(navigator.userAgent)){ // LINE honours this flag and reopens the page in the system browser
+    const u = new URL(location.href); u.searchParams.set('openExternalBrowser', '1'); location.href = u.href; return;
+  }
+  const url = location.origin + location.pathname;
+  showModal('請用瀏覽器打開', `<p>在 App 裡面開的網頁沒辦法用 Google 登入。請按右上角或右下角的「⋯」選單，選「用瀏覽器開啟」，或複製網址貼到 Chrome／Safari。</p><p><b>${esc(url)}</b></p>`,
+    [{label:'複製網址', onClick:() => navigator.clipboard && navigator.clipboard.writeText(url).then(() => toast('網址複製好了。'))}]);
+}
 async function login(){
+  if (IN_APP){ openOutside(); return; }
   let user;
   try { user = await cloud.signIn(); } catch(e){ toast(e && e.code === 'auth/popup-closed-by-user' ? '登入取消了。' : '登入失敗，請再試一次。'); return; }
   if (!user) return; // redirect sign-in: the page will reload
