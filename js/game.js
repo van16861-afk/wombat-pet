@@ -1638,12 +1638,23 @@ function renderSheet(){
       + `<p class="sec">天氣</p><div class="opts">` + wx.map(([k,l]) => `<button class="icon" data-wx="${k}" aria-pressed="${(S.weather.forced||'auto')===k}">${l}</button>`).join('') + `</div>`
       + `<p class="sec">節日預覽（看背景和音樂，限定商品只能在真正的節日當天買）</p><div class="opts"><button class="icon" data-hol="" aria-pressed="${!previewHoliday}">關閉</button>` + HOLIDAYS.map(x => `<button class="icon" data-hol="${x.id}" aria-pressed="${previewHoliday===x.id}">${x.name}</button>`).join('') + `</div>`
       + `<p class="sec">介面</p><div class="opts"><button class="icon" data-hideui>隱藏全部介面</button><button class="icon" data-guide>打開說明書</button></div>`
+      + installPanel()
       + `<p class="sec">帳號與雲端存檔</p>` + cloudPanel()
       + `<p class="sec">存檔碼（備份，或把舊版的袋熊搬過來）</p><div class="opts"><button class="btn ghost" data-export>匯出存檔碼</button><button class="btn ghost" data-import>匯入存檔碼</button></div>`
       + `<p class="sec">重來</p><div class="opts"><button class="btn ghost" data-reset>全部重新開始</button></div>`;
   }
   sheetBody.innerHTML = h;
 }
+function installPanel(){
+  if (matchMedia('(display-mode: standalone)').matches || navigator.standalone) return '';
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const how = window.installPrompt ? `<div class="opts"><button class="btn" data-install>安裝</button></div>`
+    : ios ? `<p class="note">用 Safari 打開，按下方的「分享」按鈕 →「加入主畫面」。</p>`
+    : `<p class="note">用 Chrome 打開，按右上角「⋮」→「加到主畫面」或「安裝應用程式」。</p>`;
+  return `<p class="sec">安裝到主畫面（像 App 一樣全螢幕開啟，沒網路也能玩）</p>` + how
+    + (ios ? `<p class="note">裝好以後，在 App 裡要再登入一次 Google。</p>` : '');
+}
+addEventListener('appinstalled', () => { window.installPrompt = null; toast('裝好了！可以從主畫面打開袋熊。'); if (sheetKind === 'settings') renderSheet(); });
 function cloudPanel(){
   if (!cloud.available) return `<p class="note">雲端功能沒有載入（可能沒有網路），進度先存在這台裝置。</p>`;
   if (!cloud.user) return `<p class="note">登入後，進度會存到雲端，電腦和手機可以共用同一隻袋熊。沒登入也能玩，只存在這台裝置。</p>`
@@ -1661,6 +1672,7 @@ sheetBody.addEventListener('click', e => {
   if ('guide' in d){ closeSheet(); openGuide(0); return; }
   if ('export' in d){ closeSheet(); exportSave(); return; }
   if ('import' in d){ closeSheet(); importSave(); return; }
+  if ('install' in d){ const p = window.installPrompt; if (p){ p.prompt(); p.userChoice.then(() => { window.installPrompt = null; renderSheet(); }); } return; }
   if ('login' in d){ login(); return; }
   if ('logout' in d){ cloud.signOut().then(() => toast('登出了。進度還是會存在這台裝置。')); return; }
   if ('syncnow' in d){ save(true); return; }

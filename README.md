@@ -15,6 +15,8 @@
 | `js/cloud.js` | Google 登入與雲端存檔同步 |
 | `js/firebase-config.js` | Firebase 專案設定 |
 | `firestore.rules` | Firestore 安全規則（要貼到 Firebase 後台） |
+| `sw.js` | 離線快取（沒網路也能開） |
+| `manifest.webmanifest`、`icons/` | 加到主畫面用的設定和圖示 |
 | `serve.ps1` | 本機測試用的小伺服器 |
 
 ## 本機測試

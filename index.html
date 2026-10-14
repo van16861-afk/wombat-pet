@@ -6,6 +6,12 @@
 <title>袋熊電子雞</title>
 <meta name="description" content="照顧一隻 3D 袋熊，從蛋孵化、長大、進化。">
 <meta name="theme-color" content="#D9E1D2">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="袋熊">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=LXGW+WenKai+TC:wght@400;700&display=swap" rel="stylesheet">
@@ -58,6 +64,11 @@
   <div class="gbody" id="gBody"></div>
   <div class="gnav"><button class="btn ghost" id="gPrev">上一頁</button><div class="dots" id="gDots"></div><button class="btn" id="gNext">下一頁</button></div>
 </div></div>
+<script>
+// Offline support + home-screen install. The install prompt fires early, so keep it for the settings button.
+if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); window.installPrompt = e; });
+</script>
 <script type="module" src="js/game.js"></script>
 <noscript><p style="padding:20px">這個遊戲需要開啟 JavaScript。</p></noscript>
 </body>
