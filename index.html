@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>袋熊電子雞</title>
+<meta name="description" content="照顧一隻 3D 袋熊，從蛋孵化、長大、進化。">
+<meta name="theme-color" content="#D9E1D2">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=LXGW+WenKai+TC:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }
+</script>
+</head>
+<body>
+<canvas id="c" tabindex="0" aria-label="袋熊電子雞的 3D 場景"></canvas>
+<div class="flash" id="flash"></div>
+<div class="fxo" id="fxo" hidden><div class="fxText"><p id="fxSub"></p><h2 id="fxName"></h2></div></div>
+<div id="hud">
+  <header class="top">
+    <div class="who">
+      <h1 id="petName">一顆蛋</h1>
+      <p id="petSub"></p>
+      <p class="now" id="petNow"></p>
+    </div>
+    <div class="topbtns">
+      <span class="coins" title="代幣"><i class="coin"></i><b id="coins">0</b></span>
+      <button class="icon" id="btnStats" aria-pressed="true">狀態</button>
+      <button class="icon" id="btnMusic" aria-pressed="false" aria-label="音樂與音效">音樂</button>
+      <button class="icon" id="btnGuide">說明</button>
+      <button class="icon" id="btnSettings">設定</button>
+    </div>
+  </header>
+  <section class="stats" id="stats" aria-label="狀態數值"></section>
+  <div class="alert" id="alert" hidden><span>牠生病了</span><button id="btnMed">餵藥（10 代幣）</button></div>
+  <nav class="dock" aria-label="照顧">
+    <button data-cmd="feed">餵食</button>
+    <button data-cmd="water">喝水</button>
+    <button data-cmd="play">玩耍</button>
+    <button data-cmd="clean">清理</button>
+    <button data-cmd="wardrobe">衣櫥</button>
+    <button data-cmd="shop">商店</button>
+  </nav>
+  <div class="sheet" id="sheet" role="dialog" aria-labelledby="sheetTitle" hidden>
+    <div class="sheetHead"><h2 id="sheetTitle"></h2><button class="btn ghost" id="sheetClose">關閉</button></div>
+    <div id="sheetBody"></div>
+  </div>
+</div>
+<button class="icon showBtn" id="btnShow" hidden>顯示介面</button>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="modal" id="modal" hidden><div class="box" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <h2 id="modalTitle"></h2><div id="modalBody"></div><div class="acts" id="modalActs"></div>
+</div></div>
+<div class="guide" id="guide" hidden><div class="gbox" role="dialog" aria-modal="true" aria-labelledby="gTitle">
+  <div class="ghead"><span id="gPage"></span><button class="btn ghost" id="gClose">關閉</button></div>
+  <div class="gbody" id="gBody"></div>
+  <div class="gnav"><button class="btn ghost" id="gPrev">上一頁</button><div class="dots" id="gDots"></div><button class="btn" id="gNext">下一頁</button></div>
+</div></div>
+<script type="module" src="js/game.js"></script>
+<noscript><p style="padding:20px">這個遊戲需要開啟 JavaScript。</p></noscript>
+</body>
+</html>
