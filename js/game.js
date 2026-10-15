@@ -819,7 +819,7 @@ function rainSound(on){
   }
 }
 function sfx(name){
-  if (!SND.on || !SND.ctx) return;
+  if (!SND.fx || !SND.ctx) return;
   const c = SND.ctx, t = c.currentTime, out = SND.sfx; let o;
   switch(name){
     case 'boing': o = tone('sine',260,t,0.35,0.3,out); o.frequency.exponentialRampToValueAtTime(720,t+0.18); break;
@@ -856,7 +856,7 @@ function sfx(name){
 }
 // wombat calls
 function cry(kind){
-  if (!SND.on || !SND.ctx || !petActive()) return;
+  if (!SND.fx || !SND.ctx || !petActive()) return;
   const c = SND.ctx, t = c.currentTime, out = SND.sfx;
   const p = {baby:1.9, child:1.45, adult:1.1, perfect:1.0, ultimate:0.88}[S.stage] || 1; let o;
   switch (kind){
@@ -866,6 +866,10 @@ function cry(kind){
     case 'sad': for (const d of [0, 0.42]){ o = tone('sine', 620*p, t+d, 0.12, 0.35, out, 0.03); o.frequency.exponentialRampToValueAtTime(400*p, t+d+0.33); } break;
     case 'sleepy': o = tone('sine', 300*p, t, 0.1, 0.8, out, 0.1); o.frequency.linearRampToValueAtTime(430*p, t+0.35); o.frequency.linearRampToValueAtTime(240*p, t+0.85); break;
     case 'snore': noiseHit(t, 0.9, 0.08, 'lowpass', 300, out, SND.noiseLong); break;
+    case 'chirp': for (let i=0;i<3;i++){ o = tone('triangle', (900+i*120)*p, t+i*0.09, 0.09, 0.07, out); o.frequency.exponentialRampToValueAtTime((1250+i*90)*p, t+i*0.09+0.06); } break;
+    case 'purr': { const g = SND.ctx.createGain(); g.gain.value = 1; g.connect(out); o = tone('sawtooth', 70*p, t, 0.05, 1.0, g, 0.1); for (let i=1;i<=12;i++) g.gain.setValueAtTime(i%2 ? 0.35 : 1, t + i*0.07); break; }
+    case 'huff': noiseHit(t, 0.18, 0.35, 'bandpass', 1100*p, out, null, 0.9); noiseHit(t+0.22, 0.14, 0.25, 'bandpass', 900*p, out, null, 0.9); break;
+    case 'whine': for (const d of [0, 0.55]){ o = tone('sine', 760*p, t+d, 0.1, 0.45, out, 0.05); o.frequency.linearRampToValueAtTime(980*p, t+d+0.15); o.frequency.exponentialRampToValueAtTime(520*p, t+d+0.45); } break;
     case 'evolve': o = tone('sawtooth', 190*p, t, 0.12, 0.7, out, 0.02); o.frequency.exponentialRampToValueAtTime(420*p, t+0.45); noiseHit(t, 0.5, 0.15, 'bandpass', 900, out); break;
   }
 }
@@ -876,7 +880,7 @@ const freshCare = () => ({hungry:0, thirsty:0, dirty:0, sick:0, meals:0, overfed
 function freshSave(){
   return {v:2, stage:'egg', form:'normal', warm:0, name:'', ageMs:0, growth:0, st:{hunger:80, thirst:80, happy:75, energy:85, health:100}, care:freshCare(),
     coins:30, owned:{}, worn:{}, colors:{}, fur:0, builds:{}, poops:[], weeds:[], snowmen:[], poopQ:[], weedTimer:4, speed:1,
-    hud:true, uiHidden:false, dayMode:'hourly', weather:{type:'sunny', until:Date.now()+5*60000, forced:null}, dead:null, gen:1, lastSeen:Date.now(), petPos:null, seenGuide:false};
+    hud:true, uiHidden:false, dayMode:'hourly', weather:{type:'sunny', until:Date.now()+5*60000, forced:null}, dead:null, gen:1, lastSeen:Date.now(), petPos:null, seenGuide:false, aff:50};
 }
 function fromObj(o){
   if (!o || !(o.v === 1 || o.v === 2)) return null;
@@ -917,6 +921,7 @@ if (boot0.user && boot0.remote && await pickSave(S, boot0.remote, boot0.user.uid
 if (boot0.user && boot0.checked){ lsSet(SYNC_UID, boot0.user.uid); lsSet(PREFER_REMOTE, null); }
 $('#petSub').textContent = '';
 if (!S) S = freshSave();
+if (S.aff == null) S.aff = 60;   // saves from before affection existed
 // ?preview=<form> shows that evolution form straight away; nothing is saved locally or to the cloud.
 const PREVIEW = FORMS[new URLSearchParams(location.search).get('preview')] ? new URLSearchParams(location.search).get('preview') : null;
 if (PREVIEW) S = Object.assign(freshSave(), {name:'預覽', form:PREVIEW, seenGuide:true, dayMode:'preview', coins:0, ageMs:3*86400000, growth:400,
@@ -1169,6 +1174,7 @@ const rollLikes = () => { const ids = FOODS.map(f => f.id), fav = ids[Math.floor
 function foodBonus(fi){
   const st = S.st;
   for (const k of ['happy','thirst','energy','health']) if (fi[k]) st[k] = clamp(st[k] + fi[k], 0, 100);
+  S.aff = clamp(S.aff + (fi.hunger !== undefined ? 3 : 2), 0, 100);
   if (fi.hunger === undefined) return;   // drinks have no likes/dislikes
   if (!S.likes) S.likes = rollLikes();
   const L = S.likes;
@@ -1352,6 +1358,7 @@ function whyCantPlay(k){
 function startAct(k){
   if (!hasTrick(k)){ toast(`還沒學會「${ACTS[k].name}」，到商店可以學。`); return; }
   const why = whyCantPlay(k); if (why){ toast(why); return; }
+  if (S.aff < 40 && Math.random() < (40 - S.aff)/50){ showEmote('😤', 1.6); cry('huff'); toast(`${S.name || '牠'}哼了一聲，不想理你……（親暱值太低，多餵牠、摸摸牠吧）`); return; }
   act = {key:k, t:0, dir:1, moved:0, jumped:false, rolls:0, noteT:0, step:0};
   const side = V3(1,0,0).applyAxisAngle(UP, root.rotation.y), fwd = V3(Math.sin(root.rotation.y),0,Math.cos(root.rotation.y));
   if (k === 'roll') act.dir = pos.clone().addScaledVector(side, 3.2*petS).length() > BOUND-0.5 ? -1 : 1;
@@ -1381,7 +1388,7 @@ function endAct(){
   act = null; actG.rotation.set(0,0,0); actY = 0;
   const gain = {sit:[-2,6], dance:[8,14], snowman:[10,20], puddle:[6,15], fireflies:[-6,15]}[k] || [6,10];
   st.energy = clamp(st.energy - gain[0], 0, 100); st.happy = clamp(st.happy + gain[1], 0, 100); st.thirst = clamp(st.thirst - 3, 0, 100);
-  S.care.plays++; if (growthOK()) S.growth += 1;
+  S.care.plays++; if (growthOK()) S.growth += 1; S.aff = clamp(S.aff + 4, 0, 100);
   if (k === 'flip' || k === 'spin'){ sqv += 2.6; sfx('thud'); }
   if (k === 'puddle'){ puddles.forEach(m => fxPull.push({g:m, t:0, flat:true})); puddles.length = 0; addCoins(2); }
   spawnHearts(2); cry('happy'); hudDirty = true;
@@ -1390,7 +1397,7 @@ function updateAct(dt){
   const inBelly = act && act.key === 'belly' && act.t/ACTS.belly.dur > 0.2 && act.t/ACTS.belly.dur < 0.8;
   wiggleW += ((inBelly?1:0) - wiggleW) * Math.min(1, dt*8);
   danceW += ((act && act.key === 'dance' ? 1 : 0) - danceW) * Math.min(1, dt*8);
-  sitW += ((act && (act.key === 'fireflies' || act.key === 'sit') ? 1 : 0) - sitW) * Math.min(1, dt*3);
+  sitW += ((act && (act.key === 'fireflies' || act.key === 'sit')) || (B.mode === 'beg' && B.begSit) ? 1 - sitW : -sitW) * Math.min(1, dt*3);
   if (!act){ return {shake:0, walk:false}; }
   act.t += dt;
   const A = ACTS[act.key], p = Math.min(act.t/A.dur, 1), s = petS; let shakeF = 0, walk = false;
@@ -1474,6 +1481,7 @@ function sim(m, offline){
   st.hunger -= 0.7*m*k*fBaby*fOld*(S.form === 'chubby' ? 1.15 : 1);
   st.thirst -= 0.9*m*k*(w==='rain'||w==='storm' ? 0.6 : 1)*fOld;
   st.happy  -= (0.45 + (dirty?0.3:0) + (badWeather()?0.1:0))*m*k*(BG.flowers ? 0.7 : 1);
+  S.aff = clamp(S.aff - (0.05 + (st.hunger < 25 || dirty ? 0.04 : 0))*m*k, 0, 100);   // affection fades slowly unless you keep caring
   if (offline) st.energy += 1.2*m;
   else if (asleep()) st.energy += (B.mode === 'inHouse' ? 3.2 : 2.4)*m;
   else if (act && act.key === 'fireflies') st.energy += 1.5*m;
@@ -1589,7 +1597,7 @@ function updateHatch(dt){
   if (!hatching.cracked){
     hatching.cracked = true; eggWob.rotation.z = 0; eggMesh.visible = false;
     eggHalves = [0, Math.PI].map(start => { const m = new THREE.Mesh(new THREE.LatheGeometry(eggPts, 16, start, Math.PI), eggMat); m.position.y = 0.74; eggG.add(m); return {m, v:V3(start ? -1.6 : 1.6, 3, rnd(-0.5,0.5)), r:start ? 4 : -4}; });
-    S.stage = 'baby'; S.form = 'normal'; S.fur = rollFur(); S.dye = null; S.likes = rollLikes(); S.ageMs = 0; S.growth = 0; S.st = {hunger:70, thirst:70, happy:80, energy:90, health:100}; S.poopQ = []; S.care = freshCare();
+    S.stage = 'baby'; S.form = 'normal'; S.fur = rollFur(); S.dye = null; S.likes = rollLikes(); S.aff = 50; S.ageMs = 0; S.growth = 0; S.st = {hunger:70, thirst:70, happy:80, energy:90, health:100}; S.poopQ = []; S.care = freshCare();
     B.mode = 'idle'; B.timer = 3; pos.set(0,0,0); vel.set(0,0,0); root.rotation.y = Math.atan2(camera.position.x, camera.position.z); reveal = 0;
     root.visible = true; shadow.g.visible = true; eggShadow.g.visible = false; nest.visible = false; applyForm();
     petS = stageScale(); sfx('hatch'); sparkles(V3(0,0.9,0), 26, 1); flashV = 0.6;
@@ -1722,11 +1730,26 @@ function think(dt){
       B.lookT -= dt;
       if (B.lookT <= 0){ B.lookT = rnd(0.7,1.8); B.lookYaw = [-0.7,-0.35,0,0.35,0.7][Math.floor(Math.random()*5)]; B.lookPitch = rnd(-0.15,0.15); if (Math.random() < 0.4) ears[Math.floor(Math.random()*2)].v += rnd(-6,6); }
       if (st.hunger < 25){ B.stompT -= dt; if (B.stompT <= 0){ B.stompT = rnd(2.5,4); vel.y = 2.6*petS + 1; showEmote('💢',1.4); cry('angry'); } }
+      else if (S.aff < 30){   // feeling neglected: come over and act cute for attention
+        B.begT = (B.begT ?? rnd(12,25)) - dt;
+        if (B.begT <= 0){ B.begT = rnd(35,60); B.mode = 'beg'; B.timer = 14; B.begSit = false; B.begE = 0;
+          const d = V3(camera.position.x - camTarget.x, 0, camera.position.z - camTarget.z).normalize(), p = V3(camTarget.x, 0, camTarget.z).addScaledVector(d, 2.2);
+          if (p.length() > BOUND - 1) p.setLength(BOUND - 1); B.target.copy(p); break; }
+      }
       if (B.timer <= 0){ if (Math.random() < (st.health < 35 ? 0.3 : 0.72)){ pickWander(); B.mode = 'walk'; B.timer = 14; } else B.timer = rnd(2,4); }
       break; }
     case 'walk': case 'goto': {
       const r = walkTowards(B.target.x, B.target.z, dt, sp, 0.25); moving = r.moving;
       if (r.dist < 0.3 || B.timer <= 0){ B.mode = 'idle'; B.timer = rnd(2,5); B.lookT = 0; }
+      break; }
+    case 'beg': {
+      if (!B.begSit){ const r = walkTowards(B.target.x, B.target.z, dt, sp*1.2, 0.3); moving = r.moving; if (r.dist < 0.45 || B.timer < 8) B.begSit = true; }
+      else {   // sit facing you, puppy eyes, little whines
+        root.rotation.y += clamp(wrapA(Math.atan2(camera.position.x - pos.x, camera.position.z - pos.z) - root.rotation.y), -3*dt, 3*dt);
+        B.lookYaw = 0; B.lookPitch = -0.2; B.begE -= dt;
+        if (B.begE <= 0){ B.begE = 2.6; showEmote('🥺', 2.2); if (Math.random() < 0.6) cry('whine'); }
+      }
+      if (B.timer <= 0){ B.mode = 'idle'; B.timer = rnd(2,4); showEmote('😞', 1.6); }
       break; }
     case 'seek': {
       const f = B.food;
@@ -1821,6 +1844,7 @@ function statusText(){
   if (S.stage === 'egg' || S.dead || B.mode === 'dying' || B.mode === 'dead') return '';
   if (B.mode === 'evolve') return '進化中！';
   if (B.mode === 'bloated') return '吃太撐，躺著動不了';
+  if (B.mode === 'beg') return '在裝可憐，想要你摸摸牠';
   if (dragging) return '被抓起來了！';
   if (act) return ACTS[act.key].name;
   if (B.mode === 'inHouse') return B.sleeping ? '在小窩裡睡覺' : '躲在小窩裡';
@@ -1930,7 +1954,7 @@ function updateWorld(dt, t){
 }
 
 // ---------- HUD ----------
-const STAT_DEFS = [['hunger','飽足'],['thirst','水分'],['happy','心情'],['energy','體力'],['clean','清潔'],['health','健康']];
+const STAT_DEFS = [['hunger','飽足'],['thirst','水分'],['happy','心情'],['energy','體力'],['clean','清潔'],['health','健康'],['aff','親暱']];
 const statsEl = $('#stats');
 statsEl.innerHTML = STAT_DEFS.map(([k,l]) => `<div class="stat"><span>${l}</span><div class="track"><div class="fill" id="f_${k}"></div></div><span class="num" id="n_${k}"></span></div>`).join('')
   + `<div class="stat"><span id="l_grow">成長</span><div class="track"><div class="fill" id="f_grow"></div></div><span class="num" id="n_grow"></span></div><p class="env" id="env"></p>`;
@@ -1949,7 +1973,7 @@ function renderHUD(){
   $('#l_grow').textContent = egg ? '孵化' : '成長';
   if (egg || S.dead){ STAT_DEFS.forEach(([k]) => setBar(k, 0, '–')); setBar('grow', egg ? S.warm : 0, egg ? Math.floor(S.warm)+'%' : '–'); $('#f_grow').classList.remove('low'); }
   else {
-    STAT_DEFS.forEach(([k]) => setBar(k, k === 'clean' ? cleanVal() : st[k]));
+    STAT_DEFS.forEach(([k]) => setBar(k, k === 'clean' ? cleanVal() : k === 'aff' ? S.aff : st[k]));
     const sd = STAGES[S.stage];
     if (sd.next){ const prevG = {baby:0, child:25, adult:120, perfect:300}[S.stage], pct = clamp((S.growth-prevG)/(sd.growth-prevG)*100, 0, 100);
       const ageOK = ageMin() >= sd.age;
@@ -2361,6 +2385,11 @@ document.querySelector('.dock').addEventListener('click', e => {
 });
 $('#btnStats').onclick = () => { S.hud = !S.hud; hudDirty = true; save(); };
 $('#btnMusic').onclick = () => setSound(!SND.on);
+// Sound effects and the wombat's calls have their own switch (on by default), separate from the music.
+SND.fx = S.sfx !== false; $('#btnSfx').setAttribute('aria-pressed', SND.fx ? 'true' : 'false');
+function unlockAudio(){ if (SND.fx || SND.on){ const c = audio(); if (c && c.state !== 'running') c.resume(); } }
+addEventListener('pointerdown', unlockAudio); addEventListener('keydown', unlockAudio);
+$('#btnSfx').onclick = () => { S.sfx = !SND.fx; SND.fx = S.sfx; if (SND.fx) unlockAudio(); $('#btnSfx').setAttribute('aria-pressed', SND.fx ? 'true' : 'false'); save(); toast(SND.fx ? '音效和叫聲打開了。' : '音效和叫聲關掉了。'); };
 $('#btnSettings').onclick = () => sheetKind === 'settings' ? closeSheet() : openSheet('settings');
 $('#btnShow').onclick = () => { S.uiHidden = false; hudDirty = true; save(); };
 
@@ -2401,13 +2430,30 @@ function endGrab(){ dragging = false; rope.visible = handle.visible = false; B.t
 function petTap(){
   if (!petActive() || B.mode === 'evolve') return;
   if (asleep()){ wake(true); return; }
-  sqv += 2.2; blinkT = 0.16; ears.forEach(e => e.v += rnd(-7,7)); spawnHearts(2);
+  sqv += 1.2; blinkT = 0.16; ears.forEach(e => e.v += rnd(-7,7)); spawnHearts(2); strokeHand();
   const now = performance.now(); B.petTimes = B.petTimes.filter(t => now - t < 10000); B.petTimes.push(now);
   S.st.happy = clamp(S.st.happy + (B.petTimes.length > 5 ? 1 : 8), 0, 100);
+  S.aff = clamp(S.aff + (B.petTimes.length > 5 ? 0 : 2), 0, 100);
   if (B.petCd <= 0){ B.petCd = 20; addCoins(1); }
-  if (S.st.hunger < 25){ showEmote('💢', 1.4); cry('angry'); } else cry('happy');
+  if (B.mode === 'beg'){   // it was asking for attention: it's delighted
+    S.aff = clamp(S.aff + 6, 0, 100); spawnHearts(4); showEmote('🥰', 1.8); cry('purr'); B.mode = 'idle'; B.timer = 3;
+    toast(`${S.name || '牠'}開心地蹭蹭你的手。`); hudDirty = true; return; }
+  if (S.st.hunger < 25){ showEmote('💢', 1.4); cry('angry'); } else cry(Math.random() < 0.5 ? 'purr' : 'happy');
   if (B.mode === 'idle' || B.mode === 'walk'){ B.mode = 'idle'; B.timer = 2.5; }
   hudDirty = true;
+}
+// A little hand pats the wombat's head while you pet it.
+let strokeT = 0;
+function strokeHand(){
+  if (strokeT > 0) return; strokeT = 1;
+  const hand = makeHand(); hand.scale.setScalar(Math.max(petS, 0.6)); scene.add(hand);
+  tools.push({t:0, dur:1.5, update(t){
+    strokeT = 1;
+    const top = headTop(), fwd = V3(Math.sin(root.rotation.y), 0, Math.cos(root.rotation.y)), k = Math.max(petS, 0.6);
+    const fade = Math.min(1, t/0.2, (1.5 - t)/0.25), stroke = Math.sin(t*Math.PI*3);   // three strokes front-to-back
+    hand.position.copy(top).addScaledVector(fwd, stroke*0.3*k); hand.position.y += (-0.32 + 0.28*(1 - fade) + Math.abs(stroke)*0.04)*k;
+    hand.rotation.set(0.15, root.rotation.y + Math.PI, 0); hand.scale.setScalar(k*Math.max(0.01, fade));
+  }, done(){ scene.remove(hand); strokeT = 0; }});
 }
 function warmEgg(){ if (S.stage !== 'egg' || hatching) return; S.warm = Math.min(100, S.warm + 7); eggWob.userData.kick = 1; sfx('pop'); hudDirty = true; }
 canvas.addEventListener('pointerdown', e => {
@@ -2568,7 +2614,7 @@ if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
 if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
-if (new URLSearchParams(location.search).has('debug')) window.W = {flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+if (new URLSearchParams(location.search).has('debug')) window.W = {petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};
 if (PREVIEW) setTimeout(() => toast(`預覽模式：${form().name}。這裡的變化不會存檔，關掉網址後面的 ?preview 就回到你的袋熊。`), 900);
@@ -2703,7 +2749,7 @@ function step(manual){
       B.emoteT -= dt;
       if (B.emoteT <= 0){ B.emoteT = rnd(4.5,7.5); const m = moodKey(); if (m === 'happy') spawnHearts(1); else if (MOOD_EMOTE[m] && !act) showEmote(MOOD_EMOTE[m], 2); }
       B.cryT -= dt;
-      if (B.cryT <= 0){ B.cryT = rnd(9,18); const m = moodKey(); if (m === 'sleep') cry('snore'); else if (!act) cry(MOOD_CRY[m] || 'grunt'); }
+      if (B.cryT <= 0){ B.cryT = rnd(6,14); const m = moodKey(); if (m === 'sleep') cry('snore'); else if (!act) cry(m === 'happy' ? ['happy','chirp','purr'][Math.floor(Math.random()*3)] : m === 'ok' ? ['grunt','huff','chirp'][Math.floor(Math.random()*3)] : MOOD_CRY[m] || 'grunt'); }
       if (asleep()){ B.zzzT -= dt; if (B.zzzT <= 0){ B.zzzT = 1.1; floatSprite(textTex('Z','#5d6e8f','bold 90px sans-serif','rgba(255,255,255,.85)'), headTop(), {size:0.4, vy:0.6, vx:0.25, max:2, depthTest:false}); } }
       if (S.form === 'stinky' && root.visible && Math.random() < dt*0.8) floatSprite(stinkTex, head.localToWorld(V3(0,1.1,0.4)), {size:0.35, vy:0.5, max:1.4, grow:0.4});
       if (S.form === 'golden' && root.visible && Math.random() < dt*3) floatSprite(sparkTex, root.position.clone().add(V3(rnd(-1.2,1.2)*petS, rnd(0.4,1.8)*petS, rnd(-1.6,1.6)*petS)), {size:0.25, vy:0.4, add:true, max:1});
