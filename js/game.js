@@ -1046,7 +1046,10 @@ function addCoins(n, at){
 }
 
 // ---------- forms & clothes ----------
-const FURS = [{name:'經典棕', c:'#8b6b50', b:'#b39a82'}, {name:'灰褐', c:'#847b70', b:'#aaa196'}, {name:'奶油', c:'#cdb48e', b:'#e3d3b8'}, {name:'炭灰', c:'#4c4846', b:'#6e6966'}];
+// Coat colours. A new hatchling rolls one at random (w = weight); 雪白 is rare.
+const FURS = [{name:'經典棕', c:'#8b6b50', b:'#b39a82', w:10}, {name:'灰褐', c:'#847b70', b:'#aaa196', w:10}, {name:'奶油', c:'#cdb48e', b:'#e3d3b8', w:10}, {name:'炭灰', c:'#4c4846', b:'#6e6966', w:8},
+  {name:'灰粉', c:'#a8958f', b:'#e1d3cc', w:8}, {name:'巧克力', c:'#6b4a35', b:'#bf9c7f', w:8}, {name:'淡金', c:'#c9a46a', b:'#f0e0bf', w:6}, {name:'雪白', c:'#e6e1d8', b:'#fbf8f2', w:2}];
+const rollFur = () => { let r = Math.random()*FURS.reduce((s, f) => s + f.w, 0); return Math.max(0, FURS.findIndex(f => (r -= f.w) < 0)); };
 function applyFur(){
   const f = FURS[S.fur] || FURS[0], F = form();
   let c = f.c, b = f.b;
@@ -1398,7 +1401,7 @@ function updateHatch(dt){
   if (!hatching.cracked){
     hatching.cracked = true; eggWob.rotation.z = 0; eggMesh.visible = false;
     eggHalves = [0, Math.PI].map(start => { const m = new THREE.Mesh(new THREE.LatheGeometry(eggPts, 16, start, Math.PI), eggMat); m.position.y = 0.74; eggG.add(m); return {m, v:V3(start ? -1.6 : 1.6, 3, rnd(-0.5,0.5)), r:start ? 4 : -4}; });
-    S.stage = 'baby'; S.form = 'normal'; S.ageMs = 0; S.growth = 0; S.st = {hunger:70, thirst:70, happy:80, energy:90, health:100}; S.poopQ = []; S.care = freshCare();
+    S.stage = 'baby'; S.form = 'normal'; S.fur = rollFur(); S.ageMs = 0; S.growth = 0; S.st = {hunger:70, thirst:70, happy:80, energy:90, health:100}; S.poopQ = []; S.care = freshCare();
     B.mode = 'idle'; B.timer = 3; pos.set(0,0,0); vel.set(0,0,0); root.rotation.y = Math.atan2(camera.position.x, camera.position.z); reveal = 0;
     root.visible = true; shadow.g.visible = true; eggShadow.g.visible = false; nest.visible = false; applyForm();
     petS = stageScale(); sfx('hatch'); sparkles(V3(0,0.9,0), 26, 1); flashV = 0.6;
@@ -1784,11 +1787,11 @@ function closeModal(){ $('#modal').hidden = true; canvas.focus({preventScroll:tr
 function askName(){
   showModal('孵出來了！', `<p>是一隻袋熊寶寶。幫牠取個名字吧。</p><input id="nameIn" maxlength="8" value="小袋" aria-label="名字">`, [{label:'就叫這個', onClick:()=>{
     S.name = (($('#nameIn') && $('#nameIn').value) || '').trim() || '小袋'; refreshSign(); save(); hudDirty = true;
-    toast(`${S.name}來了！餵牠吃東西、陪牠玩，牠會慢慢長大。`); }}]);
+    toast(`${S.name}來了！牠是${FURS[S.fur].name}色的${FURS[S.fur].w <= 2 ? "（很少見喔！）" : ""}。餵牠吃東西、陪牠玩，牠會慢慢長大。`); }}]);
   const inp = $('#nameIn'); const v = inp.value;
   inp.addEventListener('keydown', e => { if (e.key === 'Enter') $('#modalActs button').click(); });
   // keep the typed value when the button is clicked
-  $('#modalActs button').onclick = () => { S.name = (inp.value || v).trim() || '小袋'; closeModal(); refreshSign(); save(); hudDirty = true; toast(`${S.name}來了！餵牠吃東西、陪牠玩，牠會慢慢長大。`); };
+  $('#modalActs button').onclick = () => { S.name = (inp.value || v).trim() || '小袋'; closeModal(); refreshSign(); save(); hudDirty = true; toast(`${S.name}來了！牠是${FURS[S.fur].name}色的${FURS[S.fur].w <= 2 ? "（很少見喔！）" : ""}。餵牠吃東西、陪牠玩，牠會慢慢長大。`); };
 }
 function refreshSign(){ if (!BG.house) return; const m = BG.house.userData.sign.material[4]; m.map = signTexture(S.name); m.needsUpdate = true; }
 function showMemorial(){
