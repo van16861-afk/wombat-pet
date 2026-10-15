@@ -211,6 +211,16 @@ const qTmp = new THREE.Quaternion(), eTmp = new THREE.Euler();
 let headScale = 1, lookX = 0, lookY = 0, bloatW = 0;
 const turnBone = (b, x, y, z) => { if (x || y || z) b.quaternion.multiply(qTmp.setFromEuler(eTmp.set(x, y, z))); };
 const shadow = makeShadow(2.6, 3.4);
+// Yard props modelled in Blender (blender/props_build.py). Optional: if they fail to load, the simple shapes are used.
+const PROP = {};
+try {
+  const pg = await new GLTFLoader().loadAsync('assets/models/props.glb');
+  pg.scene.children.forEach(o => PROP[o.name] = o);
+  pg.scene.traverse(o => { if (!o.isMesh) return; [].concat(o.material).forEach(m => { if (m.userData.srgb) return; m.userData.srgb = true; m.color.convertLinearToSRGB(); m.metalness = 0; }); });
+} catch(e){ console.warn('props.glb not loaded', e); }
+const propClone = name => PROP[name] ? PROP[name].clone(true) : null;
+// swap a named material inside a cloned prop (e.g. the lamp bulb becomes a night-glow material)
+const swapMat = (obj, name, m) => obj.traverse(o => { if (!o.isMesh) return; if (Array.isArray(o.material)) o.material = o.material.map(x => x.name === name ? m : x); else if (o.material.name === name) o.material = m; });
 
 // ---------- evolution forms ----------
 const FORMS = {
@@ -529,14 +539,19 @@ function build(id){
   if (BG[id]) return;
   const g = new THREE.Group(), wood = mat('#9a7350',0.9);
   if (id === 'house'){
-    const domeTex = canvasTex(256,128,(x,w,h)=>{ x.fillStyle = '#7f8f5b'; x.fillRect(0,0,w,h);
-      for (let i=0;i<900;i++){ x.fillStyle = Math.random()<.5 ? 'rgba(60,80,40,.35)' : 'rgba(170,180,110,.35)'; x.fillRect(Math.random()*w, Math.random()*h, 2, 4); } });
-    const dome = new THREE.Mesh(new THREE.SphereGeometry(2.2, 48, 24, 0, Math.PI*2, 0, Math.PI/2), new THREE.MeshStandardMaterial({map:domeTex, roughness:0.95}));
-    dome.scale.y = 0.95; dome.userData.kind = 'house'; g.add(dome);
-    const dark = new THREE.MeshBasicMaterial({color:'#1a1410'});
-    const hole = new THREE.Mesh(new THREE.CircleGeometry(0.78, 32, 0, Math.PI), dark); hole.position.set(0, 0.02, 2.17); g.add(hole);
-    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.82, 0.1, 8, 24, Math.PI), mat('#8c7a66',0.9)); rim.position.set(0, 0.02, 2.15); g.add(rim);
-    const chim = new THREE.Mesh(new THREE.CylinderGeometry(0.22,0.26,0.8,16), mat('#a35e46',0.9)); chim.position.set(0.8, 2.0, -0.6); g.add(chim);
+    let dome;
+    const pr = propClone('house');
+    if (pr){ g.add(pr); swapMat(pr, 'Glass', glowMat('#ffe6a3', '#ffcf5a')); dome = pr.getObjectByProperty('isMesh', true); dome.userData.kind = 'house'; }
+    else {
+      const domeTex = canvasTex(256,128,(x,w,h)=>{ x.fillStyle = '#7f8f5b'; x.fillRect(0,0,w,h);
+        for (let i=0;i<900;i++){ x.fillStyle = Math.random()<.5 ? 'rgba(60,80,40,.35)' : 'rgba(170,180,110,.35)'; x.fillRect(Math.random()*w, Math.random()*h, 2, 4); } });
+      dome = new THREE.Mesh(new THREE.SphereGeometry(2.2, 48, 24, 0, Math.PI*2, 0, Math.PI/2), new THREE.MeshStandardMaterial({map:domeTex, roughness:0.95}));
+      dome.scale.y = 0.95; dome.userData.kind = 'house'; g.add(dome);
+      const dark = new THREE.MeshBasicMaterial({color:'#1a1410'});
+      const hole = new THREE.Mesh(new THREE.CircleGeometry(0.78, 32, 0, Math.PI), dark); hole.position.set(0, 0.02, 2.17); g.add(hole);
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(0.82, 0.1, 8, 24, Math.PI), mat('#8c7a66',0.9)); rim.position.set(0, 0.02, 2.15); g.add(rim);
+      const chim = new THREE.Mesh(new THREE.CylinderGeometry(0.22,0.26,0.8,16), mat('#a35e46',0.9)); chim.position.set(0.8, 2.0, -0.6); g.add(chim);
+    }
     const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,1.1,8), mat('#7a5634',0.9)); post.position.set(1.55,0.55,2.0); g.add(post);
     const sideM = mat('#b98b5a');
     const sign = new THREE.Mesh(new THREE.BoxGeometry(0.9,0.45,0.06), [sideM,sideM,sideM,sideM,new THREE.MeshStandardMaterial({map:signTexture(S.name), roughness:0.9}),sideM]);
@@ -550,21 +565,29 @@ function build(id){
       s.position.set(Math.cos(a)*1.55, 0.06, Math.sin(a)*1.35); s.scale.y = 0.55; g.add(s); }
     g.position.copy(SPOTS.pond);
   } else if (id === 'lamp'){
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.09,2.6,10), mat('#3a3f3a',0.6)); pole.position.y = 1.3; g.add(pole);
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.22,16,12), glowMat('#fff3c4','#ffd36b')); cap.position.y = 2.7; g.add(cap);
-    const hat = new THREE.Mesh(new THREE.ConeGeometry(0.32,0.25,16), mat('#3a3f3a',0.6)); hat.position.y = 2.95; g.add(hat);
+    const pr = propClone('lamp');
+    if (pr){ g.add(pr); swapMat(pr, 'Bulb', glowMat('#fff3c4','#ffd36b')); }
+    else {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.09,2.6,10), mat('#3a3f3a',0.6)); pole.position.y = 1.3; g.add(pole);
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(0.22,16,12), glowMat('#fff3c4','#ffd36b')); cap.position.y = 2.7; g.add(cap);
+      const hat = new THREE.Mesh(new THREE.ConeGeometry(0.32,0.25,16), mat('#3a3f3a',0.6)); hat.position.y = 2.95; g.add(hat);
+    }
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({map:radialTex('rgba(255,220,130,0.9)','rgba(255,220,130,0)'), transparent:true, depthWrite:false, blending:THREE.AdditiveBlending}));
-    glow.position.y = 2.7; glow.scale.setScalar(1.8); g.add(glow);
+    glow.position.y = pr ? 2.88 : 2.7; glow.scale.setScalar(1.8); g.add(glow);
     const pool = new THREE.Mesh(new THREE.PlaneGeometry(4,4), new THREE.MeshBasicMaterial({map:radialTex('rgba(255,210,120,0.55)','rgba(255,210,120,0)'), transparent:true, depthWrite:false, blending:THREE.AdditiveBlending}));
     pool.rotation.x = -Math.PI/2; pool.position.y = 0.01; g.add(pool);
     g.userData.glows = [glow.material, pool.material];
     g.position.copy(SPOTS.lamp);
   } else if (id === 'flowers'){
-    const soil = new THREE.Mesh(new THREE.CircleGeometry(1.15, 32), mat('#6b4f37',1)); soil.rotation.x = -Math.PI/2; soil.position.y = 0.012; g.add(soil);
-    const stemG = new THREE.CylinderGeometry(0.02,0.02,0.4,5), headG = new THREE.SphereGeometry(0.1,10,8), cols = ['#f2a541','#e0607e','#f3d250','#9b6fc4','#f2f0ea'];
-    for (let i=0;i<16;i++){ const a = Math.random()*Math.PI*2, r = Math.sqrt(Math.random())*0.95, h = rnd(0.3,0.5);
-      const st = new THREE.Mesh(stemG, mat('#5a8a42')); st.scale.y = h/0.4; st.position.set(Math.cos(a)*r, h/2, Math.sin(a)*r); g.add(st);
-      const hd = new THREE.Mesh(headG, mat(cols[i%5],0.6)); hd.position.set(Math.cos(a)*r, h, Math.sin(a)*r); g.add(hd); }
+    const pr = propClone('flowers');
+    if (pr) g.add(pr);
+    else {
+      const soil = new THREE.Mesh(new THREE.CircleGeometry(1.15, 32), mat('#6b4f37',1)); soil.rotation.x = -Math.PI/2; soil.position.y = 0.012; g.add(soil);
+      const stemG = new THREE.CylinderGeometry(0.02,0.02,0.4,5), headG = new THREE.SphereGeometry(0.1,10,8), cols = ['#f2a541','#e0607e','#f3d250','#9b6fc4','#f2f0ea'];
+      for (let i=0;i<16;i++){ const a = Math.random()*Math.PI*2, r = Math.sqrt(Math.random())*0.95, h = rnd(0.3,0.5);
+        const st = new THREE.Mesh(stemG, mat('#5a8a42')); st.scale.y = h/0.4; st.position.set(Math.cos(a)*r, h/2, Math.sin(a)*r); g.add(st);
+        const hd = new THREE.Mesh(headG, mat(cols[i%5],0.6)); hd.position.set(Math.cos(a)*r, h, Math.sin(a)*r); g.add(hd); }
+    }
     g.position.copy(SPOTS.flowers);
   } else if (id === 'fence'){
     const N = 40, R = 7.1, postG = new THREE.BoxGeometry(0.14,0.9,0.14);
@@ -1476,6 +1499,8 @@ function giveFood(id){
 const inv = id => (S.inv && S.inv[id]) || 0;
 const invAdd = (id, n) => { S.inv = S.inv || {}; S.inv[id] = Math.max(0, inv(id) + n); };
 function foodMesh(kind){
+  const pr = ['carrot','apple','potato','root'].includes(kind) && propClone('food_' + kind);   // Blender-made food when available
+  if (pr){ pr.rotation.y = Math.random()*Math.PI*2; const g = new THREE.Group(); g.add(pr); return g; }
   const g = new THREE.Group();
   if (kind === 'grass' || kind === 'clover'){
     for (let i=0;i<9;i++){ const b = new THREE.Mesh(grassGeo, grassMats[i%3]); b.position.set(rnd(-0.11,0.11),0,rnd(-0.11,0.11)); b.rotation.set(rnd(-0.35,0.35),0,rnd(-0.35,0.35)); b.scale.y = rnd(0.7,1.3); g.add(b); }
