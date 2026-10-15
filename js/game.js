@@ -506,7 +506,7 @@ const BUILDS = [
   {id:'pumpkins',  name:'南瓜燈',   price:70, desc:'三顆會發光的南瓜。', r:0, holiday:'halloween', spot:280},
   {id:'xmastree',  name:'聖誕樹',   price:90, desc:'掛滿彩球，頂端有顆星星。', r:0, holiday:'christmas', spot:310}
 ];
-const BG = {}, nightGlow = [];
+const BG = {}, nightGlow = [], trees = [];
 function faceCenter(g, p){ g.position.copy(p); g.rotation.y = Math.atan2(-p.x, -p.z); }
 function glowMat(color, emissive){ const m = new THREE.MeshStandardMaterial({color, emissive, emissiveIntensity:0, roughness:0.5}); nightGlow.push(m); return m; }
 function signTexture(name){
@@ -620,7 +620,7 @@ function build(id){
   scene.add(g); BG[id] = g;
 }
 function unbuildAll(){ Object.keys(BG).forEach(id => { scene.remove(BG[id]); delete BG[id]; }); nightGlow.length = 0; }
-function obstacles(){ return BUILDS.filter(b => b.r && BG[b.id]).map(b => ({c:SPOTS[b.id], r:b.r})); }
+function obstacles(){ return BUILDS.filter(b => b.r && BG[b.id]).map(b => ({c:SPOTS[b.id], r:b.r})).concat(trees.map(tr => ({c:tr.g.position, r:0.55*tr.d.s}))); }
 function houseDoor(){ const h = SPOTS.house, d = V3(-h.x,0,-h.z).normalize(); return h.clone().addScaledVector(d, 2.2 + 1.6*petS + 0.3); }
 
 // ---------- holidays ----------
@@ -1077,6 +1077,137 @@ function updatePests(dt){
     if (r.leaving && dist < 0.2){ scene.remove(r.g); roaches.splice(i,1); }
   }
 }
+// ---------- trees: planted at random when a game starts; some carry a beehive ----------
+function makeTree(d){
+  const g = new THREE.Group(), bark = mat('#7a5634', 0.95), greens = ['#5f8f3e','#6fa148','#4f7d34'];
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.27, 1.5, 9), bark); trunk.position.y = 0.75; g.add(trunk);
+  for (const s of [-1, 1]){ const br = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 0.6, 6), bark); br.position.set(0.18*s, 1.3, 0.05); br.rotation.z = -0.7*s; g.add(br); }
+  [[0,2.0,0,0.95],[0.55,1.75,0.2,0.7],[-0.5,1.8,-0.15,0.72],[0.1,2.45,-0.1,0.6],[-0.15,1.7,0.5,0.6]].forEach(([x,y,z,r],i) => {
+    const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), new THREE.MeshStandardMaterial({color:greens[i%3], roughness:0.9, flatShading:true, transparent:true}));
+    m.position.set(x, y, z); g.add(m); });
+  if (d.hive){
+    const h = new THREE.Group(), body = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), mat('#d9a23a', 0.6)); body.scale.set(0.22, 0.3, 0.22); h.add(body);
+    for (let i=0;i<3;i++){ const ring = new THREE.Mesh(new THREE.TorusGeometry(0.21 - Math.abs(i-1)*0.05, 0.025, 6, 20), mat('#b07a22', 0.6)); ring.rotation.x = Math.PI/2; ring.position.y = (i-1)*0.12; h.add(ring); }
+    const hole = new THREE.Mesh(new THREE.CircleGeometry(0.05, 12), new THREE.MeshBasicMaterial({color:'#2a1a08'})); hole.position.set(0, -0.05, 0.22); h.add(hole);
+    h.position.set(0.5, 1.3, 0.4); g.add(h); g.userData.hive = h;
+  }
+  g.position.set(d.x, 0, d.z); g.rotation.y = d.ry || 0; g.scale.setScalar(d.s); scene.add(g);
+  const hb = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 2.6, 8), hbMat); hb.position.y = 1.3; hb.userData.kind = 'tree'; g.add(hb);
+  const fade = []; g.traverse(o => { if (o.isMesh && o !== hb) { o.material = o.material.clone(); o.material.transparent = true; fade.push(o.material); } });
+  const tr = {d, g, hb, fade, alpha:1, shake:0, sh:makeShadow(2.6*d.s, 2.6*d.s)}; tr.sh.g.position.set(d.x, 0, d.z); hb.userData.ref = tr; trees.push(tr); return tr;
+}
+function plantTrees(){
+  S.trees = []; const n = 3 + Math.floor(Math.random()*3);
+  for (let k=0; k<80 && S.trees.length < n; k++){
+    const a = Math.random()*Math.PI*2, r = rnd(4.4, 6.0), x = +(Math.sin(a)*r).toFixed(2), z = +(Math.cos(a)*r).toFixed(2);
+    if (obstacles().some(o => Math.hypot(o.c.x-x, o.c.z-z) < o.r + 1.4)) continue;
+    if (S.trees.some(o => Math.hypot(o.x-x, o.z-z) < 2.6)) continue;
+    S.trees.push({x, z, s:+rnd(0.85, 1.15).toFixed(2), ry:+rnd(0, 6.28).toFixed(2), hive: Math.random() < 0.5});
+  }
+  if (S.trees.length && !S.trees.some(t => t.hive)) S.trees[0].hive = true;
+}
+// Bumping into a hive tree (thrown, rolling, or poking around) gets the wombat stung: a head full of bumps until treated.
+let stingCd = 0;
+const bees = [];
+const bumps = new THREE.Group();
+[[0.26,0.56,0.74],[-0.3,0.54,0.76],[0.02,0.64,0.52],[0.5,0.44,0.86],[-0.48,0.46,0.84]].forEach(([x,y,z]) => {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(0.115, 14, 10), new THREE.MeshStandardMaterial({color:'#f2726c', emissive:'#5a0e0b', emissiveIntensity:0.35, roughness:0.4})); m.position.set(x, y, z); bumps.add(m); });
+head.add(bumps); bumps.visible = false;
+const applyBumps = () => { bumps.visible = !!S.swollen; };
+function sting(){
+  if (stingCd > 0 || !petActive()) return; stingCd = 20;
+  S.swollen = true; applyBumps();
+  S.st.happy = clamp(S.st.happy - 12, 0, 100); S.st.health = clamp(S.st.health - 8, 0, 100); S.aff = clamp(S.aff - 2, 0, 100);
+  showEmote('😭', 2.5); cry('angry'); sfx('buzz'); sqv += 2;
+  for (let i=0;i<7;i++){ const s = new THREE.Sprite(new THREE.SpriteMaterial({map:emojiTex('🐝'), transparent:true, depthWrite:false})); s.scale.setScalar(0.34); scene.add(s); bees.push({s, ph:i/7*Math.PI*2, life:4.5}); }
+  toast(`${S.name || '牠'}撞到蜂窩，被蜜蜂叮得滿頭包！到商店的「藥品」買消腫藥膏。`); hudDirty = true;
+}
+function updateTrees(dt){
+  stingCd -= dt;
+  for (let i=bees.length-1;i>=0;i--){ const b = bees[i]; b.life -= dt; const c = headTop(), a = t*5 + b.ph;
+    b.s.position.set(c.x + Math.cos(a)*0.8*Math.max(petS,0.6), c.y + Math.sin(a*1.6)*0.25, c.z + Math.sin(a)*0.8*Math.max(petS,0.6)); b.s.material.opacity = Math.min(1, b.life);
+    if (b.life <= 0){ scene.remove(b.s); bees.splice(i,1); } }
+  for (const tr of trees){
+    if (tr.shake > 0){ tr.shake = Math.max(0, tr.shake - dt*1.2); tr.g.rotation.z = Math.sin(tr.shake*28)*0.07*tr.shake; }
+    // see-through when it stands between the camera and what we're looking at
+    const cp = camera.position, seg = V3(camTarget.x - cp.x, 0, camTarget.z - cp.z), L2 = seg.lengthSq() || 1, u = clamp(((tr.d.x - cp.x)*seg.x + (tr.d.z - cp.z)*seg.z)/L2, 0, 1);
+    const gap = Math.hypot(cp.x + seg.x*u - tr.d.x, cp.z + seg.z*u - tr.d.z), block = u < 0.97 && gap < 1.5*tr.d.s;
+    tr.alpha += ((block ? 0.22 : 1) - tr.alpha)*Math.min(1, dt*6); tr.fade.forEach(m => { m.opacity = tr.alpha; m.depthWrite = tr.alpha > 0.95; });
+    if (!petActive() || !root.visible || B.mode === 'inHouse') continue;
+    const fast = Math.hypot(vel.x, vel.z) > 2.2 || (act && ['roll','ballroll'].includes(act.key));
+    const d = Math.hypot(pos.x - tr.d.x, pos.z - tr.d.z), reach = 0.45*tr.d.s + 0.9*Math.max(petS, 0.5);
+    if (d < reach && (fast || B.treeVisit === tr)){
+      if (tr.shake <= 0.2){ tr.shake = 1; sfx('thud');
+        for (let k=0;k<6;k++) floatSprite(leafTexs[k%3], tr.g.position.clone().add(V3(rnd(-1,1), rnd(1.6,2.4)*tr.d.s, rnd(-1,1))), {size:0.26, vy:-0.6, vx:rnd(-0.4,0.4), max:2.4, fade:0.6, grow:0, rot:rnd(0,6), spin:rnd(-3,3)});
+        if (tr.d.hive && (fast || Math.random() < 0.45)) sting(); else if (!fast){ showEmote('🌳', 1.4); cry('chirp'); } }
+      B.treeVisit = null;
+      const nx = (pos.x - tr.d.x)/(d || 1), nz = (pos.z - tr.d.z)/(d || 1); pos.x = tr.d.x + nx*reach; pos.z = tr.d.z + nz*reach;
+      if (fast){ vel.x = nx*2; vel.z = nz*2; }
+    }
+  }
+}
+
+// ---------- butterflies on sunny days (the wombat sometimes chases them) ----------
+const butterflies = [];
+const wingTex = c => canvasTex(64,64,(x)=>{ x.fillStyle = c; x.beginPath(); x.ellipse(30,22,26,19,-0.2,0,Math.PI*2); x.fill(); x.beginPath(); x.ellipse(24,46,16,13,0.4,0,Math.PI*2); x.fill();
+  x.fillStyle = 'rgba(255,255,255,.75)'; x.beginPath(); x.arc(34,20,6,0,Math.PI*2); x.fill(); x.fillStyle = 'rgba(40,30,30,.6)'; x.beginPath(); x.arc(46,26,3,0,Math.PI*2); x.fill(); });
+const WING_TEX = ['#f3a73b','#7fb2dd','#f2a6be','#f3d250','#b79be0'].map(wingTex);
+function makeButterfly(){
+  const g = new THREE.Group(), wm = new THREE.MeshBasicMaterial({map:WING_TEX[Math.floor(Math.random()*WING_TEX.length)], transparent:true, side:THREE.DoubleSide, depthWrite:false});
+  const wings = [1, -1].map(s => { const p = new THREE.Group(), w = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.3), wm); w.rotation.x = -Math.PI/2; w.position.x = 0.15; w.scale.x = 1; p.add(w); p.scale.x = s; g.add(p); return p; });
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.025, 0.16, 4, 8), mat('#3b2f2a', 0.6)); body.rotation.x = Math.PI/2; g.add(body);
+  const a = Math.random()*Math.PI*2; g.position.set(Math.sin(a)*7, rnd(1,2), Math.cos(a)*7); scene.add(g);
+  return {g, wings, tgt:V3(0,1,0), retarget:0, ph:Math.random()*9, leaving:false};
+}
+function updateButterflies(dt){
+  const want = !S.dead && S.stage !== 'egg' && weatherNow() === 'sunny' && nightF < 0.3 ? 2 : 0;
+  while (butterflies.filter(b => !b.leaving).length < want) butterflies.push(makeButterfly());
+  butterflies.filter(b => !b.leaving).slice(want).forEach(b => { b.leaving = true; b.tgt.set(b.g.position.x*3, 6, b.g.position.z*3); });
+  for (let i=butterflies.length-1;i>=0;i--){ const b = butterflies[i], p = b.g.position;
+    const scared = petActive() && Math.hypot(p.x-pos.x, p.z-pos.z) < 1.5*Math.max(petS,0.6);
+    b.retarget -= dt;
+    if (!b.leaving && (b.retarget <= 0 || scared || p.distanceTo(b.tgt) < 0.3)){ b.retarget = rnd(2,4);
+      if (scared){ const d = V3(p.x-pos.x, 0, p.z-pos.z).normalize(); b.tgt.set(p.x + d.x*2.5, rnd(1.2,2), p.z + d.z*2.5); }
+      else { const a = Math.random()*Math.PI*2, r = rnd(0.5, 5); b.tgt.set(Math.sin(a)*r, rnd(0.5,1.7), Math.cos(a)*r); }
+      if (b.tgt.length() > 6) b.tgt.setLength(6); }
+    const d = b.tgt.clone().sub(p), sp = (scared ? 2.2 : 1.1)*dt;
+    if (d.length() > 0.01) p.addScaledVector(d.normalize(), Math.min(sp, d.length()));
+    p.y += Math.sin(t*6 + b.ph)*0.01; b.g.rotation.y = Math.atan2(d.x, d.z);
+    const flap = Math.sin(t*22 + b.ph)*0.9; b.wings[0].rotation.z = flap; b.wings[1].rotation.z = flap;
+    if (b.leaving && p.y > 5.5){ scene.remove(b.g); butterflies.splice(i,1); }
+  }
+}
+
+// ---------- the departed wombat's spirit floats over its grave; tap the grave to send it off ----------
+const ghostTex = canvasTex(128,160,(x)=>{
+  x.strokeStyle = 'rgba(255,214,90,0.95)'; x.lineWidth = 5; x.beginPath(); x.ellipse(64,18,26,8,0,0,Math.PI*2); x.stroke();
+  x.fillStyle = 'rgba(255,255,255,0.92)'; x.beginPath(); x.moveTo(18,150);
+  for (let i=0;i<=6;i++) x.quadraticCurveTo(18 + i*15.3 + 7.6, i%2 ? 140 : 160, 18 + (i+1)*15.3, 150);
+  x.lineTo(110,72); x.bezierCurveTo(110,30,18,30,18,72); x.closePath(); x.fill();
+  x.beginPath(); x.moveTo(30,52); x.lineTo(26,30); x.lineTo(44,40); x.fill(); x.beginPath(); x.moveTo(98,52); x.lineTo(102,30); x.lineTo(84,40); x.fill();
+  x.fillStyle = '#4a4040'; x.beginPath(); x.arc(48,82,5,0,Math.PI*2); x.arc(80,82,5,0,Math.PI*2); x.fill(); x.beginPath(); x.ellipse(64,96,10,7,0,0,Math.PI*2); x.fill();
+  x.fillStyle = 'rgba(240,150,150,.5)'; x.beginPath(); x.arc(38,96,7,0,Math.PI*2); x.arc(90,96,7,0,Math.PI*2); x.fill(); });
+let ghost = null, ascending = null;
+function makeGhost(at){
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({map:ghostTex, transparent:true, opacity:0.85, depthWrite:false}));
+  s.scale.set(1.0, 1.25, 1); s.position.set(at.x, 1.9, at.z); s.renderOrder = 6; scene.add(s); return s;
+}
+function updateGhost(dt){
+  if (!ghost) return;
+  if (ascending){ ascending.t += dt; const u = ascending.t;
+    ghost.position.y += dt*(0.6 + u*1.2); ghost.material.opacity = Math.max(0, 0.85 - u*0.28);
+    spot.visible = spotPool.visible = true; spot.position.set(tomb.position.x, 4.5, tomb.position.z); spotPool.position.set(tomb.position.x, 0.012, tomb.position.z);
+    spot.material.opacity = Math.min(0.8, u)*Math.min(1, (3.2-u)); spotPool.material.opacity = spot.material.opacity;
+    if (Math.random() < dt*12) sparkles(ghost.position.clone(), 1, 0.5);
+    if (u > 3.2){ spot.visible = spotPool.visible = false; scene.remove(ghost); ghost = null; ascending = null; newEgg(); }
+    return; }
+  ghost.position.y = 1.9 + Math.sin(t*1.4)*0.15; ghost.material.rotation = Math.sin(t*0.9)*0.08;
+}
+function releaseSpirit(){
+  if (!S.dead || ascending) return;
+  showModal(`送${S.name || '牠'}去天堂？`, `<p>點了以後，${S.name || '牠'}的魂魄會升上天空，然後會出現一顆新的蛋。代幣、衣服、道具和建設都會留給下一隻。</p>`,
+    [{label:'再陪牠一下', ghost:true, onClick:()=>{}}, {label:'超渡牠', onClick:() => { ascending = {t:0}; sfx('grow'); cry('evolve'); toast(`${S.name || '牠'}安心地去天堂了。謝謝你照顧牠。`); }}]);
+}
 function updateTools(dt){
   for (let i=tools.length-1;i>=0;i--){ const tl = tools[i]; tl.t += dt; tl.update(Math.min(tl.t, tl.dur)); if (tl.t >= tl.dur){ tl.done(); tools.splice(i,1); } }
 }
@@ -1109,7 +1240,8 @@ const CARE = [
   {id:'cigarette',  icon:'🚬', name:'香菸',       price:8,  energy:12, happy:6, health:-22, desc:'一時有精神，但非常傷身體，不建議給牠！'}
 ];
 const MEDS = [
-  {id:'coldmed',  icon:'🌡️', name:'感冒藥', price:10, health:45, desc:'生病的時候吃，健康 +45。'}
+  {id:'coldmed',  icon:'🌡️', name:'感冒藥', price:10, health:45, desc:'生病的時候吃，健康 +45。'},
+  {id:'ointment', icon:'🧴', name:'消腫藥膏', price:25, desc:'被蜜蜂叮得滿頭包時擦一擦，腫包馬上消。'}
 ];
 const FOOD_ICON = {grass:'🌿', carrot:'🥕', apple:'🍎', clover:'🍀', potato:'🍠', root:'🪵', water:'💧', milk:'🥛', coco:'🥥'};
 [...FOODS, ...DRINKS].forEach(f => f.icon = FOOD_ICON[f.id]);
@@ -1120,6 +1252,9 @@ function useCare(id){
   const f = foodInfo(id);
   if (!petActive()){ toast(S.stage === 'egg' ? '還沒孵出來喔。' : '現在不需要。'); return; }
   if (!inv(id)){ toast(`背包裡沒有${f.name}了。`); return; }
+  if (id === 'ointment'){
+    if (!S.swollen){ toast('牠現在沒有腫包，藥膏先留著。'); return; }
+    invAdd(id, -1); S.swollen = false; applyBumps(); spawnHearts(2); sfx('happy'); showEmote('😌', 1.6); toast('腫包消了，舒服多了！'); hudDirty = true; save(); return; }
   invAdd(id, -1);
   for (const k of ['happy','energy','health']) if (f[k]) S.st[k] = clamp(S.st[k] + f[k], 0, 100);
   if (id === 'cigarette'){ showEmote('😵', 1.8); cry('grunt'); for (let i=0;i<5;i++) floatSprite(radialTex('rgba(200,200,200,0.8)','rgba(200,200,200,0)'), headTop(), {size:0.4, vy:0.5, vx:rnd(-0.3,0.3), delay:i*0.2, grow:1.2, max:1.6}); toast('咳咳……牠嗆到了，健康掉了好多。'); }
@@ -1336,6 +1471,7 @@ const ACTS = {
   belly:{name:'翻肚扭扭',  dur:3.4, price:50},
   shake:{name:'抖抖毛',   dur:1.3, price:0},
   dance:{name:'跳舞',     dur:5.2, price:80},
+  ballroll:{name:'滾成一顆球', dur:2.8, price:70},
   snowman:  {name:'堆雪人',   dur:7.5, price:60, special:true, need:() => weatherNow() === 'snow' || snowCover > 0.3, why:'下雪天才能堆雪人。', desc:'滾兩顆雪球堆成雪人，代幣 +5'},
   puddle:   {name:'踩水窪',   dur:4.6, price:50, special:true, need:() => weatherNow() === 'rain', why:'下雨天（不打雷）才有水窪可以踩。', desc:'跳進水窪濺水花，心情 +15'},
   fireflies:{name:'看螢火蟲', dur:6.5, price:60, special:true, need:() => nightF > 0.6 && ['sunny','cloudy'].includes(weatherNow()), why:'晴朗或多雲的晚上才有螢火蟲。', desc:'安靜地看螢火蟲，心情和體力都會回復'}
@@ -1386,7 +1522,7 @@ function endAct(){
   const k = act.key, st = S.st;
   if (act.ball) scene.remove(act.ball); if (act.ball2) scene.remove(act.ball2);
   act = null; actG.rotation.set(0,0,0); actY = 0;
-  const gain = {sit:[-2,6], dance:[8,14], snowman:[10,20], puddle:[6,15], fireflies:[-6,15]}[k] || [6,10];
+  const gain = {sit:[-2,6], ballroll:[6,12], dance:[8,14], snowman:[10,20], puddle:[6,15], fireflies:[-6,15]}[k] || [6,10];
   st.energy = clamp(st.energy - gain[0], 0, 100); st.happy = clamp(st.happy + gain[1], 0, 100); st.thirst = clamp(st.thirst - 3, 0, 100);
   S.care.plays++; if (growthOK()) S.growth += 1; S.aff = clamp(S.aff + 4, 0, 100);
   if (k === 'flip' || k === 'spin'){ sqv += 2.6; sfx('thud'); }
@@ -1415,6 +1551,10 @@ function updateAct(dt){
       else if (p < 0.8) actG.rotation.z = Math.PI + Math.sin(act.t*6)*0.15;
       else { const r = ease((p-0.8)/0.2); actG.rotation.z = Math.PI + Math.PI*r; actY = Math.sin(r*Math.PI)*0.25*s; }
       break; }
+    case 'ballroll': {   // curl up, roll forward two full turns, uncurl
+      const u = clamp((p - 0.15)/0.7, 0, 1), r = ease(u), dist = 3.2*s*r, delta = dist - act.moved; act.moved = dist;
+      pos.addScaledVector(V3(Math.sin(root.rotation.y), 0, Math.cos(root.rotation.y)), delta); actG.rotation.x = 4*Math.PI*r;
+      const k = Math.floor(r*4); if (k > act.rolls && u < 1){ act.rolls = k; sfx('whoosh'); } break; }
     case 'shake': { const w = Math.sin(p*Math.PI*16)*(1-p); actG.rotation.z = w*0.28; shakeF = w; break; }
     case 'dance': { const b = act.t*Math.PI*2*1.7, fade = Math.min(1, (1-p)*6);
       actY = Math.abs(Math.sin(b))*0.28*s*fade; actG.rotation.y = Math.sin(b*0.5)*0.6*fade; actG.rotation.z = Math.sin(b)*0.14*fade;
@@ -1482,6 +1622,7 @@ function sim(m, offline){
   st.thirst -= 0.9*m*k*(w==='rain'||w==='storm' ? 0.6 : 1)*fOld;
   st.happy  -= (0.45 + (dirty?0.3:0) + (badWeather()?0.1:0))*m*k*(BG.flowers ? 0.7 : 1);
   S.aff = clamp(S.aff - (0.05 + (st.hunger < 25 || dirty ? 0.04 : 0))*m*k, 0, 100);   // affection fades slowly unless you keep caring
+  if (S.swollen){ st.happy -= 0.25*m*k; st.health -= 0.08*m*k; }   // bee-sting bumps hurt until treated
   if (offline) st.energy += 1.2*m;
   else if (asleep()) st.energy += (B.mode === 'inHouse' ? 3.2 : 2.4)*m;
   else if (act && act.key === 'fireflies') st.energy += 1.5*m;
@@ -1619,7 +1760,9 @@ function makeTomb(p){
   const top = new THREE.Mesh(new THREE.SphereGeometry(0.42,24,12,0,Math.PI*2,0,Math.PI/2), mat('#a3a59d',0.9)); top.position.y = 0.8; top.scale.z = 0.45; g.add(top);
   const cols = ['#f2a541','#e0607e','#f3d250','#f2f0ea'];
   for (let i=0;i<7;i++){ const f = new THREE.Mesh(new THREE.SphereGeometry(0.08,8,6), mat(cols[i%4],0.6)); f.position.set(rnd(-0.6,0.6),0.08,rnd(0.25,0.55)); g.add(f); }
-  g.position.set(p.x, 0, p.z); g.rotation.y = Math.atan2(camera.position.x - p.x, camera.position.z - p.z); scene.add(g); return g;
+  g.position.set(p.x, 0, p.z); g.rotation.y = Math.atan2(camera.position.x - p.x, camera.position.z - p.z); scene.add(g);
+  const hb = new THREE.Mesh(new THREE.CylinderGeometry(0.7,0.7,2.6,8), hbMat); hb.position.y = 1.2; hb.userData.kind = 'tomb'; g.add(hb); g.userData.hb = hb;
+  ghost = makeGhost(g.position); return g;
 }
 function die(cause){
   if (S.dead || B.mode === 'dying') return;
@@ -1640,6 +1783,7 @@ function updateDying(dt){
 }
 function clearPetWorld(){
   if (tomb){ scene.remove(tomb); tomb = null; }
+  if (ghost){ scene.remove(ghost); ghost = null; }
   cubes.slice().forEach(removePoop);
   foods.forEach(f => scene.remove(f.g, f.sh.g)); foods.length = 0;
   if (bowl){ scene.remove(bowl.g); bowl = null; }
@@ -1664,7 +1808,8 @@ function resetAll(){
   weeds.slice().forEach(w => { scene.remove(w.g); }); weeds.length = 0;
   snowmen.forEach(o => scene.remove(o.g, o.sh.g)); snowmen.length = 0;
   unbuildAll();
-  S = freshSave(); previewHoliday = null;
+  trees.forEach(tr => scene.remove(tr.g, tr.sh.g)); trees.length = 0;
+  S = freshSave(); previewHoliday = null; plantTrees(); S.trees.forEach(makeTree); applyBumps();
   try { localStorage.removeItem(KEY); } catch(e){}
   applyForm(); save(); hudDirty = true; closeSheet();
   toast('全部重新開始了。點一點蛋，幫牠保暖。');
@@ -1677,6 +1822,10 @@ function nearestFood(){ let best = null, bd = 1e9; for (const f of foods){ if (!
 function waterSpot(){ if (bowl && bowl.kind !== 'water') return {p:bowl.g.position, r:0.15}; if (BG.pond) return {p:SPOTS.pond, r:1.45}; if (bowl) return {p:bowl.g.position, r:0.15}; return null; }
 function pickWander(){
   const obs = obstacles();
+  if (trees.length && Math.random() < 0.12){   // go sniff around a tree (hives make this risky)
+    const tr = trees[Math.floor(Math.random()*trees.length)], d = V3(pos.x - tr.d.x, 0, pos.z - tr.d.z).normalize();
+    B.target.set(tr.d.x + d.x*0.3, 0, tr.d.z + d.z*0.3); B.treeVisit = tr; return; }
+  B.treeVisit = null;
   for (let i=0;i<14;i++){
     const a = Math.random()*Math.PI*2, r = Math.sqrt(Math.random())*WANDER, x = Math.sin(a)*r, z = Math.cos(a)*r;
     if (Math.hypot(x-pos.x, z-pos.z) < 1.4) continue;
@@ -1730,6 +1879,8 @@ function think(dt){
       B.lookT -= dt;
       if (B.lookT <= 0){ B.lookT = rnd(0.7,1.8); B.lookYaw = [-0.7,-0.35,0,0.35,0.7][Math.floor(Math.random()*5)]; B.lookPitch = rnd(-0.15,0.15); if (Math.random() < 0.4) ears[Math.floor(Math.random()*2)].v += rnd(-6,6); }
       if (st.hunger < 25){ B.stompT -= dt; if (B.stompT <= 0){ B.stompT = rnd(2.5,4); vel.y = 2.6*petS + 1; showEmote('💢',1.4); cry('angry'); } }
+      else if (butterflies.some(b => !b.leaving) && st.energy > 30 && Math.random() < dt*0.06){
+        B.mode = 'chase'; B.chase = butterflies.find(b => !b.leaving); B.timer = rnd(5,8); showEmote('🦋', 1.4); cry('chirp'); break; }
       else if (S.aff < 30){   // feeling neglected: come over and act cute for attention
         B.begT = (B.begT ?? rnd(12,25)) - dt;
         if (B.begT <= 0){ B.begT = rnd(35,60); B.mode = 'beg'; B.timer = 14; B.begSit = false; B.begE = 0;
@@ -1741,6 +1892,14 @@ function think(dt){
     case 'walk': case 'goto': {
       const r = walkTowards(B.target.x, B.target.z, dt, sp, 0.25); moving = r.moving;
       if (r.dist < 0.3 || B.timer <= 0){ B.mode = 'idle'; B.timer = rnd(2,5); B.lookT = 0; }
+      break; }
+    case 'chase': {   // bound after a butterfly, with little hops
+      const bf = B.chase;
+      if (!bf || !butterflies.includes(bf) || B.timer <= 0){
+        B.mode = 'idle'; B.timer = rnd(2,4); B.chase = null;
+        st.happy = clamp(st.happy + 6, 0, 100); st.energy = clamp(st.energy - 4, 0, 100); S.aff = clamp(S.aff + 1, 0, 100); showEmote('😆', 1.6); cry('happy'); break; }
+      const r = walkTowards(bf.g.position.x, bf.g.position.z, dt, sp*1.7, 0.4); moving = r.moving;
+      if (pos.y <= 0.001 && Math.random() < dt*1.2){ vel.y = 2.4*petS + 0.6; sqv += 1; }
       break; }
     case 'beg': {
       if (!B.begSit){ const r = walkTowards(B.target.x, B.target.z, dt, sp*1.2, 0.3); moving = r.moving; if (r.dist < 0.45 || B.timer < 8) B.begSit = true; }
@@ -1845,6 +2004,7 @@ function statusText(){
   if (B.mode === 'evolve') return '進化中！';
   if (B.mode === 'bloated') return '吃太撐，躺著動不了';
   if (B.mode === 'beg') return '在裝可憐，想要你摸摸牠';
+  if (B.mode === 'chase') return '在追蝴蝶！';
   if (dragging) return '被抓起來了！';
   if (act) return ACTS[act.key].name;
   if (B.mode === 'inHouse') return B.sleeping ? '在小窩裡睡覺' : '躲在小窩裡';
@@ -2025,7 +2185,7 @@ function showMemorial(){
   const msg = d.cause === 'old'
     ? `${nm}${what}活了 ${days} 天 ${hrs} 小時，安安穩穩地走完了這一生。謝謝你一路照顧牠。`
     : `${nm}${what}病得太重，沒能撐過去。牠陪了你 ${days} 天 ${hrs} 小時。下一隻記得多餵牠吃東西、喝水，保持乾淨，生病時要餵藥。`;
-  showModal(`${nm}離開了`, `<p>${msg}</p><p>代幣、衣服和建設都會留給下一隻。</p>`, [{label:'孵一顆新蛋', onClick:newEgg}]);
+  showModal(`${nm}離開了`, `<p>${msg}</p><p>牠的魂魄還在墳墓上飄著。準備好了，就<b>點一下墳墓</b>送牠去天堂，之後會出現新的蛋。代幣、衣服、道具和建設都會留給下一隻。</p>`, [{label:'好', onClick:()=>{}}]);
 }
 const sheet = $('#sheet'), sheetBody = $('#sheetBody'); let sheetKind = null;
 function openSheet(kind){ sheetKind = kind; sheet.hidden = false; renderSheet(); $('#sheetClose').focus(); }
@@ -2409,6 +2569,7 @@ function pickAt(e){
   if (S.stage === 'egg' && eggMesh.visible) list.push(eggMesh);
   cubes.forEach(c => list.push(c.hb)); weeds.forEach(w => list.push(w.hb));
   if (BG.house) list.push(BG.house.userData.dome);
+  trees.forEach(tr => list.push(tr.hb)); if (tomb && tomb.userData.hb) list.push(tomb.userData.hb);
   scene.updateMatrixWorld(true);
   return ray.intersectObjects(list, false).find(h => isShown(['poop','weed'].includes(h.object.userData.kind) ? h.object.parent : h.object)) || null;
 }
@@ -2490,6 +2651,8 @@ function up(e){
     if (k === 'egg') warmEgg();
     else if (k === 'poop') cleanPoop(tapObj.userData.ref);
     else if (k === 'weed') pullWeed(tapObj.userData.ref);
+    else if (k === 'tomb') releaseSpirit();
+    else if (k === 'tree'){ const tr = tapObj.userData.ref; tr.shake = 1; sfx('whoosh'); for (let i=0;i<4;i++) floatSprite(leafTexs[i%3], tr.g.position.clone().add(V3(rnd(-1,1), rnd(1.6,2.4)*tr.d.s, rnd(-1,1))), {size:0.26, vy:-0.6, vx:rnd(-0.4,0.4), max:2.4, fade:0.6, grow:0, rot:rnd(0,6), spin:rnd(-3,3)}); if (tr.d.hive) toast('樹上有蜂窩，別讓袋熊撞到喔！'); }
     else if (k === 'house'){ if (B.mode === 'inHouse'){ if (B.sleeping) wake(true); exitHouse(); } else toast(petActive() ? `這是${S.name || '牠'}的小窩。` : '小窩。'); }
     hudDirty = true;
   } else if (quick && mode === 'orbit' && !locked() && petActive() && !asleep() && !act && !['inHouse','enter','exit','eat','drink','evolve'].includes(B.mode)){
@@ -2598,6 +2761,8 @@ function importSave(){
 
 // ---------- restore ----------
 Object.keys(S.builds).forEach(id => S.builds[id] && build(id));
+if (!S.trees) plantTrees();
+S.trees.forEach(makeTree); applyBumps();
 (S.weeds || []).forEach(([x,z,s]) => makeWeed(x,z,s));
 (S.poops || []).forEach(([x,z,ry,sc]) => { const c = makePoop(V3(x, 0.1*(sc||1), z), null, sc||1); c.m.rotation.y = ry; });
 (S.snowmen || []).forEach(([x,z,ry,m]) => makeSnowman(x,z,ry,m));
@@ -2614,7 +2779,7 @@ if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
 if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
-if (new URLSearchParams(location.search).has('debug')) window.W = {petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+if (new URLSearchParams(location.search).has('debug')) window.W = {die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};
 if (PREVIEW) setTimeout(() => toast(`預覽模式：${form().name}。這裡的變化不會存檔，關掉網址後面的 ?preview 就回到你的袋熊。`), 900);
@@ -2702,7 +2867,8 @@ function step(manual){
 
     // blend the Blender animation clips by state, then layer procedural motion on top of the bones
     const eatOn = B.mode === 'eat' || B.mode === 'drink', curled = liftW > 0.5 || (act && ['roll','belly','flip'].includes(act.key));
-    const target = {walk: gaitW*(1 - liftW), eat: eatOn ? 1 : 0, sleep: sleepW, sit: sitW, happy: danceW*0.7, ball: curled ? 0.35 : 0};
+    const rolling = act && act.key === 'ballroll' && act.t > 0.15 && act.t < ACTS.ballroll.dur - 0.2;
+    const target = {walk: gaitW*(1 - liftW), eat: eatOn ? 1 : 0, sleep: sleepW, sit: sitW, happy: danceW*0.7, ball: rolling ? 1 : curled ? 0.35 : 0};
     let sum = 0;
     for (const k in BW){ BW[k] += (target[k] - BW[k])*Math.min(1, dt*6); sum += BW[k]; }
     const norm = Math.max(1, sum);
@@ -2783,7 +2949,7 @@ function step(manual){
     if (p.flat){ p.g.material.opacity = Math.max(0, 0.75*(1 - p.t/1.2)); if (p.t > 1.2){ scene.remove(p.g); fxPull.splice(i,1); } continue; }
     p.g.position.y = p.t*3; p.g.rotation.z += dt*8; p.g.scale.multiplyScalar(Math.exp(-3*dt)); if (p.t > 0.6){ scene.remove(p.g); fxPull.splice(i,1); } }
   if (bowl && bowl.kind === 'water' && BG.pond){ scene.remove(bowl.g); bowl = null; }
-  updateFormFx(dt, t); updateFx(dt); updateTools(dt); updatePests(dt);
+  updateFormFx(dt, t); updateFx(dt); updateTools(dt); updatePests(dt); updateTrees(dt); updateButterflies(dt); updateGhost(dt);
 
   if (dragging){
     scene.updateMatrixWorld(true);
