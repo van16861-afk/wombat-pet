@@ -208,7 +208,7 @@ const mixer = new THREE.AnimationMixer(model), CLIP = {};
 gltf.animations.forEach(c => { const a = mixer.clipAction(c); a.play(); a.setEffectiveWeight(0); CLIP[c.name.replace(/^W_/, '')] = a; });
 const BW = {walk:0, eat:0, sleep:0, sit:0, happy:0, ball:0};
 const qTmp = new THREE.Quaternion(), eTmp = new THREE.Euler();
-let headScale = 1, lookX = 0, lookY = 0;
+let headScale = 1, lookX = 0, lookY = 0, bloatW = 0;
 const turnBone = (b, x, y, z) => { if (x || y || z) b.quaternion.multiply(qTmp.setFromEuler(eTmp.set(x, y, z))); };
 const shadow = makeShadow(2.6, 3.4);
 
@@ -511,7 +511,7 @@ function faceCenter(g, p){ g.position.copy(p); g.rotation.y = Math.atan2(-p.x, -
 function glowMat(color, emissive){ const m = new THREE.MeshStandardMaterial({color, emissive, emissiveIntensity:0, roughness:0.5}); nightGlow.push(m); return m; }
 function signTexture(name){
   return canvasTex(256,128,(x,w,h)=>{ x.fillStyle = '#b98b5a'; x.fillRect(0,0,w,h); x.strokeStyle = '#8a6239'; x.lineWidth = 10; x.strokeRect(5,5,w-10,h-10);
-    x.fillStyle = '#3b2a1c'; x.font = 'bold 56px "LXGW WenKai TC","PingFang TC",sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(name || '小窩', w/2, h/2+4); });
+    x.fillStyle = '#3b2a1c'; x.font = 'bold 56px "Huninn","Microsoft JhengHei",sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(name || '小窩', w/2, h/2+4); });
 }
 function build(id){
   if (BG[id]) return;
@@ -1036,6 +1036,42 @@ function pullWeed(w){
     if (t > 1.0){ const f = Math.max(0.01, 1 - (t-1.0)/0.25); hand.scale.setScalar(f); w.g.scale.setScalar(w.s*f); }
   }, done(){ scene.remove(hand, w.g); }});
 }
+// ---------- pests: flies buzz around poop when the yard gets dirty, cockroaches show up when it's filthy ----------
+const flyTex = canvasTex(64,64,(x)=>{ x.fillStyle = 'rgba(220,235,245,0.75)'; x.beginPath(); x.ellipse(22,24,12,7,-0.5,0,Math.PI*2); x.ellipse(42,24,12,7,0.5,0,Math.PI*2); x.fill();
+  x.fillStyle = '#1b1b1b'; x.beginPath(); x.ellipse(32,36,8,11,0,0,Math.PI*2); x.fill(); x.beginPath(); x.arc(32,24,6,0,Math.PI*2); x.fill(); });
+const flies = [], roaches = [];
+let buzzT = 4;
+function makeRoach(){
+  const g = new THREE.Group(), shell = new THREE.MeshStandardMaterial({color:'#5a3520', roughness:0.25}), dark = mat('#2a1a10', 0.5);
+  const b = new THREE.Mesh(new THREE.SphereGeometry(1,14,10), shell); b.scale.set(0.085,0.035,0.14); b.position.y = 0.05; g.add(b);
+  const h = new THREE.Mesh(new THREE.SphereGeometry(0.04,10,8), dark); h.position.set(0,0.045,0.15); g.add(h);
+  const legs_ = [];
+  for (let i=0;i<6;i++){ const s = i%2 ? 1 : -1, z = (Math.floor(i/2)-1)*0.07, l = new THREE.Mesh(new THREE.CylinderGeometry(0.006,0.006,0.14,4), dark);
+    l.position.set(0.08*s, 0.03, z); l.rotation.z = s*1.2; g.add(l); legs_.push(l); }
+  for (const s of [-1,1]){ const a = new THREE.Mesh(new THREE.CylinderGeometry(0.004,0.004,0.2,4), dark); a.position.set(0.04*s,0.07,0.25); a.rotation.set(1.2,0,-0.5*s); g.add(a); }
+  const a = Math.random()*Math.PI*2; g.position.set(Math.sin(a)*7, 0, Math.cos(a)*7); scene.add(g);
+  return {g, legs:legs_, tgt:V3(0,0,0), retarget:0, leaving:false};
+}
+function updatePests(dt){
+  const dirt = clamp((62 - cleanVal())/42, 0, 1), spots = [...cubes.filter(c => !c.cleaning).map(c => c.m.position), ...weeds.map(w => w.g.position)];
+  const wantFlies = spots.length ? Math.round(dirt*8) : 0, wantRoaches = cleanVal() < 35 ? Math.min(4, 1 + Math.floor((35 - cleanVal())/10)) : 0;
+  while (flies.length < wantFlies){ const s = new THREE.Sprite(new THREE.SpriteMaterial({map:flyTex, transparent:true, depthWrite:false})); s.scale.setScalar(0.16); scene.add(s); flies.push({s, i:Math.floor(Math.random()*99), ph:Math.random()*9, r:rnd(0.25,0.6), sp:rnd(5,7)}); }
+  while (flies.length > wantFlies){ scene.remove(flies.pop().s); }
+  flies.forEach(f => { const c = spots[f.i % spots.length]; if (!c) return; const a = t*f.sp + f.ph;
+    f.s.position.set(c.x + Math.cos(a)*f.r + Math.sin(t*13+f.ph)*0.05, 0.35 + Math.sin(a*1.7+f.ph)*0.18 + 0.15, c.z + Math.sin(a)*f.r); });
+  if (flies.length >= 3){ buzzT -= dt; if (buzzT <= 0){ buzzT = rnd(6,10); sfx('buzz'); } }
+  while (roaches.filter(r => !r.leaving).length < wantRoaches) roaches.push(makeRoach());
+  roaches.filter(r => !r.leaving).slice(wantRoaches).forEach(r => { r.leaving = true; const a = Math.atan2(r.g.position.x, r.g.position.z); r.tgt.set(Math.sin(a)*8, 0, Math.cos(a)*8); });
+  for (let i=roaches.length-1;i>=0;i--){ const r = roaches[i], p = r.g.position;
+    const near = petActive() && root.visible && Math.hypot(p.x-pos.x, p.z-pos.z) < 1.4*Math.max(petS,0.6);
+    r.retarget -= dt;
+    if (!r.leaving && (r.retarget <= 0 || near)){ r.retarget = rnd(1.5,4); if (near){ const d = V3(p.x-pos.x,0,p.z-pos.z).normalize(); r.tgt.copy(p).addScaledVector(d, 2.5); } else { const a = Math.random()*Math.PI*2, rr = rnd(1,5); r.tgt.set(Math.sin(a)*rr, 0, Math.cos(a)*rr); } }
+    const d = V3(r.tgt.x-p.x, 0, r.tgt.z-p.z), dist = d.length();
+    if (dist > 0.1){ const sp = (near || r.leaving ? 2.6 : 1.1)*dt; p.addScaledVector(d.normalize(), Math.min(sp, dist));
+      r.g.rotation.y += clamp(wrapA(Math.atan2(d.x, d.z) - r.g.rotation.y), -8*dt, 8*dt); r.legs.forEach((l,k) => l.rotation.x = Math.sin(t*30 + k*1.3)*0.5); }
+    if (r.leaving && dist < 0.2){ scene.remove(r.g); roaches.splice(i,1); }
+  }
+}
 function updateTools(dt){
   for (let i=tools.length-1;i>=0;i--){ const tl = tools[i]; tl.t += dt; tl.update(Math.min(tl.t, tl.dur)); if (tl.t >= tl.dur){ tl.done(); tools.splice(i,1); } }
 }
@@ -1058,12 +1094,39 @@ const DRINKS = [
   {id:'milk',  name:'牛奶',   price:8,  thirst:32, happy:8, health:3, color:'#f4f1ea', desc:'喝了心情好。'},
   {id:'coco',  name:'椰子水', price:12, thirst:55, energy:10,  color:'#e7efe3', desc:'解渴又補體力。'}
 ];
-const foodInfo = id => FOODS.find(f => f.id === id) || DRINKS.find(f => f.id === id);
-const foodStats = f => [['hunger','飽足'],['thirst','水分'],['happy','心情'],['energy','體力'],['health','健康']].filter(([k]) => f[k]).map(([k,n]) => `${n} +${f[k]}`).join('、');
+// Health products work straight away (no bowl). Some help one stat but cost another.
+const CARE = [
+  {id:'vitamin',    icon:'💊', name:'綜合維他命', price:15, health:15, desc:'每天一顆，身體棒棒。'},
+  {id:'greenjuice', icon:'🥬', name:'苦苦青汁',   price:12, health:22, energy:-10, desc:'超健康，可是苦到沒力氣。'},
+  {id:'honey',      icon:'🍯', name:'蜂蜜',       price:14, energy:18, happy:6, desc:'甜甜的，馬上有精神。'},
+  {id:'ginseng',    icon:'🌱', name:'人參',       price:40, health:20, energy:20, desc:'很貴，但是真的很補。'},
+  {id:'energy',     icon:'⚡', name:'能量飲料',   price:10, energy:30, health:-10, desc:'提神效果驚人，對身體不太好。'},
+  {id:'cigarette',  icon:'🚬', name:'香菸',       price:8,  energy:12, happy:6, health:-22, desc:'一時有精神，但非常傷身體，不建議給牠！'}
+];
+const MEDS = [
+  {id:'coldmed',  icon:'🌡️', name:'感冒藥', price:10, health:45, desc:'生病的時候吃，健康 +45。'}
+];
+const FOOD_ICON = {grass:'🌿', carrot:'🥕', apple:'🍎', clover:'🍀', potato:'🍠', root:'🪵', water:'💧', milk:'🥛', coco:'🥥'};
+[...FOODS, ...DRINKS].forEach(f => f.icon = FOOD_ICON[f.id]);
+const foodInfo = id => [...FOODS, ...DRINKS, ...CARE, ...MEDS].find(f => f.id === id);
+const foodStats = f => [['hunger','飽足'],['thirst','水分'],['happy','心情'],['energy','體力'],['health','健康']].filter(([k]) => f[k]).map(([k,n]) => `${n} ${f[k] > 0 ? '+' : ''}${f[k]}`).join('、');
+// Use a health product or medicine from the bag: works immediately.
+function useCare(id){
+  const f = foodInfo(id);
+  if (!petActive()){ toast(S.stage === 'egg' ? '還沒孵出來喔。' : '現在不需要。'); return; }
+  if (!inv(id)){ toast(`背包裡沒有${f.name}了。`); return; }
+  invAdd(id, -1);
+  for (const k of ['happy','energy','health']) if (f[k]) S.st[k] = clamp(S.st[k] + f[k], 0, 100);
+  if (id === 'cigarette'){ showEmote('😵', 1.8); cry('grunt'); for (let i=0;i<5;i++) floatSprite(radialTex('rgba(200,200,200,0.8)','rgba(200,200,200,0)'), headTop(), {size:0.4, vy:0.5, vx:rnd(-0.3,0.3), delay:i*0.2, grow:1.2, max:1.6}); toast('咳咳……牠嗆到了，健康掉了好多。'); }
+  else if (f.health < 0){ showEmote('😵‍💫', 1.6); sfx('boing'); toast(`${f.name}：精神來了，可是身體有點負擔。`); }
+  else { showEmote(f.icon, 1.6); spawnHearts(1); sfx('happy'); toast(`${S.name || '牠'}${f.health > 0 ? '覺得身體好多了' : '精神好多了'}。`); }
+  hudDirty = true; save();
+}
 function giveFood(id){
   const f = foodInfo(id), isFood = f.hunger !== undefined;
   if (!petActive()){ toast(S.stage === 'egg' ? '還沒孵出來喔。' : '現在不需要。'); return; }
-  if (isFood && S.st.hunger > 92){ toast('牠吃得很飽了。'); return; }
+  if (B.mode === 'bloated'){ toast('牠撐到動不了了，等一下吧。'); return; }
+  if (isFood && S.st.hunger > 92) toast('牠已經很飽了……再吃可能會撐到喔。');
   if (isFood && foods.length >= 3){ toast('地上已經有食物了。'); return; }
   if (!isFood && S.st.thirst > 92){ toast('牠現在不渴。'); return; }
   if (!isFood && bowl){ toast('碗裡還有喝的。'); return; }
@@ -1276,6 +1339,7 @@ const hasTrick = k => !ACTS[k].price || !!(S.tricks && S.tricks[k]);
 function whyCantPlay(k){
   if (!petActive()) return S.stage === 'egg' ? '還沒孵出來喔。' : '';
   if (B.mode === 'evolve') return '牠正在進化！';
+  if (B.mode === 'bloated') return '牠吃太撐了，躺著動不了。';
   if (B.mode === 'inHouse' || B.mode === 'enter') return '牠在小窩裡，點一下小窩叫牠出來。';
   if (asleep()) return '牠在睡覺，讓牠多睡一下吧。';
   if (k && ACTS[k].special && !ACTS[k].need()) return ACTS[k].why;
@@ -1632,6 +1696,7 @@ function think(dt){
   walkVel.set(0,0,0);
   if (!petActive() || hatching || B.mode === 'evolve' || dragging || act || pos.y > 0.02 || liftW > 0.05) return false;
   const st = S.st; B.timer -= dt;
+  if (B.mode === 'bloated'){ if (B.timer <= 0){ B.mode = 'idle'; B.timer = 2; toast(`${S.name || '牠'}的肚子消下去了，可以動了。`); } return false; }
   const wakeOK = () => st.energy >= 98 || (nightF < 0.5 && st.energy >= 80);
   if (B.mode === 'sleep'){ if (wakeOK()) wake(false); return false; }
   if (B.mode === 'inHouse'){
@@ -1646,7 +1711,7 @@ function think(dt){
   if (!busy || B.mode === 'goHouse'){
     if (!['seek','seekWater'].includes(B.mode)){
       const f = nearestFood();
-      if (f && st.hunger < 96){ B.mode = 'seek'; B.food = f; }
+      if (f){ B.mode = 'seek'; B.food = f; }
       else if (B.water && st.thirst < 96 && waterSpot()) B.mode = 'seekWater';
     }
   }
@@ -1691,7 +1756,8 @@ function think(dt){
         if (Math.random() < 0.75) S.poopQ.push(rnd(1.5,3.5));
         spawnHearts(2); sfx('happy'); cry('happy');
         B.mode = 'idle'; B.timer = 2.5;
-        if (st.hunger > 90 && st.energy < 70 && Math.random() < 0.5){ if (BG.house) goHouse(true); else startSleep(); }
+        if (B.before > 90){ B.mode = 'bloated'; B.timer = 60; showEmote('😵', 3); cry('grunt'); toast(`${S.name || '牠'}吃太撐了！肚子鼓鼓的，要躺一分鐘才能動。`); }
+        else if (st.hunger > 90 && st.energy < 70 && Math.random() < 0.5){ if (BG.house) goHouse(true); else startSleep(); }
       }
       break; }
     case 'seekWater': {
@@ -1754,6 +1820,7 @@ const MOOD_CRY = {sick:'sad', angry:'angry', thirsty:'sad', dirty:'grunt', tired
 function statusText(){
   if (S.stage === 'egg' || S.dead || B.mode === 'dying' || B.mode === 'dead') return '';
   if (B.mode === 'evolve') return '進化中！';
+  if (B.mode === 'bloated') return '吃太撐，躺著動不了';
   if (dragging) return '被抓起來了！';
   if (act) return ACTS[act.key].name;
   if (B.mode === 'inHouse') return B.sleeping ? '在小窩裡睡覺' : '躲在小窩裡';
@@ -1941,45 +2008,104 @@ function openSheet(kind){ sheetKind = kind; sheet.hidden = false; renderSheet();
 function closeSheet(){ sheet.hidden = true; sheetKind = null; }
 $('#sheetClose').onclick = closeSheet;
 function md(d){ return `${d.getMonth()+1}/${d.getDate()}`; }
+// ---------- icon-tile catalogues (shop, feeding, tricks) ----------
+const TRICK_ICON = {sit:'🐾', flip:'🤸', roll:'🌀', spin:'⭐', belly:'🙃', shake:'💨', dance:'💃', ballroll:'🎳', snowman:'⛄', puddle:'💦', fireflies:'✨'};
+const TRICK_DESC = {sit:'乖乖坐下，看著你。心情 +6', flip:'原地一個後空翻！體力 -6，心情 +10', roll:'連續側翻滾三圈。體力 -6，心情 +10', spin:'跳起來轉一圈。體力 -6，心情 +10',
+  belly:'翻過來露出肚子扭扭。體力 -6，心情 +10', shake:'甩甩全身的毛。體力 -6，心情 +10', dance:'跟著音樂跳舞。體力 -8，心情 +14', ballroll:'縮成一顆球往前滾。體力 -6，心情 +12'};
+const CLOTH_ICON = {party:'🥳', straw:'👒', glasses:'👓', bow:'🎀', scarf:'🧣', sweater:'🧶', nyband:'🎊', caishen:'🧧', heartgl:'😍', propeller:'🚁', sachet:'🎐', bunny:'🐰', witch:'🧙', santa:'🎅'};
+const BUILD_ICON = {house:'🏠', pond:'⛲', lamp:'💡', flowers:'🌷', fence:'🪵', fireworks:'🎆', lanterns:'🏮', heartarch:'💗', slide:'🎢', dragonboat:'🐉', moonlamp:'🌕', pumpkins:'🎃', xmastree:'🎄'};
+let shopTab = 'food', feedTab = 'food', detailQty = 1;
+const tabsHTML = (tabs, cur, attr) => `<div class="tabs" role="tablist">` + tabs.map(([k,l]) => `<button class="tab" role="tab" aria-selected="${k === cur}" data-${attr}="${k}">${l}</button>`).join('') + `</div>`;
+const tileHTML = (e, i) => `<button class="tile${e.dim ? ' dim' : ''}" data-tile="${i}" aria-label="${e.name}"><span class="ti">${e.icon}</span><span class="tn">${e.name}</span>${e.badge ? `<span class="tb">${e.badge}</span>` : ''}</button>`;
+const swatch = (c, b) => `<i class="dye" style="background:${c};box-shadow:inset -9px -7px 0 ${b}"></i>`;
+let tiles = [];   // entries of the grid currently on screen; data-tile indexes into it
+const holLive = c => !c.holiday || (realHoliday() && realHoliday().id === c.holiday);
+// Popup for one tile: big icon, text, optional quantity stepper, buttons.
+function detail(e){
+  const q = e.qty ? `<div class="qty"><button class="btn ghost" data-q="-1" aria-label="少一個">−</button><b id="qtyN">1</b><button class="btn ghost" data-q="1" aria-label="多一個">＋</button><span id="qtyCost"></span></div>` : '';
+  showModal(e.name, `<div class="bigicon">${e.icon}</div>${e.body || ''}${q}`, e.actions);
+  detailQty = 1;
+  if (e.qty){ let n = 1; const upd = () => { detailQty = n; $('#qtyN').textContent = n; $('#qtyCost').textContent = `共 ${n*e.price} 代幣`; };
+    document.querySelectorAll('#modalBody [data-q]').forEach(b => b.onclick = () => { n = clamp(n + +b.dataset.q, 1, Math.max(1, Math.min(20, Math.floor(S.coins/e.price)))); upd(); });
+    upd(); }
+}
+const afterBuy = () => { save(); hudDirty = true; renderSheet(); };
+function buyConsumable(f, n){ if (S.coins < f.price*n){ toast('代幣不夠。'); return; } S.coins -= f.price*n; invAdd(f.id, n); sfx('coin'); toast(`買了 ${n} 份${f.name}，放進背包了。`); afterBuy(); }
+function buyTrick(k){ const a = ACTS[k]; if (S.coins < a.price){ toast('代幣不夠。'); return false; } S.coins -= a.price; S.tricks = S.tricks || {}; S.tricks[k] = true; sfx('happy'); toast(`${S.name || '牠'}學會「${a.name}」了！`); afterBuy(); return true; }
+function buyCloth(c){ if (S.coins < c.price){ toast('代幣不夠。'); return; } S.coins -= c.price; S.owned[c.id] = true; wear(c.id, true); sfx('happy'); toast(`買了${c.name}，已經幫牠穿上。到衣櫥可以換顏色。`); afterBuy(); }
+function buyBuild(b){ if (S.coins < b.price){ toast('代幣不夠。'); return; } S.coins -= b.price; S.builds[b.id] = true; build(b.id); refreshSign(); sfx('grow'); toast(`${b.name}蓋好了！`); afterBuy(); }
+function consumableEntry(f, mode){
+  const n = inv(f.id), free = !f.price, L = S.likes || {known:{}};
+  const taste = L.known && L.known.fav && L.fav === f.id ? '（牠的最愛！）' : L.known && L.known.hate && L.hate === f.id ? '（牠不太喜歡）' : '';
+  const body = `<p>${f.desc}${taste}</p><p><b>${foodStats(f)}</b></p><p>${free ? '免費，隨時都有。' : `${f.price} 代幣・背包裡有 ${n} 個`}</p>`;
+  if (mode === 'shop') return {icon:f.icon, name:f.name, badge: n ? `×${n}` : `${f.price}`, price:f.price, qty:true, body,
+    actions:[{label:'關閉', ghost:true, onClick:()=>{}}, {label:'購買', onClick:() => buyConsumable(f, detailQty)}]};
+  const isCare = CARE.includes(f) || MEDS.includes(f);
+  const go = () => { closeSheet(); (isCare ? useCare : giveFood)(f.id); save(); hudDirty = true; };
+  return {icon:f.icon, name:f.name, dim: !free && !n, badge: free ? '免費' : n ? `×${n}` : `${f.price}`, body,
+    actions: free || n ? [{label:'關閉', ghost:true, onClick:()=>{}}, {label:'給牠', onClick:go}]
+      : [{label:'關閉', ghost:true, onClick:()=>{}}, {label:`買一份給牠（${f.price}）`, onClick:() => { if (S.coins < f.price){ toast('代幣不夠。'); return; } S.coins -= f.price; invAdd(f.id, 1); go(); }}]};
+}
+function trickEntry(k){
+  const a = ACTS[k], have = hasTrick(k), why = have ? whyCantPlay(k) : null;
+  const body = `<p>${a.special ? a.desc : TRICK_DESC[k]}</p>${a.special ? `<p class="note">${a.why}</p>` : ''}<p>${have ? (why ? `現在不行：${why}` : '已經學會了。') : `還沒學會。學費 ${a.price} 代幣。`}</p>`;
+  return {icon:TRICK_ICON[k] || '🎲', name:a.name, dim:!have || (a.special && why), badge: have ? '' : `🔒${a.price}`, body,
+    actions: have ? [{label:'關閉', ghost:true, onClick:()=>{}}, {label:'表演', onClick:() => { closeSheet(); startAct(k); }}]
+      : [{label:'關閉', ghost:true, onClick:()=>{}}, {label:`學會（${a.price}）`, onClick:() => buyTrick(k)}]};
+}
+function shopEntries(tab){
+  const no = [{label:'關閉', ghost:true, onClick:()=>{}}];
+  if (tab === 'food') return FOODS.filter(f => f.price).map(f => consumableEntry(f, 'shop'));
+  if (tab === 'drink') return DRINKS.filter(f => f.price).map(f => consumableEntry(f, 'shop'));
+  if (tab === 'care') return CARE.map(f => consumableEntry(f, 'shop'));
+  if (tab === 'med') return MEDS.map(f => consumableEntry(f, 'shop'));
+  if (tab === 'trick') return Object.keys(ACTS).filter(k => ACTS[k].price).map(trickEntry).map(e => ({...e, badge: e.badge || '已學會'}));
+  if (tab === 'dye') return DYES.map((d,i) => ({icon:swatch(d.c, d.b), name:d.name, badge: S.dye === i ? '使用中' : `${DYE_PRICE}`,
+      body:`<p>把${S.name || '牠'}的毛染成${d.name}色。現在是${coatName()}。</p><p>${DYE_PRICE} 代幣</p>`,
+      actions: S.dye === i ? no : [...no, {label:'染色', onClick:() => { if (S.coins < DYE_PRICE){ toast('代幣不夠。'); return; } S.coins -= DYE_PRICE; S.dye = i; applyFur(); sparkles(headTop(), 18, 1.2*petS); sfx('grow'); toast(`${S.name || '牠'}變成${d.name}色了！`); afterBuy(); }}]}))
+    .concat(S.dye != null ? [{icon:'🫧', name:'褪色劑', badge:`${UNDYE_PRICE}`, body:`<p>變回天生的${(FURS[S.fur] || FURS[0]).name}色。</p><p>${UNDYE_PRICE} 代幣</p>`,
+      actions:[...no, {label:'褪色', onClick:() => { if (S.coins < UNDYE_PRICE){ toast('代幣不夠。'); return; } S.coins -= UNDYE_PRICE; S.dye = null; applyFur(); sfx('grow'); toast('變回天生的顏色了。'); afterBuy(); }}]}] : []);
+  if (tab === 'item') return [
+    {icon:'🏷️', name:'改名券', badge: S.renameTicket ? '持有中' : '50', body:'<p>幫牠換一個名字，一張用一次。一次只能持有一張，到衣櫥使用。</p><p>50 代幣</p>',
+      actions: S.renameTicket ? no : [...no, {label:'購買', onClick:() => { if (S.coins < 50){ toast('代幣不夠。'); return; } S.coins -= 50; S.renameTicket = 1; sfx('coin'); toast('買了改名券，到「衣櫥」使用。'); afterBuy(); }}]},
+    {icon:'🧹', name:'一鍵清理', badge: S.autoClean ? '已擁有' : '300', body:'<p>按一下「清理」，就把便便和雜草一次清光。永久有效。</p><p>300 代幣</p>',
+      actions: S.autoClean ? no : [...no, {label:'購買', onClick:() => { if (S.coins < 300){ toast('代幣不夠。'); return; } S.coins -= 300; S.autoClean = true; sfx('happy'); toast('有了一鍵清理！以後按「清理」就能一次清光。'); afterBuy(); }}]}];
+  const real = realHoliday();
+  const clothE = c => ({icon:CLOTH_ICON[c.id] || '👕', name:c.name, badge: S.owned[c.id] ? '已擁有' : `${c.price}`, dim: !S.owned[c.id] && !holLive(c),
+    body:`<p>${c.holiday ? `${HOLIDAYS.find(x=>x.id===c.holiday).name}限定，只在節日當天賣。` : ''}${S.owned[c.id] ? '已經有了，到衣櫥可以穿脫、換顏色。' : `${c.price} 代幣`}</p>`,
+    actions: S.owned[c.id] || !holLive(c) ? no : [...no, {label:'購買並穿上', onClick:() => buyCloth(c)}]});
+  const buildE = b => ({icon:BUILD_ICON[b.id] || '🏗️', name:b.name, badge: S.builds[b.id] ? '已建造' : `${b.price}`, dim: !S.builds[b.id] && !holLive(b),
+    body:`<p>${b.desc}</p><p>${b.holiday ? `${HOLIDAYS.find(x=>x.id===b.holiday).name}限定。` : ''}${S.builds[b.id] ? '已經蓋好了。' : `${b.price} 代幣`}</p>`,
+    actions: S.builds[b.id] || !holLive(b) ? no : [...no, {label:'建造', onClick:() => buyBuild(b)}]});
+  if (tab === 'cloth') return CLOTHES.filter(c => !c.holiday || S.owned[c.id] || holLive(c)).map(clothE);
+  if (tab === 'build') return BUILDS.filter(b => !b.holiday || S.builds[b.id] || holLive(b)).map(buildE);
+  if (tab === 'limited'){ const h = activeHoliday(); return h ? [...CLOTHES.filter(c => c.holiday === h.id).map(clothE), ...BUILDS.filter(b => b.holiday === h.id).map(buildE)] : []; }
+  return [];
+}
+const SHOP_TABS = [['food','食物'],['drink','飲料'],['care','保健'],['med','藥品'],['trick','招式'],['dye','染劑'],['item','道具'],['cloth','服裝'],['build','建築']];
 function renderSheet(){
   if (!sheetKind) return;
   $('#sheetTitle').textContent = {play:'玩耍', shop:'商店', wardrobe:'衣櫥', settings:'設定', feed:'餵食', water:'喝水'}[sheetKind];
   let h = '';
   if (sheetKind === 'feed' || sheetKind === 'water'){
-    const list = sheetKind === 'feed' ? FOODS : DRINKS, L = S.likes || {known:{}};
-    h = `<p class="sec">${sheetKind === 'feed' ? '要給牠吃什麼？' : '要給牠喝什麼？'}青草和清水免費，其他的要到商店買，或在這裡直接買一份。</p><div class="grid">`
-      + list.map(f => { const n = inv(f.id), tag = L.known && L.known.fav && L.fav === f.id ? '<span class="tag">最愛</span>' : L.known && L.known.hate && L.hate === f.id ? '<span class="tag" style="background:var(--soft)">不愛</span>' : '';
-        const btn = !f.price ? `<button class="btn" data-use="${f.id}">給牠</button>`
-          : n ? `<button class="btn" data-use="${f.id}">給牠（剩 ${n}）</button>`
-          : `<button class="btn ghost" data-usebuy="${f.id}" ${S.coins < f.price ? 'disabled' : ''}>買一份給牠（${f.price}）</button>`;
-        return `<div class="card">${tag}<h3>${f.name}</h3><p>${f.desc}</p><p>${foodStats(f)}</p>${btn}</div>`; }).join('') + `</div>`;
+    if (sheetKind === 'water' && feedTab === 'food') feedTab = 'drink';
+    if (sheetKind === 'feed' && feedTab === 'drink') feedTab = 'food';
+    const list = feedTab === 'food' ? FOODS : feedTab === 'drink' ? DRINKS : [...CARE, ...MEDS];
+    tiles = list.filter(f => !f.price || inv(f.id) || feedTab !== 'care').map(f => consumableEntry(f, 'use'));
+    h = tabsHTML([['food','食物'],['drink','飲料'],['care','保健・藥品']], feedTab, 'ftab')
+      + (tiles.length ? `<div class="tiles">${tiles.map(tileHTML).join('')}</div>` : `<p class="sec">背包裡還沒有保健品或藥。到商店的「保健」「藥品」買吧。</p>`)
+      + `<p class="sec">點圖示看說明。灰色的是背包裡沒有的，可以直接買一份。</p>`;
   } else if (sheetKind === 'play'){
-    const card = ([k,a]) => { const why = whyCantPlay(k), sp = a.special;
-      if (!hasTrick(k)) return `<div class="card"><h3>🔒 ${a.name}</h3><p>還沒學會。${a.price} 代幣</p><button class="btn ghost" data-buytrick="${k}" ${S.coins < a.price ? 'disabled' : ''}>學會這招</button></div>`;
-      const cost = {dance:'體力 -8，心情 +14', sit:'乖乖坐好，心情 +6', snowman:'', puddle:'', fireflies:''}[k] ?? '體力 -6，心情 +10';
-      return `<button class="card" data-act="${k}" ${why && sp ? 'disabled' : ''}><h3>${a.name}</h3><p>${sp ? (why && sp ? a.why : a.desc) : cost}</p></button>`; };
-    h = `<div class="grid">` + Object.entries(ACTS).filter(([,a]) => !a.special).map(card).join('') + `</div>`
-      + `<p class="sec">特別活動（看天氣和時間）</p><div class="grid">` + Object.entries(ACTS).filter(([,a]) => a.special).map(card).join('') + `</div>`;
+    tiles = Object.keys(ACTS).map(trickEntry);
+    h = `<div class="tiles">${tiles.map(tileHTML).join('')}</div><p class="sec">點圖示看說明。🔒 的招式要先學會；有些要看天氣和時間。</p>`;
   } else if (sheetKind === 'shop'){
-    const hol = activeHoliday(), real = realHoliday(), nx = nextHoliday();
-    const clothCard = c => `<div class="card${c.holiday ? ' limited' : ''}">${c.holiday ? `<span class="tag">${HOLIDAYS.find(x=>x.id===c.holiday).name}限定</span>` : ''}<h3>${c.name}</h3><p>${c.price} 代幣</p>${S.owned[c.id] ? `<button class="btn ghost" disabled>已擁有</button>` : (c.holiday && (!real || real.id !== c.holiday)) ? `<button class="btn ghost" disabled>只在節日當天賣</button>` : `<button class="btn" data-buy="${c.id}" ${S.coins < c.price ? 'disabled' : ''}>購買</button>`}</div>`;
-    const buildCard = b => `<div class="card${b.holiday ? ' limited' : ''}">${b.holiday ? `<span class="tag">${HOLIDAYS.find(x=>x.id===b.holiday).name}限定</span>` : ''}<h3>${b.name}</h3><p>${b.desc}</p><p>${b.price} 代幣</p>${S.builds[b.id] ? `<button class="btn ghost" disabled>已建造</button>` : (b.holiday && (!real || real.id !== b.holiday)) ? `<button class="btn ghost" disabled>只在節日當天賣</button>` : `<button class="btn" data-build="${b.id}" ${S.coins < b.price ? 'disabled' : ''}>建造</button>`}</div>`;
-    if (hol){
-      h += `<p class="sec">${hol.name}限定（${real && real.id === hol.id ? '今天才買得到，買了永久保留' : '預覽中，只能看不能買'}）</p><div class="grid">` + CLOTHES.filter(c => c.holiday === hol.id).map(clothCard).join('') + BUILDS.filter(b => b.holiday === hol.id).map(buildCard).join('') + `</div>`;
-    } else if (nx){ h += `<p class="sec">下一個節日：${nx.h.name}（${md(nx.d)}），當天會賣限定服裝和建設。</p>`; }
-    h += `<p class="sec">補給</p><div class="grid"><div class="card"><h3>感冒藥</h3><p>健康 +45。生病時用。</p><p>10 代幣</p><button class="btn" data-med ${S.coins < 10 ? 'disabled' : ''}>購買並餵藥</button></div>`
-      + [...FOODS, ...DRINKS].filter(f => f.price).map(f => `<div class="card"><h3>${f.name}</h3><p>${f.desc}</p><p>${foodStats(f)}</p><p>${f.price} 代幣・背包裡 ${inv(f.id)} 個</p><div class="opts"><button class="btn" data-buyfood="${f.id}|1" ${S.coins < f.price ? 'disabled' : ''}>買 1</button><button class="btn ghost" data-buyfood="${f.id}|5" ${S.coins < f.price*5 ? 'disabled' : ''}>買 5</button></div></div>`).join('') + `</div>`;
-    const locked = Object.entries(ACTS).filter(([k]) => !hasTrick(k));
-    if (locked.length) h += `<p class="sec">招式（學會以後可以在「玩耍」使用）</p><div class="grid">` + locked.map(([k,a]) => `<div class="card"><h3>${a.name}</h3><p>${a.special ? a.desc : '新的才藝。'}</p><p>${a.price} 代幣</p><button class="btn" data-buytrick="${k}" ${S.coins < a.price ? 'disabled' : ''}>學會</button></div>`).join('') + `</div>`;
-    h += `<p class="sec">染劑（現在是${coatName()}。染了以後，下一隻孵出來還是天生的顏色）</p><div class="grid">`
-      + DYES.map((d,i) => `<div class="card"><div class="row"><h3>${d.name}</h3><i class="sw" style="background:${d.c};box-shadow:inset -8px -6px 0 ${d.b}"></i></div><p>${DYE_PRICE} 代幣</p><button class="btn" data-dye="${i}" ${S.coins < DYE_PRICE || S.dye === i ? 'disabled' : ''}>${S.dye === i ? '現在的顏色' : '染這個顏色'}</button></div>`).join('')
-      + (S.dye != null ? `<div class="card"><h3>褪色劑</h3><p>變回天生的${(FURS[S.fur] || FURS[0]).name}。</p><p>${UNDYE_PRICE} 代幣</p><button class="btn" data-undye ${S.coins < UNDYE_PRICE ? 'disabled' : ''}>褪色</button></div>` : '') + `</div>`;
-    h += `<p class="sec">道具</p><div class="grid">`
-      + `<div class="card"><h3>改名券</h3><p>幫牠換一個名字，一張用一次。一次只能持有一張。</p><p>50 代幣</p><button class="btn" data-buyticket ${S.coins < 50 || S.renameTicket ? 'disabled' : ''}>${S.renameTicket ? '已經有一張了' : '購買'}</button></div>`
-      + `<div class="card"><h3>一鍵清理</h3><p>按一下「清理」就把便便和雜草一次清光。永久有效。</p><p>300 代幣</p><button class="btn" data-buyclean ${S.coins < 300 || S.autoClean ? 'disabled' : ''}>${S.autoClean ? '已擁有' : '購買'}</button></div></div>`;
-    h += `<p class="sec">衣服</p><div class="grid">` + CLOTHES.filter(c => !c.holiday || (S.owned[c.id] && (!hol || c.holiday !== hol.id))).map(clothCard).join('') + `</div>`;
-    h += `<p class="sec">建設</p><div class="grid">` + BUILDS.filter(b => !b.holiday || (S.builds[b.id] && (!hol || b.holiday !== hol.id))).map(buildCard).join('') + `</div>`;
-    h += `<p class="sec">清大便一顆 +3、拔雜草一株 +2、牠餓或渴的時候餵食、喝水各 +2、堆雪人 +5、踩水窪 +2、摸摸牠偶爾 +1。</p>`;
+    const hol = activeHoliday(), nx = nextHoliday(), tabs = hol ? [['limited', hol.name + '限定'], ...SHOP_TABS] : SHOP_TABS;
+    if (!tabs.some(([k]) => k === shopTab)) shopTab = 'food';
+    tiles = shopEntries(shopTab);
+    h = tabsHTML(tabs, shopTab, 'stab') + `<div class="tiles">${tiles.map(tileHTML).join('')}</div>`
+      + (shopTab === 'limited' && hol && !(realHoliday() && realHoliday().id === hol.id) ? `<p class="sec">節日預覽中，只能看不能買。</p>` : '')
+      + (!hol && nx && (shopTab === 'cloth' || shopTab === 'build') ? `<p class="sec">下一個節日：${nx.h.name}（${md(nx.d)}），當天會賣限定服裝和建設。</p>` : '')
+      + `<p class="sec">點圖示看說明和購買。賺代幣：清大便 +3、拔雜草 +2、餓或渴的時候餵食喝水 +2、堆雪人 +5、踩水窪 +2、摸摸牠偶爾 +1。</p>`;
   } else if (sheetKind === 'wardrobe'){
     const owned = CLOTHES.filter(c => S.owned[c.id]);
     const L = S.likes || {known:{}}, taste = [L.known.fav && `最愛吃${foodInfo(L.fav).name}`, L.known.hate && `不愛吃${foodInfo(L.hate).name}`].filter(Boolean).join('，');
@@ -2027,6 +2153,9 @@ function cloudPanel(){
 sheetBody.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b || b.disabled) return;
   const d = b.dataset;
+  if (d.stab){ shopTab = d.stab; renderSheet(); return; }
+  if (d.ftab){ feedTab = d.ftab; renderSheet(); return; }
+  if (d.tile !== undefined){ const e = tiles[+d.tile]; if (e) detail(e); return; }
   if (d.act){ closeSheet(); startAct(d.act); return; }
   if (d.use || d.usebuy){ const id = d.use || d.usebuy, f = foodInfo(id);
     if (d.usebuy){ if (S.coins < f.price) return; S.coins -= f.price; invAdd(id, 1); }
@@ -2439,7 +2568,8 @@ if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
 if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
-if (new URLSearchParams(location.search).has('debug')) window.W = {THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+if (new URLSearchParams(location.search).has('debug')) window.W = {flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+  run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};
 if (PREVIEW) setTimeout(() => toast(`預覽模式：${form().name}。這裡的變化不會存檔，關掉網址後面的 ?preview 就回到你的袋熊。`), 900);
 
@@ -2447,11 +2577,12 @@ if (PREVIEW) setTimeout(() => toast(`預覽模式：${form().name}。這裡的�
 const clock = new THREE.Clock();
 const tmpQ = new THREE.Quaternion(), tmpQi = new THREE.Quaternion();
 let t = 0, hudT = 0, lastReal = performance.now();
-function step(){
+function step(manual){
+  manual = manual === true;   // W.run() drives frames by hand in tests
   if (halted) return;
   const nowR = performance.now(), gap = nowR - lastReal; lastReal = nowR;
-  if (gap > 2000) catchUp(gap);
-  const dt = Math.min(clock.getDelta(), 1/30); t += dt;
+  if (gap > 2000 && !manual) catchUp(gap);
+  const dt = manual ? 1/30 : Math.min(clock.getDelta(), 1/30); t += dt;
 
   const gm = dt*S.speed/60;
   if (S.stage === 'egg' && !S.dead){
@@ -2507,7 +2638,9 @@ function step(){
     if (r > BOUND && !['enter','exit','inHouse'].includes(B.mode)){ const nx = pos.x/r, nz = pos.z/r; pos.x = nx*BOUND; pos.z = nz*BOUND; const vn = vel.x*nx + vel.z*nz; if (vn > 0){ vel.x -= 1.4*vn*nx; vel.z -= 1.4*vn*nz; } }
     const bob = gaitW*Math.abs(Math.sin(walkClock))*0.03*petS;
     root.position.set(pos.x, pos.y + actY + bob, pos.z);
-    if (!act && !evo && B.mode !== 'dying'){
+    bloatW += ((B.mode === 'bloated' ? 1 : 0) - bloatW)*Math.min(1, dt*3);
+    if (bloatW > 0.01 && !act && !evo){ actG.rotation.z = Math.PI*bloatW + Math.sin(t*1.6)*0.05*bloatW; actY = 0; }
+    else if (!act && !evo && B.mode !== 'dying'){
       const sick = petActive() && (S.st.health < 35 || S.form === 'sickly') && !asleep();
       actG.rotation.z = gaitW*Math.sin(walkClock)*0.025 + (sick ? Math.sin(t*38)*(S.st.health < 35 ? 0.02 : 0.008) : 0);
     }
@@ -2519,7 +2652,7 @@ function step(){
     tvx += ((targX-tx)*38 - tvx*damp)*dt; tx += tvx*dt; tvz += ((targZ-tz)*38 - tvz*damp)*dt; tz += tvz*dt;
     tiltG.rotation.x = tx; tiltG.rotation.z = tz;
     sqv += (-sq*180 - sqv*11)*dt; sq += sqv*dt; sq = clamp(sq, -0.25, 0.32);
-    squashG.scale.set(1 + sq*0.55, 1 - sq, 1 + sq*0.4);
+    squashG.scale.set((1 + sq*0.55)*(1 + 0.16*bloatW), 1 - sq, (1 + sq*0.4)*(1 + 0.12*bloatW));
 
     // blend the Blender animation clips by state, then layer procedural motion on top of the bones
     const eatOn = B.mode === 'eat' || B.mode === 'drink', curled = liftW > 0.5 || (act && ['roll','belly','flip'].includes(act.key));
@@ -2531,7 +2664,7 @@ function step(){
     CLIP.idle.setEffectiveWeight(Math.max(0, 1 - sum));
     CLIP.walk.timeScale = 0.6 + gaitW*0.9*clamp(petSpeed()/0.9, 0.6, 1.6);
     mixer.update(dt);
-    legs.forEach(l => turnBone(l.bone, -(liftW*(0.3 + Math.sin(t*9+l.phase)*0.4) + wiggleW*Math.sin(t*16+l.phase)*0.6 + danceW*Math.sin(t*11+l.phase)*0.3), 0, 0));
+    legs.forEach(l => turnBone(l.bone, -(liftW*(0.3 + Math.sin(t*9+l.phase)*0.4) + bloatW*Math.sin(t*3+l.phase)*0.35 + wiggleW*Math.sin(t*16+l.phase)*0.6 + danceW*Math.sin(t*11+l.phase)*0.3), 0, 0));
     const fv = V3(-(vel.x+walkVel.x), -vel.y, -(vel.z+walkVel.z)).multiplyScalar(0.012); fv.y -= 0.012;
     if (ar.shake) fv.add(V3(1,0,0).applyQuaternion(tmpQ).multiplyScalar(ar.shake*0.07));
     if (fv.length() > 0.08) fv.setLength(0.08);
@@ -2604,7 +2737,7 @@ function step(){
     if (p.flat){ p.g.material.opacity = Math.max(0, 0.75*(1 - p.t/1.2)); if (p.t > 1.2){ scene.remove(p.g); fxPull.splice(i,1); } continue; }
     p.g.position.y = p.t*3; p.g.rotation.z += dt*8; p.g.scale.multiplyScalar(Math.exp(-3*dt)); if (p.t > 0.6){ scene.remove(p.g); fxPull.splice(i,1); } }
   if (bowl && bowl.kind === 'water' && BG.pond){ scene.remove(bowl.g); bowl = null; }
-  updateFormFx(dt, t); updateFx(dt); updateTools(dt);
+  updateFormFx(dt, t); updateFx(dt); updateTools(dt); updatePests(dt);
 
   if (dragging){
     scene.updateMatrixWorld(true);
@@ -2614,7 +2747,7 @@ function step(){
 
   hudT -= dt; if (hudDirty || hudT <= 0){ hudT = 0.5; renderHUD(); }
   renderer.render(scene, camera);
-  requestAnimationFrame(step);
+  if (!manual) requestAnimationFrame(step);
 }
 requestAnimationFrame(step);
 }
