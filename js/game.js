@@ -491,21 +491,33 @@ const rings = [0,1,2].map(i => { const m = new THREE.Mesh(new THREE.TorusGeometr
 const BOUND = 5.4, WANDER = 4.4;
 const SPOTS = { house:V3(-4.0,0,-3.5), pond:V3(4.0,0,-3.4), lamp:V3(1.0,0,-5.3), flowers:V3(-4.5,0,3.0) };
 const ringSpot = deg => V3(Math.sin(deg*Math.PI/180)*8.3, 0, Math.cos(deg*Math.PI/180)*8.3);
+// size = footprint in grid cells [width, depth] (1 cell = 1 unit); the fence has no footprint (it rings the yard).
 const BUILDS = [
-  {id:'house',   name:'袋熊小窩', price:120, desc:'晚上、下雨或累了會躲進去睡，睡得比較好。', r:2.3},
-  {id:'pond',    name:'小水池',   price:90,  desc:'不用再擺水碗，按喝水牠就會自己走去喝。', r:1.9},
-  {id:'lamp',    name:'路燈',     price:60,  desc:'天黑會亮起來。', r:0.5},
-  {id:'flowers', name:'花圃',     price:40,  desc:'看著花，心情掉得比較慢。', r:1.4},
-  {id:'fence',   name:'木圍籬',   price:80,  desc:'圍出一個家，雜草長得比較慢。', r:0},
-  {id:'fireworks', name:'煙火台',   price:80, desc:'晚上會自己放煙火。', r:0, holiday:'newyear',   spot:100},
-  {id:'lanterns',  name:'紅燈籠串', price:70, desc:'一整串喜氣的紅燈籠，晚上會亮。', r:0, holiday:'cny', spot:130},
-  {id:'heartarch', name:'愛心拱門', price:70, desc:'粉紅色的拱門。', r:0, holiday:'valentine', spot:160},
-  {id:'slide',     name:'溜滑梯',   price:80, desc:'公園裡的那種溜滑梯。', r:0, holiday:'children', spot:190},
-  {id:'dragonboat',name:'小龍舟',   price:80, desc:'放在院子外的迷你龍舟。', r:0, holiday:'dragon', spot:220},
-  {id:'moonlamp',  name:'月亮燈',   price:70, desc:'晚上會發光的大月亮。', r:0, holiday:'midautumn', spot:250},
-  {id:'pumpkins',  name:'南瓜燈',   price:70, desc:'三顆會發光的南瓜。', r:0, holiday:'halloween', spot:280},
-  {id:'xmastree',  name:'聖誕樹',   price:90, desc:'掛滿彩球，頂端有顆星星。', r:0, holiday:'christmas', spot:310}
+  {id:'house',   name:'袋熊小窩', price:120, desc:'晚上、下雨或累了會躲進去睡，睡得比較好。', size:[5,5]},
+  {id:'pond',    name:'小水池',   price:90,  desc:'不用再擺水碗，按喝水牠就會自己走去喝。', size:[4,3]},
+  {id:'lamp',    name:'路燈',     price:60,  desc:'天黑會亮起來。', size:[1,1]},
+  {id:'flowers', name:'花圃',     price:40,  desc:'看著花，心情掉得比較慢。', size:[3,3]},
+  {id:'fence',   name:'木圍籬',   price:80,  desc:'圍出一個家，雜草長得比較慢。'},
+  {id:'bench',   name:'長椅',     price:50,  desc:'木頭長椅，院子更像公園。', size:[2,1]},
+  {id:'swing',   name:'鞦韆',     price:90,  desc:'風一吹會輕輕晃。', size:[3,2]},
+  {id:'sandbox', name:'沙坑',     price:70,  desc:'有小水桶和鏟子的沙坑。', size:[3,3]},
+  {id:'well',    name:'水井',     price:80,  desc:'古早味的石頭水井。', size:[2,2]},
+  {id:'windmill',name:'小風車',   price:90,  desc:'扇葉會一直轉。', size:[2,2]},
+  {id:'mailbox', name:'郵筒',     price:30,  desc:'紅色的小郵筒。', size:[1,1]},
+  {id:'scarecrow',name:'稻草人',  price:40,  desc:'守著院子，雜草長得比較慢。', size:[1,1]},
+  {id:'mushroom',name:'蘑菇屋',   price:120, desc:'紅色大蘑菇做的小屋，晚上窗戶會亮。', size:[3,3]},
+  {id:'fruittree',name:'果樹',    price:110, desc:'每過一陣子會結一顆蘋果，自動放進背包。', size:[2,2]},
+  {id:'fountain',name:'噴水池',   price:130, desc:'看著噴水，心情掉得比較慢。', size:[3,3]},
+  {id:'fireworks', name:'煙火台',   price:80, desc:'晚上會自己放煙火。', holiday:'newyear',   spot:100, size:[1,1]},
+  {id:'lanterns',  name:'紅燈籠串', price:70, desc:'一整串喜氣的紅燈籠，晚上會亮。', holiday:'cny', spot:130, size:[4,1]},
+  {id:'heartarch', name:'愛心拱門', price:70, desc:'粉紅色的拱門。', holiday:'valentine', spot:160, size:[3,1]},
+  {id:'slide',     name:'溜滑梯',   price:80, desc:'公園裡的那種溜滑梯。', holiday:'children', spot:190, size:[2,4]},
+  {id:'dragonboat',name:'小龍舟',   price:80, desc:'放在院子外的迷你龍舟。', holiday:'dragon', spot:220, size:[2,5]},
+  {id:'moonlamp',  name:'月亮燈',   price:70, desc:'晚上會發光的大月亮。', holiday:'midautumn', spot:250, size:[2,2]},
+  {id:'pumpkins',  name:'南瓜燈',   price:70, desc:'三顆會發光的南瓜。', holiday:'halloween', spot:280, size:[3,2]},
+  {id:'xmastree',  name:'聖誕樹',   price:90, desc:'掛滿彩球，頂端有顆星星。', holiday:'christmas', spot:310, size:[2,2]}
 ];
+BUILDS.forEach(b => { if (b.size) b.r = Math.max(0.5, Math.hypot(b.size[0], b.size[1])/2*0.72); });   // radius the wombat steers around
 const BG = {}, nightGlow = [], trees = [];
 function faceCenter(g, p){ g.position.copy(p); g.rotation.y = Math.atan2(-p.x, -p.z); }
 function glowMat(color, emissive){ const m = new THREE.MeshStandardMaterial({color, emissive, emissiveIntensity:0, roughness:0.5}); nightGlow.push(m); return m; }
@@ -616,12 +628,195 @@ function build(id){
       const o = new THREE.Mesh(new THREE.SphereGeometry(0.07,10,8), glowMat(['#e45b5b','#e2b53b','#4f86c6','#f2f0ea'][i%4], ['#ff6b6b','#ffd36b','#7fb2ff','#ffffff'][i%4])); o.position.set(Math.sin(a)*r, y, Math.cos(a)*r); g.add(o); }
     const star = new THREE.Mesh(extrude(starShape(0.26,0.11),0.06), glowMat('#e2b53b','#ffd36b')); star.position.y = 2.85; g.add(star);
     faceCenter(g, ringSpot(310));
+  } else if (id === 'bench'){
+    const plank = mat('#b5865a',0.85), iron = mat('#3a3f3a',0.5);
+    for (let i=0;i<3;i++){ const p = new THREE.Mesh(new THREE.BoxGeometry(1.7,0.06,0.16), plank); p.position.set(0,0.5,-0.2+i*0.19); g.add(p); }
+    for (let i=0;i<2;i++){ const p = new THREE.Mesh(new THREE.BoxGeometry(1.7,0.14,0.05), plank); p.position.set(0,0.75+i*0.18,-0.32); p.rotation.x = -0.15; g.add(p); }
+    for (const s of [-1,1]){ const l = new THREE.Mesh(new THREE.BoxGeometry(0.06,0.5,0.5), iron); l.position.set(0.75*s,0.25,-0.05); g.add(l); const a = new THREE.Mesh(new THREE.BoxGeometry(0.06,0.55,0.06), iron); a.position.set(0.75*s,0.78,-0.33); g.add(a); }
+  } else if (id === 'swing'){
+    const post = mat('#8a6240',0.85);
+    for (const s of [-1,1]) for (const z of [-0.45,0.45]){ const p = new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.07,2.3,8), post); p.position.set(1.2*s,1.1,z*0.9); p.rotation.x = z > 0 ? -0.22 : 0.22; g.add(p); }
+    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,2.6,8), post); bar.rotation.z = Math.PI/2; bar.position.y = 2.2; g.add(bar);
+    const seatG = new THREE.Group(); seatG.position.y = 2.2; g.add(seatG);
+    for (const s of [-1,1]){ const r = new THREE.Mesh(new THREE.CylinderGeometry(0.012,0.012,1.6,4), mat('#d9c9a0',0.9)); r.position.set(0.35*s,-0.8,0); seatG.add(r); }
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.9,0.06,0.35), mat('#e45b5b',0.6)); seat.position.y = -1.6; seatG.add(seat);
+    g.userData.sway = seatG;
+  } else if (id === 'sandbox'){
+    const frame = mat('#c39a64',0.85);
+    for (const [x,z,w,d] of [[0,1.25,2.6,0.2],[0,-1.25,2.6,0.2],[1.25,0,0.2,2.3],[-1.25,0,0.2,2.3]]){ const b = new THREE.Mesh(new THREE.BoxGeometry(w,0.25,d), frame); b.position.set(x,0.12,z); g.add(b); }
+    const sand = new THREE.Mesh(new THREE.BoxGeometry(2.3,0.12,2.3), mat('#ecd9a7',1)); sand.position.y = 0.08; g.add(sand);
+    const hill = new THREE.Mesh(new THREE.SphereGeometry(0.4,14,8,0,Math.PI*2,0,Math.PI/2), mat('#e5cf97',1)); hill.position.set(-0.4,0.14,0.3); hill.scale.y = 0.6; g.add(hill);
+    const bucket = new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.12,0.25,12), mat('#4f86c6',0.5)); bucket.position.set(0.55,0.27,-0.4); g.add(bucket);
+    const spade = new THREE.Mesh(new THREE.BoxGeometry(0.12,0.02,0.3), mat('#f3d250',0.5)); spade.position.set(0.3,0.16,0.55); spade.rotation.y = 0.6; g.add(spade);
+  } else if (id === 'well'){
+    const stone = new THREE.Mesh(new THREE.CylinderGeometry(0.75,0.8,0.7,18,1,true), mat('#9c9a92',0.95)); stone.material.side = THREE.DoubleSide; stone.position.y = 0.35; g.add(stone);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.76,0.08,8,24), mat('#85837c',0.9)); rim.rotation.x = Math.PI/2; rim.position.y = 0.7; g.add(rim);
+    const water = new THREE.Mesh(new THREE.CircleGeometry(0.72,20), new THREE.MeshStandardMaterial({color:'#4e7fa0', roughness:0.15})); water.rotation.x = -Math.PI/2; water.position.y = 0.45; g.add(water);
+    for (const s of [-1,1]){ const p = new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,1.4,6), wood); p.position.set(0.7*s,1.2,0); g.add(p); }
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(1.05,0.6,4), mat('#a35e46',0.85)); roof.position.y = 2.1; roof.rotation.y = Math.PI/4; g.add(roof);
+    const bucket = new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.1,0.2,10), wood); bucket.position.set(0,1.1,0); g.add(bucket);
+  } else if (id === 'windmill'){
+    const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.6,2.4,8), mat('#f2ead8',0.85)); tower.position.y = 1.2; g.add(tower);
+    const cap = new THREE.Mesh(new THREE.ConeGeometry(0.5,0.5,8), mat('#a35e46',0.85)); cap.position.y = 2.65; g.add(cap);
+    const door = new THREE.Mesh(new THREE.PlaneGeometry(0.3,0.5), mat('#7a5634',0.9)); door.position.set(0,0.3,0.57); door.rotation.x = -0.12; g.add(door);
+    const blades = new THREE.Group(); blades.position.set(0,2.2,0.42); g.add(blades);
+    for (let i=0;i<4;i++){ const b = new THREE.Mesh(new THREE.BoxGeometry(0.22,1.0,0.03), mat('#e8d2a6',0.8)); b.position.y = 0.55; const arm = new THREE.Group(); arm.rotation.z = i*Math.PI/2; arm.add(b); blades.add(arm); }
+    g.userData.spin = blades;
+  } else if (id === 'mailbox'){
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.12,1.0,0.12), wood); post.position.y = 0.5; g.add(post);
+    const box = new THREE.Mesh(new THREE.BoxGeometry(0.4,0.32,0.55), mat('#d23b32',0.5)); box.position.y = 1.1; g.add(box);
+    const top = new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.2,0.55,14,1,false,0,Math.PI), box.material); top.rotation.set(0,0,Math.PI/2); top.rotation.order = 'ZYX'; top.rotation.x = Math.PI/2; top.position.y = 1.26; g.add(top);
+    const flag = new THREE.Mesh(new THREE.BoxGeometry(0.03,0.2,0.08), mat('#f3d250',0.5)); flag.position.set(0.22,1.25,-0.1); g.add(flag);
+  } else if (id === 'scarecrow'){
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.06,1.9,6), wood); pole.position.y = 0.95; g.add(pole);
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.04,1.4,6), wood); arm.rotation.z = Math.PI/2; arm.position.y = 1.35; g.add(arm);
+    const shirt = new THREE.Mesh(new THREE.CylinderGeometry(0.28,0.34,0.7,10), mat('#5a8fc4',0.9)); shirt.position.y = 1.2; g.add(shirt);
+    const head_ = new THREE.Mesh(new THREE.SphereGeometry(0.24,14,10), mat('#e8d6a8',0.95)); head_.position.y = 1.78; g.add(head_);
+    const hat = new THREE.Mesh(new THREE.ConeGeometry(0.38,0.32,14), mat('#c9a24d',0.9)); hat.position.y = 2.02; g.add(hat);
+    for (const s of [-1,1]){ const straw = new THREE.Mesh(new THREE.ConeGeometry(0.08,0.25,6), mat('#e2c37c',0.9)); straw.position.set(0.75*s,1.35,0); straw.rotation.z = -s*Math.PI/2; g.add(straw); }
+  } else if (id === 'mushroom'){
+    const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.75,0.9,1.4,18), mat('#f2ead8',0.85)); stalk.position.y = 0.7; g.add(stalk);
+    const capM = mat('#d8423c',0.55), cap = new THREE.Mesh(new THREE.SphereGeometry(1.45,26,14,0,Math.PI*2,0,Math.PI/2), capM); cap.scale.y = 0.75; cap.position.y = 1.3; g.add(cap);
+    for (let i=0;i<9;i++){ const a = i/9*Math.PI*2, el = 0.35 + (i%3)*0.25, d = new THREE.Mesh(new THREE.SphereGeometry(0.16,10,8), mat('#fbf8f0',0.7));
+      d.position.set(Math.cos(a)*Math.cos(el)*1.42, 1.3 + Math.sin(el)*1.06, Math.sin(a)*Math.cos(el)*1.42); d.scale.set(1,0.4,1); d.lookAt(0,1.3,0); g.add(d); }
+    const door = new THREE.Mesh(new THREE.CircleGeometry(0.32,16,0,Math.PI), mat('#7a5634',0.9)); door.position.set(0,0.02,0.88); g.add(door);
+    const doorR = new THREE.Mesh(new THREE.PlaneGeometry(0.64,0.35), door.material); doorR.position.set(0,-0.15,0.88); door.add(doorR); door.position.y = 0.36;
+    const win = new THREE.Mesh(new THREE.CircleGeometry(0.16,14), glowMat('#ffe9a8','#ffcf5a')); win.position.set(0.45,0.95,0.72); win.rotation.y = 0.5; g.add(win);
+  } else if (id === 'fruittree'){
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.22,1.3,8), mat('#7a5634',0.95)); trunk.position.y = 0.65; g.add(trunk);
+    const crown = new THREE.Mesh(new THREE.SphereGeometry(0.95,18,14), mat('#5f9a3e',0.85)); crown.position.y = 1.85; crown.scale.y = 0.85; g.add(crown);
+    for (let i=0;i<9;i++){ const a = i*2.4, el = rnd(-0.2,0.6), ap = new THREE.Mesh(new THREE.SphereGeometry(0.1,10,8), mat('#d8423c',0.35));
+      ap.position.set(Math.cos(a)*Math.cos(el)*0.95, 1.85 + Math.sin(el)*0.8, Math.sin(a)*Math.cos(el)*0.95); g.add(ap); }
+  } else if (id === 'fountain'){
+    const stoneM = mat('#c8c4ba',0.8);
+    const basin = new THREE.Mesh(new THREE.CylinderGeometry(1.3,1.4,0.45,28,1,true), stoneM); basin.material.side = THREE.DoubleSide; basin.position.y = 0.22; g.add(basin);
+    const lip = new THREE.Mesh(new THREE.TorusGeometry(1.32,0.08,8,32), stoneM); lip.rotation.x = Math.PI/2; lip.position.y = 0.45; g.add(lip);
+    const water = new THREE.Mesh(new THREE.CircleGeometry(1.28,28), new THREE.MeshStandardMaterial({color:'#7fb6d6', roughness:0.1, metalness:0.1})); water.rotation.x = -Math.PI/2; water.position.y = 0.36; g.add(water);
+    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.22,1.0,12), stoneM); col.position.y = 0.8; g.add(col);
+    const bowl2 = new THREE.Mesh(new THREE.SphereGeometry(0.5,18,10,0,Math.PI*2,Math.PI/2,Math.PI/2), stoneM); bowl2.material.side = THREE.DoubleSide; bowl2.position.y = 1.3; g.add(bowl2);
+    g.userData.spout = V3(0,1.45,0);
   }
-  scene.add(g); BG[id] = g;
+  scene.add(g); BG[id] = g; applyPlace(id);
 }
 function unbuildAll(){ Object.keys(BG).forEach(id => { scene.remove(BG[id]); delete BG[id]; }); nightGlow.length = 0; }
 function obstacles(){ return BUILDS.filter(b => b.r && BG[b.id]).map(b => ({c:SPOTS[b.id], r:b.r})).concat(trees.map(tr => ({c:tr.g.position, r:0.55*tr.d.s}))); }
-function houseDoor(){ const h = SPOTS.house, d = V3(-h.x,0,-h.z).normalize(); return h.clone().addScaledVector(d, 2.2 + 1.6*petS + 0.3); }
+function houseDoor(){ const h = SPOTS.house, ry = BG.house ? BG.house.rotation.y : Math.atan2(-h.x, -h.z), d = V3(Math.sin(ry), 0, Math.cos(ry)); return h.clone().addScaledVector(d, 2.2 + 1.6*petS + 0.3); }
+// ---------- building placement on a 1×1 grid ----------
+// S.place[id] = {i, j, rot}: the footprint covers cells [i, i+w) × [j, j+d) (w/d swap when rot is odd); rot × 90° turns
+// the building, whose front faces +z before turning.
+const YARD = 8.4, REACH = 5.8;
+const bdef = id => BUILDS.find(b => b.id === id);
+const rotSize = (b, rot) => rot % 2 ? [b.size[1], b.size[0]] : b.size;
+const placeCenter = (b, p) => { const [w, d] = rotSize(b, p.rot); return V3(p.i + w/2, 0, p.j + d/2); };
+const facingIn = (x, z) => ((Math.round(Math.atan2(-x, -z)/(Math.PI/2)) % 4) + 4) % 4;
+function cellsOf(b, p){ const [w, d] = rotSize(b, p.rot), out = []; for (let a=0;a<w;a++) for (let c=0;c<d;c++) out.push([p.i + a + 0.5, p.j + c + 0.5]); return out; }
+function canPlace(id, p){
+  const b = bdef(id), cells = cellsOf(b, p), c = placeCenter(b, p);
+  if (cells.some(([x, z]) => Math.hypot(x, z) > YARD)) return {ok:false, why:'超出草地範圍了。'};
+  if (['house','pond','flowers','fountain','bench','swing','sandbox'].includes(id) && Math.hypot(c.x, c.z) > REACH + Math.max(...b.size)/2 - 0.6) return {ok:false, why:'離院子中間太遠，袋熊走不到。'};
+  for (const [oid, op] of Object.entries(S.place || {})){
+    const ob = bdef(oid); if (oid === id || !ob || !ob.size || !S.builds[oid]) continue;
+    const taken = new Set(cellsOf(ob, op).map(k => k.join()));
+    if (cells.some(k => taken.has(k.join()))) return {ok:false, why:`跟${ob.name}重疊了。`};
+  }
+  if (trees.some(tr => cells.some(([x, z]) => Math.hypot(x - tr.d.x, z - tr.d.z) < 0.9*tr.d.s))) return {ok:false, why:'有樹擋在這裡。'};
+  if (id === 'house'){ const dir = V3(Math.sin(p.rot*Math.PI/2), 0, Math.cos(p.rot*Math.PI/2)), door = c.clone().addScaledVector(dir, 2.2 + 1.6*Math.max(petS, 1) + 0.3);
+    if (Math.hypot(door.x, door.z) > BOUND - 0.2) return {ok:false, why:'門口要朝向院子裡，袋熊才進得去（按「旋轉」）。'}; }
+  return {ok:true};
+}
+function freeSpot(id){   // the nearest valid spot from the middle outwards, facing the centre
+  const b = bdef(id);
+  for (const r of [3.5,4,4.5,5,5.5,6,6.5,7,7.5,8,3,2.5,2,1.5,1]) for (let k=0;k<16;k++){
+    const a = k/16*Math.PI*2 + r, x = Math.sin(a)*r, z = Math.cos(a)*r, rot = facingIn(x, z), [w, d] = rotSize(b, rot), p = {i:Math.round(x - w/2), j:Math.round(z - d/2), rot};
+    if (canPlace(id, p).ok) return p; }
+  return null;
+}
+function legacyPlace(id){   // buildings from before the grid keep (roughly) their old spot
+  const b = bdef(id), old = SPOTS[id] || (b.spot ? ringSpot(b.spot) : null);
+  if (!old) return freeSpot(id) || {i:0, j:0, rot:0};
+  const rot = id === 'house' || b.holiday ? facingIn(old.x, old.z) : 0, [w, d] = rotSize(b, rot);
+  return {i:Math.round(old.x - w/2), j:Math.round(old.z - d/2), rot};
+}
+function applyPlace(id){
+  const b = bdef(id), g = BG[id]; if (!b || !b.size || !g) return;
+  S.place = S.place || {}; if (!S.place[id]) S.place[id] = legacyPlace(id);
+  const c = placeCenter(b, S.place[id]); g.position.copy(c); g.rotation.y = S.place[id].rot*Math.PI/2; SPOTS[id] = c.clone();
+  if (!g.userData.hb){ const hb = new THREE.Mesh(new THREE.BoxGeometry(b.size[0], 1.6, b.size[1]), hbMat); hb.position.y = 0.8; hb.userData.kind = id === 'house' ? 'house' : 'build'; hb.userData.ref = id; g.add(hb); g.userData.hb = hb; }
+}
+function buildMenu(id){
+  const b = bdef(id);
+  showModal(b.name, `<div class="bigicon">${BUILD_ICON[id] || '🏗️'}</div><p>${b.desc}</p>`,
+    [{label:'關閉', ghost:true, onClick:()=>{}}, ...(b.size ? [{label:'移動', onClick:() => startPlace(id, false)}] : [])]);
+}
+// Placement mode: a grid on the lawn, a green/red footprint, the camera locked to top-down or 45°.
+let placing = null;
+const gridMesh = (() => { const v = [];
+  for (let k=-9;k<=9;k++){ const h = Math.sqrt(Math.max(0, 81 - k*k)); v.push(k,0.02,-h, k,0.02,h, -h,0.02,k, h,0.02,k); }
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+  const m = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({color:'#ffffff', transparent:true, opacity:0.4, depthWrite:false})); m.visible = false; scene.add(m); return m; })();
+const foot = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({color:'#5ad16a', transparent:true, opacity:0.4, depthWrite:false}));
+foot.rotation.x = -Math.PI/2; foot.renderOrder = 2; foot.visible = false; scene.add(foot);
+const doorArrow = new THREE.Mesh(new THREE.ConeGeometry(0.35, 0.7, 3), new THREE.MeshBasicMaterial({color:'#ffffff', transparent:true, opacity:0.85, depthWrite:false}));
+doorArrow.rotation.x = Math.PI/2; doorArrow.visible = false; scene.add(doorArrow);
+function startPlace(id, isNew){
+  const b = bdef(id); if (!b || !b.size || placing) return;
+  if (isNew && S.coins < b.price){ toast('代幣不夠。'); return; }
+  closeSheet(); $('#modal').hidden = true;
+  if (!isNew && id === 'house' && B.mode === 'inHouse') exitHouse();
+  const prev = S.place && S.place[id] ? {...S.place[id]} : null;
+  let mesh = BG[id];
+  if (isNew){ build(id); mesh = BG[id]; delete BG[id]; }   // a preview that only becomes real when you confirm
+  const p = (isNew ? freeSpot(id) : prev) || {i:-1, j:-1, rot:0};
+  placing = {id, b, mesh, isNew, prev, p:{...p}, cam:{yaw, pitch, zoom}};
+  gridMesh.visible = foot.visible = true; document.body.classList.add('placing'); $('#placeBar').hidden = false;
+  $('#placeName').textContent = (isNew ? '蓋' : '移動') + b.name + (isNew ? `（${b.price} 代幣）` : '');
+  $('#placeView').textContent = S.buildView === 'iso' ? '視角：45 度' : '視角：俯視';
+  updatePlace();
+}
+function updatePlace(){
+  const P = placing, [w, d] = rotSize(P.b, P.p.rot), c = placeCenter(P.b, P.p);
+  P.mesh.position.copy(c); P.mesh.rotation.y = P.p.rot*Math.PI/2;
+  foot.position.set(c.x, 0.03, c.z); foot.scale.set(w, d, 1);
+  const v = canPlace(P.id, P.p); P.ok = v.ok; foot.material.color.set(v.ok ? '#5ad16a' : '#e05a4f');
+  doorArrow.visible = P.id === 'house';
+  if (doorArrow.visible){ const dir = V3(Math.sin(P.p.rot*Math.PI/2), 0, Math.cos(P.p.rot*Math.PI/2)); doorArrow.position.copy(c).addScaledVector(dir, d/2 + 0.6).setY(0.1); doorArrow.rotation.set(Math.PI/2, 0, -P.p.rot*Math.PI/2); }
+  $('#placeHint').textContent = v.ok ? '拖曳移動位置，按「旋轉」換方向，好了按「確定」。' : v.why;
+  $('#placeOk').disabled = !v.ok;
+}
+function placePointer(e){
+  setNdc(e); ray.setFromCamera(ndc, camera); const hitP = V3(0,0,0);
+  if (!ray.ray.intersectPlane(groundPlane, hitP)) return;
+  const P = placing, [w, d] = rotSize(P.b, P.p.rot), i = Math.round(hitP.x - w/2), j = Math.round(hitP.z - d/2);
+  if (i !== P.p.i || j !== P.p.j){ P.p.i = i; P.p.j = j; updatePlace(); }
+}
+function endPlace(){
+  const P = placing; placing = null;
+  gridMesh.visible = foot.visible = doorArrow.visible = false; document.body.classList.remove('placing'); $('#placeBar').hidden = true;
+  yaw = P.cam.yaw; pitch = P.cam.pitch; zoom = P.cam.zoom; save(); hudDirty = true;
+}
+function commitPlace(){
+  const P = placing; if (!P || !P.ok) return;
+  if (P.isNew){ if (S.coins < P.b.price){ toast('代幣不夠。'); cancelPlace(); return; }
+    S.coins -= P.b.price; S.builds[P.id] = true; BG[P.id] = P.mesh; sfx('grow'); toast(`${P.b.name}蓋好了！之後點一下建築就能再移動。`); }
+  else { sfx('pop'); toast(`${P.b.name}搬好了。`); }
+  S.place[P.id] = {...P.p}; applyPlace(P.id); refreshSign();
+  if (B.mode === 'inHouse' && BG.house) pos.copy(SPOTS.house);
+  else if (cellsOf(P.b, P.p).some(([x, z]) => Math.abs(x - pos.x) < 0.9 && Math.abs(z - pos.z) < 0.9)){   // don't leave the wombat stuck inside
+    const c = SPOTS[P.id], d = V3(pos.x - c.x, 0, pos.z - c.z); if (d.lengthSq() < 0.01) d.set(1, 0, 0);
+    d.setLength(Math.max(...P.b.size)/2 + 1); pos.set(c.x + d.x, 0, c.z + d.z); if (pos.length() > BOUND - 0.3) pos.setLength(BOUND - 0.3); }
+  endPlace();
+}
+function cancelPlace(){
+  const P = placing; if (!P) return;
+  if (P.isNew){ scene.remove(P.mesh); if (S.place) delete S.place[P.id]; }
+  else { S.place[P.id] = P.prev; applyPlace(P.id); }
+  endPlace();
+}
+$('#placeRot').onclick = () => { const P = placing; if (!P) return; const c = placeCenter(P.b, P.p); P.p.rot = (P.p.rot + 1) % 4;
+  const [w, d] = rotSize(P.b, P.p.rot); P.p.i = Math.round(c.x - w/2); P.p.j = Math.round(c.z - d/2); sfx('pop'); updatePlace(); };
+$('#placeView').onclick = () => { S.buildView = S.buildView === 'iso' ? 'top' : 'iso'; $('#placeView').textContent = S.buildView === 'iso' ? '視角：45 度' : '視角：俯視'; };
+$('#placeOk').onclick = commitPlace;
+$('#placeCancel').onclick = cancelPlace;
 
 // ---------- holidays ----------
 const HOLIDAYS = [
@@ -1123,6 +1318,9 @@ function sting(){
   toast(`${S.name || '牠'}撞到蜂窩，被蜜蜂叮得滿頭包！到商店的「藥品」買消腫藥膏。`); hudDirty = true;
 }
 function updateTrees(dt){
+  if (BG.windmill) BG.windmill.userData.spin.rotation.z -= dt*1.4;
+  if (BG.swing) BG.swing.userData.sway.rotation.x = Math.sin(t*1.3)*0.16;
+  if (BG.fountain && Math.random() < dt*14){ const s = BG.fountain.position.clone().add(BG.fountain.userData.spout); floatSprite(dropTex, s, {size:0.12, vy:rnd(1.2,1.8), vx:rnd(-0.6,0.6), vz:rnd(-0.6,0.6), g:5, max:0.75, fade:0.3, grow:0}); }
   stingCd -= dt;
   for (let i=bees.length-1;i>=0;i--){ const b = bees[i]; b.life -= dt; const c = headTop(), a = t*5 + b.ph;
     b.s.position.set(c.x + Math.cos(a)*0.8*Math.max(petS,0.6), c.y + Math.sin(a*1.6)*0.25, c.z + Math.sin(a)*0.8*Math.max(petS,0.6)); b.s.material.opacity = Math.min(1, b.life);
@@ -1620,7 +1818,8 @@ function sim(m, offline){
   const fBaby = S.stage === 'baby' ? 1.25 : 1, fOld = S.stage === 'ultimate' ? 1.15 : 1, dirty = cleanVal() < 40;
   st.hunger -= 0.7*m*k*fBaby*fOld*(S.form === 'chubby' ? 1.15 : 1);
   st.thirst -= 0.9*m*k*(w==='rain'||w==='storm' ? 0.6 : 1)*fOld;
-  st.happy  -= (0.45 + (dirty?0.3:0) + (badWeather()?0.1:0))*m*k*(BG.flowers ? 0.7 : 1);
+  st.happy  -= (0.45 + (dirty?0.3:0) + (badWeather()?0.1:0))*m*k*(BG.flowers ? 0.7 : 1)*(BG.fountain ? 0.85 : 1);
+  if (BG.fruittree){ S.fruitT = (S.fruitT ?? 120) - m; if (S.fruitT <= 0){ S.fruitT = 120; if (inv('apple') < 9){ invAdd('apple', 1); if (!offline) toast('果樹結了一顆蘋果，已經放進背包。'); } } }
   S.aff = clamp(S.aff - (0.05 + (st.hunger < 25 || dirty ? 0.04 : 0))*m*k, 0, 100);   // affection fades slowly unless you keep caring
   if (S.swollen){ st.happy -= 0.25*m*k; st.health -= 0.08*m*k; }   // bee-sting bumps hurt until treated
   if (offline) st.energy += 1.2*m;
@@ -1640,7 +1839,7 @@ function sim(m, offline){
   if (st.hunger < 25) c.hungry += m; if (st.thirst < 25) c.thirsty += m; if (dirty) c.dirty += m; if (st.health < 35) c.sick += m;
   if (growthOK()) S.growth += 0.08*m;
   S.weedTimer -= m;
-  if (S.weedTimer <= 0){ spawnWeed(); S.weedTimer = rnd(5,9)*(BG.fence ? 1.5 : 1); }
+  if (S.weedTimer <= 0){ spawnWeed(); S.weedTimer = rnd(5,9)*(BG.fence ? 1.5 : 1)*(BG.scarecrow ? 1.3 : 1); }
 }
 function decideForm(next){
   const c = S.care, st = S.st;
@@ -2197,7 +2396,7 @@ const TRICK_ICON = {sit:'🐾', flip:'🤸', roll:'🌀', spin:'⭐', belly:'�
 const TRICK_DESC = {sit:'乖乖坐下，看著你。心情 +6', flip:'原地一個後空翻！體力 -6，心情 +10', roll:'連續側翻滾三圈。體力 -6，心情 +10', spin:'跳起來轉一圈。體力 -6，心情 +10',
   belly:'翻過來露出肚子扭扭。體力 -6，心情 +10', shake:'甩甩全身的毛。體力 -6，心情 +10', dance:'跟著音樂跳舞。體力 -8，心情 +14', ballroll:'縮成一顆球往前滾。體力 -6，心情 +12'};
 const CLOTH_ICON = {party:'🥳', straw:'👒', glasses:'👓', bow:'🎀', scarf:'🧣', sweater:'🧶', nyband:'🎊', caishen:'🧧', heartgl:'😍', propeller:'🚁', sachet:'🎐', bunny:'🐰', witch:'🧙', santa:'🎅'};
-const BUILD_ICON = {house:'🏠', pond:'⛲', lamp:'💡', flowers:'🌷', fence:'🪵', fireworks:'🎆', lanterns:'🏮', heartarch:'💗', slide:'🎢', dragonboat:'🐉', moonlamp:'🌕', pumpkins:'🎃', xmastree:'🎄'};
+const BUILD_ICON = {bench:'🪑', swing:'🎠', sandbox:'🏖️', well:'🪣', windmill:'🌬️', mailbox:'📮', scarecrow:'🌾', mushroom:'🍄', fruittree:'🍎', fountain:'⛲', house:'🏠', pond:'🐟', lamp:'💡', flowers:'🌷', fence:'🪵', fireworks:'🎆', lanterns:'🏮', heartarch:'💗', slide:'🎢', dragonboat:'🐉', moonlamp:'🌕', pumpkins:'🎃', xmastree:'🎄'};
 let shopTab = 'food', feedTab = 'food', detailQty = 1;
 const tabsHTML = (tabs, cur, attr) => `<div class="tabs" role="tablist">` + tabs.map(([k,l]) => `<button class="tab" role="tab" aria-selected="${k === cur}" data-${attr}="${k}">${l}</button>`).join('') + `</div>`;
 const tileHTML = (e, i) => `<button class="tile${e.dim ? ' dim' : ''}" data-tile="${i}" aria-label="${e.name}"><span class="ti">${e.icon}</span><span class="tn">${e.name}</span>${e.badge ? `<span class="tb">${e.badge}</span>` : ''}</button>`;
@@ -2260,7 +2459,7 @@ function shopEntries(tab){
     actions: S.owned[c.id] || !holLive(c) ? no : [...no, {label:'購買並穿上', onClick:() => buyCloth(c)}]});
   const buildE = b => ({icon:BUILD_ICON[b.id] || '🏗️', name:b.name, badge: S.builds[b.id] ? '已建造' : `${b.price}`, dim: !S.builds[b.id] && !holLive(b),
     body:`<p>${b.desc}</p><p>${b.holiday ? `${HOLIDAYS.find(x=>x.id===b.holiday).name}限定。` : ''}${S.builds[b.id] ? '已經蓋好了。' : `${b.price} 代幣`}</p>`,
-    actions: S.builds[b.id] || !holLive(b) ? no : [...no, {label:'建造', onClick:() => buyBuild(b)}]});
+    actions: S.builds[b.id] ? (b.size ? [...no, {label:'移動', onClick:() => startPlace(b.id, false)}] : no) : !holLive(b) ? no : [...no, {label: b.size ? '選位置蓋' : '建造', onClick:() => b.size ? startPlace(b.id, true) : buyBuild(b)}]});
   if (tab === 'cloth') return CLOTHES.filter(c => !c.holiday || S.owned[c.id] || holLive(c)).map(clothE);
   if (tab === 'build') return BUILDS.filter(b => !b.holiday || S.builds[b.id] || holLive(b)).map(buildE);
   if (tab === 'limited'){ const h = activeHoliday(); return h ? [...CLOTHES.filter(c => c.holiday === h.id).map(clothE), ...BUILDS.filter(b => b.holiday === h.id).map(buildE)] : []; }
@@ -2306,6 +2505,8 @@ function renderSheet(){
       + `<p class="sec">天氣</p><div class="opts">` + wx.map(([k,l]) => `<button class="icon" data-wx="${k}" aria-pressed="${(S.weather.forced||'auto')===k}">${l}</button>`).join('') + `</div>`
       + `<p class="sec">節日預覽（看背景和音樂，限定商品只能在真正的節日當天買）</p><div class="opts"><button class="icon" data-hol="" aria-pressed="${!previewHoliday}">關閉</button>` + HOLIDAYS.map(x => `<button class="icon" data-hol="${x.id}" aria-pressed="${previewHoliday===x.id}">${x.name}</button>`).join('') + `</div>`
       + `<p class="sec">介面</p><div class="opts"><button class="icon" data-hideui>隱藏全部介面</button><button class="icon" data-guide>打開說明書</button></div>`
+      + `<p class="sec">視角</p><div class="opts">` + [['follow','跟著袋熊（可旋轉）'],['iso','固定 45 度'],['top','正上方俯視']].map(([k,l]) => `<button class="icon" data-cam="${k}" aria-pressed="${(S.camMode || 'follow') === k}">${l}</button>`).join('') + `</div>`
+      + `<p class="sec">蓋建築、移動建築時的視角</p><div class="opts">` + [['top','正上方俯視'],['iso','45 度']].map(([k,l]) => `<button class="icon" data-bview="${k}" aria-pressed="${(S.buildView || 'top') === k}">${l}</button>`).join('') + `</div>`
       + `<p class="sec">進化型態預覽（看看長什麼樣子，不會存檔，也不會影響你的袋熊）</p><div class="opts">` + (PREVIEW ? `<button class="btn" data-exitpreview>回到我的袋熊</button>` : '')
       + Object.keys(FORMS).filter(k => k !== 'normal').map(k => `<button class="icon" data-preview="${k}" aria-pressed="${PREVIEW===k}">${FORMS[k].name}</button>`).join('') + `</div>`
       + installPanel()
@@ -2373,6 +2574,8 @@ sheetBody.addEventListener('click', e => {
   if ('naked' in d){ CLOTHES.forEach(c => S.worn[c.id] = false); applyClothes(); toast('脫光光了。'); }
   if (d.wear){ wear(d.wear, !S.worn[d.wear]); }
   if (d.col){ const [id, col] = d.col.split('|'); S.colors[id] = col; applyClothes(); }
+  if (d.cam){ S.camMode = d.cam; }
+  if (d.bview){ S.buildView = d.bview; }
   if (d.speed){ S.speed = +d.speed; }
   if (d.day){ S.dayMode = d.day; lastPhase = null; }
   if (d.wx){ S.weather.forced = d.wx === 'auto' ? null : d.wx; }
@@ -2569,6 +2772,7 @@ function pickAt(e){
   if (S.stage === 'egg' && eggMesh.visible) list.push(eggMesh);
   cubes.forEach(c => list.push(c.hb)); weeds.forEach(w => list.push(w.hb));
   if (BG.house) list.push(BG.house.userData.dome);
+  Object.values(BG).forEach(g => g.userData.hb && list.push(g.userData.hb));
   trees.forEach(tr => list.push(tr.hb)); if (tomb && tomb.userData.hb) list.push(tomb.userData.hb);
   scene.updateMatrixWorld(true);
   return ray.intersectObjects(list, false).find(h => isShown(['poop','weed'].includes(h.object.userData.kind) ? h.object.parent : h.object)) || null;
@@ -2622,6 +2826,7 @@ canvas.addEventListener('pointerdown', e => {
   if (pts.size === 2){ if (dragging) endGrab(); mode = 'pinch'; const a = [...pts.values()]; pinchD = Math.hypot(a[0].x-a[1].x, a[0].y-a[1].y) || 1; pinchZ = zoom; return; }
   if (pts.size > 2) return;
   downX = lastX = e.clientX; downY = lastY = e.clientY; downT = performance.now();
+  if (placing){ mode = 'place'; placePointer(e); return; }
   if (locked()){ mode = 'orbit'; return; }
   const h = pickAt(e);
   if (h && h.object.userData.kind === 'pet'){ mode = 'pending'; hitPoint = h.point.clone(); }
@@ -2635,8 +2840,9 @@ canvas.addEventListener('pointermove', e => {
   pts.set(e.pointerId, {x:e.clientX, y:e.clientY});
   const moved = Math.hypot(e.clientX-downX, e.clientY-downY);
   if (mode === 'pinch' && pts.size === 2){ const a = [...pts.values()]; zoom = clamp(pinchZ*pinchD/(Math.hypot(a[0].x-a[1].x, a[0].y-a[1].y)||1), 0.5, 1.7); }
+  else if (mode === 'place') placePointer(e);
   else if (mode === 'tap' && moved > 6) mode = 'orbit';
-  else if (mode === 'orbit'){ yaw -= (e.clientX-lastX)*0.008; pitch = clamp(pitch + (e.clientY-lastY)*0.006, 0.06, 1.3); }
+  else if (mode === 'orbit'){ if (S.camMode !== 'iso') yaw -= (e.clientX-lastX)*0.008; if (!S.camMode || S.camMode === 'follow') pitch = clamp(pitch + (e.clientY-lastY)*0.006, 0.06, 1.3); }
   else if (mode === 'pending' && moved > 6){ if (['inHouse','enter','exit','dying','evolve'].includes(B.mode)) mode = 'orbit'; else startGrab(e); }
   else if (mode === 'grab') updatePointerWorld(e);
   lastX = e.clientX; lastY = e.clientY;
@@ -2653,7 +2859,8 @@ function up(e){
     else if (k === 'weed') pullWeed(tapObj.userData.ref);
     else if (k === 'tomb') releaseSpirit();
     else if (k === 'tree'){ const tr = tapObj.userData.ref; tr.shake = 1; sfx('whoosh'); for (let i=0;i<4;i++) floatSprite(leafTexs[i%3], tr.g.position.clone().add(V3(rnd(-1,1), rnd(1.6,2.4)*tr.d.s, rnd(-1,1))), {size:0.26, vy:-0.6, vx:rnd(-0.4,0.4), max:2.4, fade:0.6, grow:0, rot:rnd(0,6), spin:rnd(-3,3)}); if (tr.d.hive) toast('樹上有蜂窩，別讓袋熊撞到喔！'); }
-    else if (k === 'house'){ if (B.mode === 'inHouse'){ if (B.sleeping) wake(true); exitHouse(); } else toast(petActive() ? `這是${S.name || '牠'}的小窩。` : '小窩。'); }
+    else if (k === 'house'){ if (B.mode === 'inHouse'){ if (B.sleeping) wake(true); exitHouse(); } else buildMenu('house'); }
+    else if (k === 'build') buildMenu(tapObj.userData.ref);
     hudDirty = true;
   } else if (quick && mode === 'orbit' && !locked() && petActive() && !asleep() && !act && !['inHouse','enter','exit','eat','drink','evolve'].includes(B.mode)){
     setNdc(e); ray.setFromCamera(ndc, camera); const p = V3(0,0,0);
@@ -2779,7 +2986,7 @@ if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
 if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
-if (new URLSearchParams(location.search).has('debug')) window.W = {die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+if (new URLSearchParams(location.search).has('debug')) window.W = {startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};
 if (PREVIEW) setTimeout(() => toast(`預覽模式：${form().name}。這裡的變化不會存檔，關掉網址後面的 ?preview 就回到你的袋熊。`), 900);
@@ -2815,9 +3022,14 @@ function step(manual){
     eggWob.rotation.z = Math.sin(t*(2+S.warm*0.05))*(0.03 + S.warm*0.0012) + Math.sin(t*30)*0.12*k;
   }
 
-  const focus = S.stage === 'egg' || hatching ? V3(0,0,0) : (S.dead && tomb ? tomb.position : pos);
-  camTarget.x += (focus.x*(evo ? 1 : 0.6) - camTarget.x)*Math.min(1, dt*1.5);
-  camTarget.z += (focus.z*(evo ? 1 : 0.6) - camTarget.z)*Math.min(1, dt*1.5);
+  // camera: follow the wombat (orbit freely), a fixed 45° view, or straight down; building placement locks its own view
+  const focus = placing ? placing.mesh.position : S.stage === 'egg' || hatching ? V3(0,0,0) : (S.dead && tomb ? tomb.position : pos);
+  const follow = evo || placing ? 1 : S.camMode === 'free' ? 0.6 : 1, ck = Math.min(1, dt*4);
+  if (placing){ const top = S.buildView !== 'iso'; pitch += ((top ? 1.42 : 0.79) - pitch)*ck; yaw += ((top ? 0 : 0.785) - yaw)*ck; zoom += (1.2 - zoom)*ck; }
+  else if (S.camMode === 'iso'){ pitch += (0.79 - pitch)*ck; yaw += (0.785 - yaw)*ck; }
+  else if (S.camMode === 'top'){ pitch += (1.42 - pitch)*ck; }
+  camTarget.x += (focus.x*follow - camTarget.x)*Math.min(1, dt*1.5);
+  camTarget.z += (focus.z*follow - camTarget.z)*Math.min(1, dt*1.5);
   const ty = S.stage === 'egg' || hatching ? 0.8 : evo ? 1.2*petS + 0.4 : camY;
   camTarget.y += (ty - camTarget.y)*Math.min(1, dt*3);
   zoomFx += ((evo ? 0.78 : hatching ? 0.62 : 1) - zoomFx)*Math.min(1, dt*2);
