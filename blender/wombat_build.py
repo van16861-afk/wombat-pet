@@ -82,12 +82,13 @@ def paint(b):
     me = b.data
     for a in list(me.color_attributes): me.color_attributes.remove(a)
     mask = me.color_attributes.new("Mask", 'FLOAT_COLOR', 'POINT')   # R cream, G blush, B paw
+    cheeks = [surf(b, 0.47*sx, 1.0)[0] for sx in (1, -1)]   # blush sits on the cheek surface
     for v in me.vertices:
         p = v.co; x, y, z = p
         belly = ss(1.0, 0.72, ell(p, (0, -0.55, 0.5), (0.55, 0.5, 0.42)))
         under = ss(0.3, 0.12, z) * ss(0.65, 0.35, abs(x)) * 0.8
         muz = ss(1.0, 0.7, ell(p, (0, -1.3, 0.92), (0.38, 0.28, 0.24))) * 0.85
-        blush = max(ss(0.15, 0.05, (p - Vector((0.45*sx, -1.18, 0.98))).length) for sx in (1, -1)) * 0.6
+        blush = max(ss(0.16, 0.05, (p - c).length) for c in cheeks) * 0.6
         mask.data[v.index].color = (max(belly, under, muz), blush, ss(0.16, 0.06, z), 1.0)
     me.color_attributes.active_color = mask; me.color_attributes.render_color_index = 0
     m = bpy.data.materials.get("WombatFur") or bpy.data.materials.new("WombatFur")
@@ -129,7 +130,13 @@ def features(col, b):
         sp = cu.splines.new('BEZIER'); sp.bezier_points.add(len(pts) - 1)
         for bp, (x, z) in zip(sp.bezier_points, pts):
             loc, nrm = surf(b, x, z); bp.co = loc + nrm*0.012; bp.handle_left_type = bp.handle_right_type = 'AUTO'
-        ob = bpy.data.objects.new(name, cu); col.objects.link(ob); cu.materials.append(MOUTH); return ob
+        ob = bpy.data.objects.new(name, cu); col.objects.link(ob); cu.materials.append(MOUTH)
+        # glTF can't carry curves: bake the stroke into a mesh
+        me = bpy.data.meshes.new_from_object(ob.evaluated_get(bpy.context.evaluated_depsgraph_get()))
+        bpy.data.objects.remove(ob, do_unlink=True); bpy.data.curves.remove(cu)
+        mo = bpy.data.objects.new(name, me); col.objects.link(mo)
+        if not me.materials: me.materials.append(MOUTH)
+        return mo
     stroke("Mouth", [(-0.13, 0.82), (-0.065, 0.775), (0, 0.815), (0.065, 0.775), (0.13, 0.82)])
     stroke("Philtrum", [(0, 0.86), (0, 0.815)])
     return eyes
@@ -163,6 +170,7 @@ def skin(b, rig, eyes):
     for g in list(b.vertex_groups): b.vertex_groups.remove(g)
     G = {n: b.vertex_groups.new(name=n) for n in ["FurLen"] + [x[0] for x in BONES]}
     nose = bpy.data.objects["Nose"].location
+    mask = b.data.color_attributes["Mask"].data
     for v in b.data.vertices:
         p = v.co; x, y, z = p; w = {}
         for n, (lx, ly) in LEGS.items(): w[n] = ss(0.44, 0.24, math.hypot(x - lx, y - ly)) * ss(0.58, 0.3, z)
@@ -176,6 +184,9 @@ def skin(b, rig, eyes):
         for e in eyes: f = min(f, 0.05 + 0.95*ss(0.09, 0.22, (p - e.location).length))
         f = min(f, 0.05 + 0.95*ss(0.2, 0.34, (p - nose).length))
         G["FurLen"].add([v.index], f, 'REPLACE')
+        mask[v.index].color[3] = f            # the game reads fur length from the mask's alpha
+    # the game draws ~10 fur layers of this mesh, so export a lighter version
+    dec = b.modifiers.new("lowpoly", 'DECIMATE'); dec.ratio = 0.16
     am = b.modifiers.new("rig", 'ARMATURE'); am.object = rig; b.parent = rig
 
 def to_bone(rig, o, bname):
@@ -240,3 +251,19 @@ def rebuild():
 
 rig = rebuild()
 print("rebuilt:", len(bpy.data.collections[COL].objects), "objects")
+
+# ---------------------------------------------------------------- export for the game
+def export(path=r"C:\Users\User\Documents\wombat-pet\assets\models\wombat.glb"):
+    """Rig + body + face parts (no preview fur shells) with every W_* action as a glTF animation."""
+    col = bpy.data.collections[COL]; rig = bpy.data.objects["WombatRig"]
+    hidden = rig.hide_get(); rig.hide_set(False)
+    bpy.ops.object.select_all(action='DESELECT')
+    for o in col.objects:
+        if not o.name.startswith("FurShell"): o.select_set(True)
+    bpy.context.view_layer.objects.active = rig
+    rig.animation_data.action = bpy.data.actions["W_idle"]
+    bpy.ops.export_scene.gltf(filepath=path, export_format='GLB', use_selection=True, export_apply=True,
+        export_animations=True, export_animation_mode='ACTIONS', export_skins=True, export_morph=False,
+        export_vertex_color='ACTIVE', export_yup=True, export_cameras=False, export_lights=False)
+    rig.hide_set(hidden)
+    import os; return os.path.getsize(path)

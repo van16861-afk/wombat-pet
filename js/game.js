@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { cloud } from './cloud.js';
 
 // Keep r128-era colour handling so the hand-tuned palette and fur shader look the same.
@@ -105,33 +106,40 @@ function updateFx(dt){
   }
 }
 
-// ---------- fur shader ----------
-const NS = 128, nd = new Uint8Array(NS*NS*4);
-for (let i=0;i<NS*NS;i++){ const v = Math.random()*255; nd[i*4]=v; nd[i*4+1]=v; nd[i*4+2]=v; nd[i*4+3]=255; }
-const noiseTex = new THREE.DataTexture(nd, NS, NS, THREE.RGBAFormat);
-noiseTex.wrapS = noiseTex.wrapT = THREE.RepeatWrapping; noiseTex.magFilter = noiseTex.minFilter = THREE.NearestFilter;
-noiseTex.generateMipmaps = false; noiseTex.needsUpdate = true;
+// ---------- fur shader (skinned) ----------
+// The Blender model carries a colour-zone mask in its vertex colours: R = belly/muzzle cream, G = blush,
+// B = paw, A = fur length. Fur is drawn as SHELLS layers of the same skinned mesh pushed out along the normal.
 const U = {
-  uNoise:{value:noiseTex}, uColor:{value:new THREE.Color('#8b6b50')}, uBelly:{value:new THREE.Color('#b39a82')},
+  uColor:{value:new THREE.Color('#8b6b50')}, uBelly:{value:new THREE.Color('#b39a82')}, uBlush:{value:new THREE.Color('#ef9e97')},
   uLight:{value:L}, uForce:{value:V3(0,0,0)}, uSky:{value:new THREE.Color('#fff8ec')}, uGround:{value:new THREE.Color('#77806a')}, uSun:{value:1}, uWhite:{value:0}
 };
 const VS = `uniform float uLayer; uniform float uLen; uniform vec3 uForce;
-varying vec2 vUv; varying vec3 vN; varying vec3 vWP; varying float vLy;
-void main(){ vUv = uv; vLy = normal.y;
-  vec3 p = position + normal * (uLen * uLayer);
-  vec4 wp = modelMatrix * vec4(p, 1.0); wp.xyz += uForce * (uLayer * uLayer);
-  vN = normalize(mat3(modelMatrix) * normal); vWP = wp.xyz;
-  gl_Position = projectionMatrix * viewMatrix * wp; }`;
-const FS = `uniform sampler2D uNoise; uniform vec2 uRep; uniform float uLayer;
-uniform vec3 uColor; uniform vec3 uBelly; uniform float uBellyAmt; uniform vec3 uLight; uniform vec3 uSky; uniform vec3 uGround; uniform float uSun; uniform float uWhite;
-varying vec2 vUv; varying vec3 vN; varying vec3 vWP; varying float vLy;
+#include <common>
+#include <skinning_pars_vertex>
+varying vec3 vN; varying vec3 vWP; varying vec3 vP; varying vec4 vMask;
 void main(){
-  float n = texture2D(uNoise, vUv * uRep).r;
-  float c = texture2D(uNoise, vUv * uRep * 0.11 + 0.37).r;
+  vMask = color; vP = position;
+  #include <skinbase_vertex>
+  #include <beginnormal_vertex>
+  #include <skinnormal_vertex>
+  #include <begin_vertex>
+  #include <skinning_vertex>
+  vec3 p = transformed + normalize(objectNormal) * (uLen * uLayer * color.a);
+  vec4 wp = modelMatrix * vec4(p, 1.0); wp.xyz += uForce * (uLayer * uLayer);
+  vN = normalize(mat3(modelMatrix) * objectNormal); vWP = wp.xyz;
+  gl_Position = projectionMatrix * viewMatrix * wp; }`;
+const FS = `uniform float uLayer;
+uniform vec3 uColor; uniform vec3 uBelly; uniform vec3 uBlush; uniform vec3 uLight; uniform vec3 uSky; uniform vec3 uGround; uniform float uSun; uniform float uWhite;
+varying vec3 vN; varying vec3 vWP; varying vec3 vP; varying vec4 vMask;
+float h3(vec3 p){ p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+void main(){
+  float n = h3(floor(vP * 130.0)), c = h3(floor(vP * 16.0) + 7.0);
   if (uLayer > 0.001 && n * 0.82 + c * 0.18 < uLayer) discard;
   vec3 N = normalize(vN);
-  vec3 base = mix(uColor, uBelly, uBellyAmt * smoothstep(-0.15, -0.7, vLy)) * (0.9 + 0.2 * c);
-  vec3 col = base * mix(0.42, 1.1, uLayer);
+  vec3 base = mix(uColor, uBelly, vMask.r);
+  base = mix(base, uBlush, vMask.g);
+  base = mix(base, uColor * 0.5, vMask.b);
+  vec3 col = base * (0.9 + 0.2 * c) * mix(0.5, 1.08, uLayer);
   float d = max(0.0, (dot(N, uLight) + 0.35) / 1.35);
   vec3 hemi = mix(uGround, uSky, N.y * 0.5 + 0.5);
   vec3 V = normalize(cameraPosition - vWP);
@@ -139,27 +147,12 @@ void main(){
   col = col * (hemi * 0.5 + d * 0.72 * uSun) + rim * uSky * 0.35;
   col = mix(col, vec3(1.0, 0.97, 0.88) * 1.25, uWhite);
   gl_FragColor = vec4(col, 1.0); }`;
-const SHELLS = mobile ? 14 : 20;
+const SHELLS = mobile ? 10 : 16, FUR_LEN = 0.075;
+const furMat = i => new THREE.ShaderMaterial({vertexShader:VS, fragmentShader:FS, vertexColors:true,
+  uniforms:{uLayer:{value:i/(SHELLS-1)}, uLen:{value:FUR_LEN}, uColor:U.uColor, uBelly:U.uBelly, uBlush:U.uBlush, uLight:U.uLight,
+    uForce:U.uForce, uSky:U.uSky, uGround:U.uGround, uSun:U.uSun, uWhite:U.uWhite}});
 const hit = [], petMats = [];
-function ell(rx, ry, rz, w=48, h=32){ const g = new THREE.SphereGeometry(1, w, h); g.applyMatrix4(new THREE.Matrix4().makeScale(rx, ry, rz)); return g; }
-function fur(parent, rx, ry, rz, len, belly, pos){
-  const geo = ell(rx, ry, rz), D = 44, rep = new THREE.Vector2(Math.PI*(rx+rz)*D, Math.PI*ry*D), g = new THREE.Group();
-  for (let i=0;i<SHELLS;i++){
-    const m = new THREE.ShaderMaterial({vertexShader:VS, fragmentShader:FS, uniforms:{
-      uLayer:{value:i/(SHELLS-1)}, uLen:{value:len}, uRep:{value:rep}, uBellyAmt:{value:belly},
-      uNoise:U.uNoise, uColor:U.uColor, uBelly:U.uBelly, uLight:U.uLight, uForce:U.uForce, uSky:U.uSky, uGround:U.uGround, uSun:U.uSun, uWhite:U.uWhite}});
-    const mesh = new THREE.Mesh(geo, m); mesh.frustumCulled = false;
-    if (i===0){ mesh.userData.kind = 'pet'; hit.push(mesh); }
-    g.add(mesh);
-  }
-  if (pos) g.position.copy(pos);
-  parent.add(g); return g;
-}
 const mat = (c, r=0.7) => new THREE.MeshStandardMaterial({color:c, roughness:r, metalness:0});
-function solid(parent, geo, color, rough, pos, pick=true){
-  const m = new THREE.Mesh(geo, mat(color, rough)); if (pos) m.position.copy(pos); parent.add(m); petMats.push(m.material);
-  if (pick){ m.userData.kind = 'pet'; hit.push(m); } return m;
-}
 function makeShadow(w, d){
   const g = new THREE.Group();
   const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshBasicMaterial({map:shadowTex, transparent:true, depthWrite:false}));
@@ -175,44 +168,49 @@ const groundTex = canvasTex(256,256,(x)=>{ const g = x.createRadialGradient(128,
 const ground = new THREE.Mesh(new THREE.CircleGeometry(10, 72), new THREE.MeshBasicMaterial({color:'#c8d4ba', map:groundTex, transparent:true, depthWrite:false}));
 ground.rotation.x = -Math.PI/2; ground.position.y = 0.002; ground.renderOrder = -2; scene.add(ground);
 
-// ---------- wombat ----------
+// ---------- wombat (Blender model: assets/models/wombat.glb, built by blender/wombat_build.py) ----------
 const root = new THREE.Group(); scene.add(root);
 const tiltG = new THREE.Group(); tiltG.position.y = 0.95; root.add(tiltG);
 const actG = new THREE.Group(); tiltG.add(actG);
 const offG = new THREE.Group(); offG.position.y = -0.95; actG.add(offG);
 const squashG = new THREE.Group(); offG.add(squashG);
-const bodyFit = new THREE.Group(); bodyFit.position.set(0, 0.95, -0.25); squashG.add(bodyFit);
-fur(bodyFit, 1.0, 0.85, 1.5, 0.075, 1, null);
-fur(bodyFit, 0.12, 0.12, 0.12, 0.05, 0, V3(0, 0.05, -1.47));
-const legs = [];
-[[0.52,0.85,0,0,1],[-0.52,0.85,1,Math.PI,1],[0.6,-1.0,2,Math.PI,-1],[-0.6,-1.0,3,0,-1]].forEach(([x,z,i,wp,fr])=>{
-  const g = new THREE.Group(); g.position.set(x, 0.65, z); squashG.add(g);
-  fur(g, 0.27, 0.38, 0.3, 0.05, 0, V3(0, -0.28, 0));
-  solid(g, ell(0.22, 0.07, 0.26, 24, 12), '#3a2e2a', 0.7, V3(0, -0.6, 0.03));
-  const clawGeo = new THREE.ConeGeometry(0.03, 0.1, 8);
-  for (const dx of [-0.09, 0, 0.09]){ const c = solid(g, clawGeo, '#e6dccb', 0.5, V3(dx, -0.6, 0.27), false); c.rotation.x = Math.PI/2; }
-  legs.push({g, phase:i*1.7, walkPh:wp, front:fr, baseX:x});
+let gltf;
+try { gltf = await new GLTFLoader().loadAsync('assets/models/wombat.glb'); }
+catch(e){ $('#petSub').textContent = '袋熊模型載入失敗，請重新整理頁面。'; console.error(e); return; }
+const model = gltf.scene; squashG.add(model);
+const BONE = {}; model.traverse(o => { if (o.isBone) BONE[o.name] = o; });
+const body = model.getObjectByName('WombatBody');
+body.material = furMat(0); body.frustumCulled = false; body.userData.kind = 'pet'; hit.push(body);
+for (let i=1;i<SHELLS;i++){
+  const s = new THREE.SkinnedMesh(body.geometry, furMat(i)); s.bind(body.skeleton, body.bindMatrix);
+  s.position.copy(body.position); s.quaternion.copy(body.quaternion); s.scale.copy(body.scale); s.frustumCulled = false; body.parent.add(s);
+}
+model.traverse(o => {
+  if (!o.isMesh || o.isSkinnedMesh) return;
+  if (!o.material.userData.srgb){ o.material.userData.srgb = true; o.material.color.convertLinearToSRGB(); o.material.metalness = 0; }   // glTF colours are linear; this scene works in display values (materials are shared, convert once)
+  o.userData.kind = 'pet'; hit.push(o); petMats.push(o.material);
 });
-const head = new THREE.Group(); head.position.set(0, 0.95, 0.55); squashG.add(head);
-fur(head, 0.8, 0.68, 0.72, 0.06, 0.6, V3(0, 0, 0.45));
-fur(head, 0.5, 0.4, 0.42, 0.04, 0.6, V3(0, -0.14, 1.0));
-solid(head, ell(0.3, 0.2, 0.17, 32, 20), '#2a2220', 0.38, V3(0, -0.06, 1.42));
-for (const s of [-1,1]){ const n = solid(head, new THREE.SphereGeometry(0.055,16,10), '#100c0b', 0.6, V3(0.11*s,-0.11,1.565), false); n.scale.set(1,0.6,0.5); }
-const eyes = [];
-for (const s of [-1,1]){
-  const e = new THREE.Group(); e.position.set(0.36*s, 0.17, 1.12); head.add(e);
-  const ball = solid(e, new THREE.SphereGeometry(0.075,20,14), '#141110', 0.18, null); ball.scale.z = 0.75;
-  const hl = new THREE.Mesh(new THREE.SphereGeometry(0.02,10,8), new THREE.MeshBasicMaterial({color:'#ffffff'})); hl.position.set(0.02*s,0.03,0.05); e.add(hl);
-  eyes.push(e);
+model.updateMatrixWorld(true);
+// A group fixed to a bone, placed at a rest-pose position in model space (outfits, clothes and blinking eyes hang off these).
+function anchor(boneName, pos, scl){
+  const g = new THREE.Group(); g.position.copy(pos); if (scl) g.scale.copy(scl);
+  model.add(g); model.updateMatrixWorld(true); BONE[boneName].attach(g); return g;
 }
-const ears = [];
-for (const s of [-1,1]){
-  const e = new THREE.Group(); e.position.set(0.48*s, 0.62, 0.28); e.rotation.z = -0.35*s; head.add(e);
-  fur(e, 0.16, 0.21, 0.07, 0.03, 0, null);
-  solid(e, ell(0.09,0.13,0.025,20,12), '#5b4038', 0.8, V3(0,-0.01,0.06));
-  ears.push({g:e, base:-0.35*s, v:0, a:0});
-}
-const shadow = makeShadow(2.8, 4.4);
+// `head` and `bodyFit` keep the coordinate frames the old procedural model used, so outfits line up.
+const head = anchor('head', V3(0, 1.12, 0.32), V3(1.14, 1, 1.02));   // the new head is broader than the old one
+const bodyFit = new THREE.Group(); anchor('spine', V3(0, 0.82, -0.04), V3(1.02, 0.97, 0.72)).add(bodyFit);
+const eyes = ['Eye', 'Eye001'].map(n => { const e = model.getObjectByName(n), w = e.getWorldPosition(V3(0,0,0));
+  const g = anchor('head', model.worldToLocal(w)); g.attach(e); return g; });
+const ears = [['earL', 1], ['earR', -1]].map(([n, s]) => ({bone:BONE[n], s, v:0, a:0}));
+const legs = [['legFL', 1], ['legFR', 1], ['legBL', -1], ['legBR', -1]].map(([n, fr], i) => ({bone:BONE[n], phase:i*1.7, front:fr}));
+// animation clips, blended by weight every frame
+const mixer = new THREE.AnimationMixer(model), CLIP = {};
+gltf.animations.forEach(c => { const a = mixer.clipAction(c); a.play(); a.setEffectiveWeight(0); CLIP[c.name.replace(/^W_/, '')] = a; });
+const BW = {walk:0, eat:0, sleep:0, sit:0, happy:0, ball:0};
+const qTmp = new THREE.Quaternion(), eTmp = new THREE.Euler();
+let headScale = 1, lookX = 0, lookY = 0;
+const turnBone = (b, x, y, z) => { if (x || y || z) b.quaternion.multiply(qTmp.setFromEuler(eTmp.set(x, y, z))); };
+const shadow = makeShadow(2.6, 3.4);
 
 // ---------- evolution forms ----------
 const FORMS = {
@@ -401,8 +399,8 @@ let propeller = null;
     const b = new THREE.Mesh(new THREE.CylinderGeometry(0.425,0.43,0.09,32), band); b.position.y = 0.06;
     g.add(brim, crown, b); g.rotation.x = -0.08; onHead('straw', g, [band], 0.66, 0.4); }
   { const g = new THREE.Group(), m = mat('#3b3b3b',0.4);
-    for (const s of [-1,1]){ const r = new THREE.Mesh(new THREE.TorusGeometry(0.12,0.02,8,28), m); r.position.set(0.36*s,0.17,1.19); g.add(r); }
-    const br = new THREE.Mesh(new THREE.CylinderGeometry(0.016,0.016,0.48,8), m); br.rotation.z = Math.PI/2; br.position.set(0,0.27,1.2); g.add(br);
+    for (const s of [-1,1]){ const r = new THREE.Mesh(new THREE.TorusGeometry(0.12,0.02,8,28), m); r.position.set(0.33*s,0.01,1.13); g.add(r); }
+    const br = new THREE.Mesh(new THREE.CylinderGeometry(0.016,0.016,0.42,8), m); br.rotation.z = Math.PI/2; br.position.set(0,0.06,1.16); g.add(br);
     head.add(g); CL.glasses = {g, mats:[m]}; }
   { const g = new THREE.Group(), m = mat('#4f86c6',0.6);
     for (const s of [-1,1]){ const w = new THREE.Mesh(new THREE.ConeGeometry(0.13,0.24,4), m); w.rotation.z = s*Math.PI/2; w.position.x = 0.12*s; w.scale.z = 0.5; g.add(w); }
@@ -433,8 +431,8 @@ let propeller = null;
     for (const s of [-1,1]){ const w = new THREE.Mesh(new THREE.BoxGeometry(0.32,0.06,0.03), gold); w.position.set(0.4*s,0.3,0); w.rotation.z = -0.25*s; g.add(w); }
     onHead('caishen', g, [m]); }
   { const g = new THREE.Group(), m = mat('#e9638c',0.4), hg = extrude(heartShape(0.13), 0.03);
-    for (const s of [-1,1]){ const h = new THREE.Mesh(hg, m); h.position.set(0.36*s,0.17,1.2); g.add(h); }
-    const br = new THREE.Mesh(new THREE.CylinderGeometry(0.016,0.016,0.48,8), m); br.rotation.z = Math.PI/2; br.position.set(0,0.27,1.21); g.add(br);
+    for (const s of [-1,1]){ const h = new THREE.Mesh(hg, m); h.position.set(0.33*s,0.01,1.14); g.add(h); }
+    const br = new THREE.Mesh(new THREE.CylinderGeometry(0.016,0.016,0.48,8), m); br.rotation.z = Math.PI/2; br.position.set(0,0.06,1.17); g.add(br);
     head.add(g); CL.heartgl = {g, mats:[m]}; }
   { const g = new THREE.Group(), m = mat('#4f86c6',0.6);
     const cap = new THREE.Mesh(new THREE.SphereGeometry(0.32,24,12,0,Math.PI*2,0,Math.PI/2), m); g.add(cap);
@@ -949,7 +947,7 @@ function makePoop(p, v, sc){
 }
 function poopNow(){
   if (!petActive() || ['inHouse','enter','exit','evolve'].includes(B.mode)) return false;
-  const p = offG.localToWorld(V3(0, 0.62, -1.85));
+  const p = offG.localToWorld(V3(0, 0.55, -1.3));
   const back = V3(0,0,-1).applyAxisAngle(UP, root.rotation.y), side = V3(1,0,0).applyAxisAngle(UP, root.rotation.y);
   const v = back.multiplyScalar(rnd(1.0,2.0)*petS).add(side.multiplyScalar(rnd(-0.8,0.8))); v.y = 0.6;
   makePoop(p, v, 0.5 + 0.5*Math.min(petS,1)); sfx('plop');
@@ -1058,8 +1056,7 @@ function applyFur(){
 }
 function applyForm(){
   const F = form(), bd = F.body || [1,1,1];
-  bodyFit.scale.set(bd[0], bd[1], bd[2]); head.scale.setScalar(F.head || 1);
-  legs.forEach(l => l.g.position.x = l.baseX * clamp(bd[0], 0.85, 1.12));
+  model.scale.set(bd[0], bd[1], bd[2]); headScale = F.head || 1;
   const accs = formAcc(F); Object.entries(ACC).forEach(([k,g]) => g.visible = accs.includes(k));
   hatLift = accs.some(a => ['poop','crown','sprout','antler'].includes(a)) ? 0.34 : 0;
   applyFur(); applyClothes();
@@ -2341,27 +2338,33 @@ function step(){
     }
     const r = Math.hypot(pos.x, pos.z);
     if (r > BOUND && !['enter','exit','inHouse'].includes(B.mode)){ const nx = pos.x/r, nz = pos.z/r; pos.x = nx*BOUND; pos.z = nz*BOUND; const vn = vel.x*nx + vel.z*nz; if (vn > 0){ vel.x -= 1.4*vn*nx; vel.z -= 1.4*vn*nz; } }
-    const bob = gaitW*Math.abs(Math.sin(walkClock))*0.05*petS;
-    root.position.set(pos.x, pos.y + actY + bob - sleepW*0.22*petS - sitW*0.12*petS, pos.z);
+    const bob = gaitW*Math.abs(Math.sin(walkClock))*0.03*petS;
+    root.position.set(pos.x, pos.y + actY + bob, pos.z);
     if (!act && !evo && B.mode !== 'dying'){
       const sick = petActive() && (S.st.health < 35 || S.form === 'sickly') && !asleep();
-      actG.rotation.z = gaitW*Math.sin(walkClock)*0.035 + (sick ? Math.sin(t*38)*(S.st.health < 35 ? 0.02 : 0.008) : 0);
+      actG.rotation.z = gaitW*Math.sin(walkClock)*0.025 + (sick ? Math.sin(t*38)*(S.st.health < 35 ? 0.02 : 0.008) : 0);
     }
     liftW += ((pos.y > 0.12 ? 1 : 0) - liftW)*Math.min(1, dt*6);
     const lv = vel.clone().applyQuaternion(tmpQi);
     let sx = 0, sz = 0;
     if (dragging){ const gy = Math.max(grabLocal.y - 0.35, 0.2); sx = -Math.atan2(grabLocal.z, gy)*0.45; sz = Math.atan2(grabLocal.x, gy)*0.45; }
-    const targX = clamp(liftW*sx + lv.z*0.06, -0.6, 0.6) - sitW*0.25, targZ = clamp(liftW*sz - lv.x*0.06, -0.6, 0.6), damp = dragging ? 3.5 : 7;
+    const targX = clamp(liftW*sx + lv.z*0.06, -0.6, 0.6), targZ = clamp(liftW*sz - lv.x*0.06, -0.6, 0.6), damp = dragging ? 3.5 : 7;
     tvx += ((targX-tx)*38 - tvx*damp)*dt; tx += tvx*dt; tvz += ((targZ-tz)*38 - tvz*damp)*dt; tz += tvz*dt;
     tiltG.rotation.x = tx; tiltG.rotation.z = tz;
     sqv += (-sq*180 - sqv*11)*dt; sq += sqv*dt; sq = clamp(sq, -0.25, 0.32);
-    const breath = reduced ? 0 : Math.sin(t*(asleep()?1.3:2.2))*(asleep()?0.025:0.012);
-    squashG.scale.set(1 + sq*0.55 + sleepW*0.05, (1-sq)*(1+breath)*(1 - sleepW*0.1), 1 + sq*0.4);
-    legs.forEach(l => {
-      const want = liftW*(0.3 + Math.sin(t*9+l.phase)*0.4) + gaitW*Math.sin(walkClock+l.walkPh)*0.5
-                 + wiggleW*Math.sin(t*16+l.phase)*0.6 + danceW*Math.sin(t*11+l.walkPh)*0.45 + sleepW*l.front*1.0 + sitW*(l.front < 0 ? 1.1 : -0.2);
-      l.g.rotation.x += (want - l.g.rotation.x)*Math.min(1, dt*14);
-    });
+    squashG.scale.set(1 + sq*0.55, 1 - sq, 1 + sq*0.4);
+
+    // blend the Blender animation clips by state, then layer procedural motion on top of the bones
+    const eatOn = B.mode === 'eat' || B.mode === 'drink', curled = liftW > 0.5 || (act && ['roll','belly','flip'].includes(act.key));
+    const target = {walk: gaitW*(1 - liftW), eat: eatOn ? 1 : 0, sleep: sleepW, sit: sitW, happy: danceW*0.7, ball: curled ? 0.35 : 0};
+    let sum = 0;
+    for (const k in BW){ BW[k] += (target[k] - BW[k])*Math.min(1, dt*6); sum += BW[k]; }
+    const norm = Math.max(1, sum);
+    for (const k in BW) CLIP[k].setEffectiveWeight(BW[k]/norm);
+    CLIP.idle.setEffectiveWeight(Math.max(0, 1 - sum));
+    CLIP.walk.timeScale = 0.6 + gaitW*0.9*clamp(petSpeed()/0.9, 0.6, 1.6);
+    mixer.update(dt);
+    legs.forEach(l => turnBone(l.bone, -(liftW*(0.3 + Math.sin(t*9+l.phase)*0.4) + wiggleW*Math.sin(t*16+l.phase)*0.6 + danceW*Math.sin(t*11+l.phase)*0.3), 0, 0));
     const fv = V3(-(vel.x+walkVel.x), -vel.y, -(vel.z+walkVel.z)).multiplyScalar(0.012); fv.y -= 0.012;
     if (ar.shake) fv.add(V3(1,0,0).applyQuaternion(tmpQ).multiplyScalar(ar.shake*0.07));
     if (fv.length() > 0.08) fv.setLength(0.08);
@@ -2369,26 +2372,29 @@ function step(){
 
     let hy = 0, hx = 0, hs = 5;
     if (dragging) hx = -0.15;
-    else if (B.mode === 'dying' || asleep()) hx = 0.3;
+    else if (B.mode === 'dying') hx = 0.3;
+    else if (asleep() || eatOn) hx = 0;
     else if (evo) hx = -0.2;
     else if (act) hx = act.key === 'belly' ? -0.25 : act.key === 'fireflies' ? -0.4 + Math.sin(t*0.8)*0.1 : act.key === 'snowman' ? 0.25 : 0;
-    else if (B.mode === 'eat' || B.mode === 'drink'){ hx = 0.38 + Math.sin(t*16)*0.07; hs = 8; }
     else if (['walk','seek','seekWater','goto','goHouse','enter','exit'].includes(B.mode)){ hy = Math.sin(t*1.3)*0.12; hx = 0.05; }
     else if (hasHover && performance.now() - lastMouse < 2000){
       scene.updateMatrixWorld(true);
       const hp = head.getWorldPosition(V3(0,0,0)), n = V3(0,0,0); camera.getWorldDirection(n);
       const pl = new THREE.Plane().setFromNormalAndCoplanarPoint(n, hp); ray.setFromCamera(hoverNdc, camera); const p = V3(0,0,0);
-      if (ray.ray.intersectPlane(pl, p)){ const lp = squashG.worldToLocal(p).sub(head.position); lp.z += 1.5; hy = clamp(Math.atan2(lp.x, lp.z), -0.6, 0.6); hx = clamp(-Math.atan2(lp.y, Math.hypot(lp.x, lp.z)), -0.3, 0.3); }
+      if (ray.ray.intersectPlane(pl, p)){ const lp = squashG.worldToLocal(p).sub(V3(0, 1.1, 0.4)); lp.z += 1.5; hy = clamp(Math.atan2(lp.x, lp.z), -0.6, 0.6); hx = clamp(-Math.atan2(lp.y, Math.hypot(lp.x, lp.z)), -0.3, 0.3); }
     } else { hy = B.lookYaw; hx = B.lookPitch + (S.st.happy < 30 || S.form === 'sickly' ? 0.15 : 0); hs = 7; }
-    head.rotation.y += (hy - head.rotation.y)*Math.min(1, dt*hs);
-    head.rotation.x += (hx - head.rotation.x)*Math.min(1, dt*hs);
+    lookY += (hy - lookY)*Math.min(1, dt*hs);
+    lookX += (hx - lookX)*Math.min(1, dt*hs);
+    turnBone(BONE.head, -lookX, 0, lookY);           // bone +X tilts the head up, +Z turns it toward +x
+    BONE.head.scale.multiplyScalar(headScale);
 
     blinkTimer -= dt; if (blinkTimer <= 0){ blinkT = 0.14; blinkTimer = rnd(2,5.5); } if (blinkT > 0) blinkT -= dt;
     const closed = asleep() || B.mode === 'dying' || (evo && evo.t < 3.9);
     const es = closed || blinkT > 0 ? 0.12 : form().droopy ? 0.5 : 1;
     eyes.forEach(e => e.scale.y += (es - e.scale.y)*Math.min(1, dt*30));
+    const droop = asleep() || S.st.happy < 30 || S.form === 'sickly' ? 0.4 : 0;
     ears.forEach(e => { if (!reduced && Math.random() < dt*0.25 && !asleep()) e.v += rnd(-5,5); e.v += (-e.a*120 - e.v*8)*dt; e.a += e.v*dt;
-      e.g.rotation.x = e.a*0.3 + (asleep() || S.st.happy < 30 || S.form === 'sickly' ? 0.35 : 0); e.g.rotation.z = e.base + e.a*0.15; });
+      turnBone(e.bone, -(e.a*0.3 + droop), 0, e.a*0.15*e.s); });
 
     const h = pos.y + actY; shadow.g.position.set(pos.x, 0, pos.z); shadow.g.rotation.y = root.rotation.y;
     shadow.g.scale.set((1+h*0.12)*petS*reveal, 1, (1+h*0.12)*petS*reveal); shadow.m.material.opacity = clamp(1-h/5, 0.15, 1);
