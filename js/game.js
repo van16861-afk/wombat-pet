@@ -238,20 +238,20 @@ const ACC = {};
     const tip = new THREE.Mesh(new THREE.ConeGeometry(0.06,0.14,10), brown); tip.position.y = 0.38; tip.rotation.z = 0.3; g.add(tip);
     const flies = new THREE.Group(); for (let i=0;i<3;i++){ const f = new THREE.Mesh(new THREE.SphereGeometry(0.025,6,4), mat('#111',0.4)); f.position.set(0.35,0.3+i*0.1,0); f.userData.ph = i*2.1; flies.add(f); }
     g.add(flies); g.userData.flies = flies;
-    g.position.set(0,0.64,0.42); head.add(g); ACC.poop = g; }
+    g.position.set(0,0.58,0.5); head.add(g); ACC.poop = g; }
   { const g = new THREE.Group(), w = mat('#f4f1ea',0.9);
-    const band = new THREE.Mesh(new THREE.TorusGeometry(0.73,0.055,8,48), w); band.rotation.x = Math.PI/2; band.scale.set(1,0.9,1); band.position.set(0,0.3,0.45); g.add(band);
+    const band = new THREE.Mesh(new THREE.TorusGeometry(0.73,0.055,8,48), w); band.rotation.x = Math.PI/2; band.scale.set(1.1,0.72,1); band.position.set(0,0.3,0.6); g.add(band);
     for (const r of [0.6,-0.6]){ const p = new THREE.Mesh(new THREE.BoxGeometry(0.28,0.08,0.02), mat('#e8c9a6',0.9)); p.position.set(-0.32,0.42,1.0); p.rotation.set(-0.5,0.35,r); g.add(p); }
     head.add(g); ACC.bandage = g; }
   { const g = new THREE.Group();
-    const band = new THREE.Mesh(new THREE.TorusGeometry(0.73,0.07,8,48), mat('#d94b45',0.7)); band.rotation.x = Math.PI/2; band.scale.set(1,0.9,1); band.position.set(0,0.32,0.45); g.add(band);
+    const band = new THREE.Mesh(new THREE.TorusGeometry(0.73,0.07,8,48), mat('#d94b45',0.7)); band.rotation.x = Math.PI/2; band.scale.set(1.1,0.72,1); band.position.set(0,0.32,0.6); g.add(band);
     const tail = new THREE.Mesh(new THREE.BoxGeometry(0.06,0.35,0.12), band.material); tail.position.set(0,0.2,-0.2); tail.rotation.x = 0.6; g.add(tail);
     head.add(g); ACC.headband = g; }
   { const g = new THREE.Group(), gold = new THREE.MeshStandardMaterial({color:'#e2b53b', roughness:0.25, metalness:0.6});
     const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.3,0.3,0.16,24,1,true), gold); ring.material.side = THREE.DoubleSide; ring.position.y = 0.08; g.add(ring);
     for (let i=0;i<5;i++){ const a = i/5*Math.PI*2; const c = new THREE.Mesh(new THREE.ConeGeometry(0.06,0.16,8), gold); c.position.set(Math.sin(a)*0.3,0.23,Math.cos(a)*0.3); g.add(c);
       const gem = new THREE.Mesh(new THREE.SphereGeometry(0.035,8,6), mat(['#e0607e','#4f86c6','#5aa469'][i%3],0.2)); gem.position.set(Math.sin(a)*0.31,0.08,Math.cos(a)*0.31); g.add(gem); }
-    g.position.set(0,0.64,0.42); head.add(g); ACC.crown = g; }
+    g.position.set(0,0.58,0.5); head.add(g); ACC.crown = g; }
 
   // --- perfect / ultimate branch outfits ---
   // Point + outward normal on the body ellipsoid (bodyFit space, front = +z), and the "downhill" tangent.
@@ -292,7 +292,7 @@ const ACC = {};
     for (const s of [-1,1]){ const l = new THREE.Mesh(leafGeo, leaf); l.position.set(0.04*s,0.05,0); l.rotation.set(-1.0, 0, -0.5*s); l.rotation.order = 'ZXY'; l.scale.setScalar(0.9); g.add(l); }
     const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.02,0.025,0.14,6), leaf); stem.position.y = 0.02; g.add(stem);
     const f = flower(1.4); f.position.set(-0.5,-0.12,0.18); f.rotation.set(0.3,0,0.6); g.add(f);
-    g.position.set(0,0.62,0.42); head.add(g); ACC.sprout = g; }
+    g.position.set(0,0.56,0.5); head.add(g); ACC.sprout = g; }
   { const g = new THREE.Group(), horn = new THREE.MeshStandardMaterial({color:'#c79a45', roughness:0.35, metalness:0.4});
     const beam = (from, dir, len, r) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(r*0.7, r, len, 8), horn);
       m.position.copy(from).addScaledVector(dir, len/2); m.quaternion.setFromUnitVectors(UP, dir); g.add(m); return from.clone().addScaledVector(dir, len); };
@@ -301,7 +301,7 @@ const ACC = {};
       beam(mid, V3(0.9*s,0.55,0.15).normalize(), 0.22, 0.03); beam(top, V3(0.6*s,0.8,0.1).normalize(), 0.14, 0.025); beam(top, V3(-0.2*s,1,-0.3).normalize(), 0.14, 0.025);
       for (let i=0;i<3;i++){ const l = new THREE.Mesh(leafGeo, mat('#5f9a3e',0.6)); l.position.copy(mid).lerp(base, i/3); l.rotation.set(rnd(-1,1), rnd(0,6), rnd(-1,1)); l.scale.setScalar(0.55); g.add(l); }
     }
-    const vine = new THREE.Mesh(new THREE.TorusGeometry(0.74,0.05,8,48), mat('#4f7a33',0.8)); vine.rotation.x = Math.PI/2; vine.scale.set(1,0.9,1); vine.position.set(0,0.34,0.45); g.add(vine);
+    const vine = new THREE.Mesh(new THREE.TorusGeometry(0.74,0.05,8,48), mat('#4f7a33',0.8)); vine.rotation.x = Math.PI/2; vine.scale.set(1.1,0.72,1); vine.position.set(0,0.34,0.6); g.add(vine);
     const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.1), new THREE.MeshStandardMaterial({color:'#6af08a', emissive:'#2fd060', emissiveIntensity:0.8, roughness:0.15})); gem.scale.y = 1.5; gem.position.set(0,0.4,1.1); g.add(gem);
     const f = flower(1.3); f.position.set(0.45,0.5,0.75); f.rotation.set(0.4,0,-0.5); g.add(f);
     g.userData.gem = gem.material; head.add(g); ACC.antler = g; }
@@ -338,11 +338,11 @@ const ACC = {};
     for (let i=0;i<4;i++){ const seg = new THREE.Group(), b = new THREE.Mesh(new THREE.BoxGeometry(0.11 - i*0.015, 0.02, 0.24), m); b.position.z = -0.12; seg.add(b); seg.position.z = i ? -0.24 : 0; p.add(seg); p = seg; }
     root_.rotation.set(-0.35, 0.3*side, 0); return root_; };
   const band = (red, gold, emblem) => { const g = new THREE.Group();
-    const b = new THREE.Mesh(new THREE.TorusGeometry(0.74,0.075,8,48), red); b.rotation.x = Math.PI/2; b.scale.set(1,0.9,1); b.position.set(0,0.32,0.45); g.add(b);
-    for (const dy of [-0.07, 0.07]){ const tr = new THREE.Mesh(new THREE.TorusGeometry(0.745,0.018,6,48), gold); tr.rotation.x = Math.PI/2; tr.scale.set(1,0.9,1); tr.position.set(0,0.32+dy,0.45); g.add(tr); }
+    const b = new THREE.Mesh(new THREE.TorusGeometry(0.74,0.075,8,48), red); b.rotation.x = Math.PI/2; b.scale.set(1.1,0.72,1); b.position.set(0,0.32,0.6); g.add(b);
+    for (const dy of [-0.07, 0.07]){ const tr = new THREE.Mesh(new THREE.TorusGeometry(0.745,0.018,6,48), gold); tr.rotation.x = Math.PI/2; tr.scale.set(1.1,0.72,1); tr.position.set(0,0.32+dy,0.6); g.add(tr); }
     emblem.position.set(0,0.33,1.1); g.add(emblem);
-    const knot = new THREE.Mesh(new THREE.SphereGeometry(0.09,10,8), red); knot.position.set(0,0.3,-0.2); g.add(knot);
-    const tails = [ribbonTail(red, 1), ribbonTail(red, -1)]; tails.forEach(t_ => { t_.position.set(0,0.3,-0.24); g.add(t_); });
+    const knot = new THREE.Mesh(new THREE.SphereGeometry(0.09,10,8), red); knot.position.set(0,0.3,0.08); g.add(knot);
+    const tails = [ribbonTail(red, 1), ribbonTail(red, -1)]; tails.forEach(t_ => { t_.position.set(0,0.3,0.05); g.add(t_); });
     g.userData.tails = tails; head.add(g); return g; };
   const boltShape = s => { const sh = new THREE.Shape(); [[0.1,0.5],[-0.25,0],[0,0],[-0.1,-0.5],[0.25,0.05],[0,0.05]].forEach(([x,y],i) => i ? sh.lineTo(x*s,y*s) : sh.moveTo(x*s,y*s)); return sh; };
   { const gold = new THREE.MeshStandardMaterial({color:'#e2b53b', roughness:0.3, metalness:0.5});
@@ -362,7 +362,7 @@ const ACC = {};
   { const g = new THREE.Group();
     const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.022,0.022,0.42,8), mat('#f4f6f8',0.3)); tube.position.y = 0.21; g.add(tube);
     const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.035,10,8), mat('#d23b32',0.3)); bulb.position.y = 0.42; g.add(bulb);
-    g.position.set(0.12,-0.36,1.3); g.rotation.set(0.5,0,-1.15); head.add(g); ACC.thermo = g; }
+    g.position.set(0.1,-0.3,1.0); g.rotation.set(0.3,0,-1.2); head.add(g); ACC.thermo = g; }
   Object.values(ACC).forEach(g => g.visible = false);
 })();
 
@@ -388,7 +388,8 @@ const CL = {};
 let propeller = null;
 (function buildClothes(){
   const white = mat('#f6f3ec',0.95), gold = new THREE.MeshStandardMaterial({color:'#e2b53b', roughness:0.3, metalness:0.5});
-  const onHead = (id, g, mats, y=0.62, z=0.42) => { g.position.set(0,y,z); g.userData.baseY = y; head.add(g); CL[id] = {g, mats}; };
+  // hats were placed for the old, taller head: sit them a little lower and further forward on the new one
+  const onHead = (id, g, mats, y=0.62, z=0.42) => { y -= 0.06; z += 0.08; g.position.set(0,y,z); g.userData.baseY = y; head.add(g); CL[id] = {g, mats}; };
   { const g = new THREE.Group(), m = mat('#e45b5b',0.6);
     const cone = new THREE.Mesh(new THREE.ConeGeometry(0.27,0.62,28), m); cone.position.y = 0.31; g.add(cone);
     const pom = new THREE.Mesh(new THREE.SphereGeometry(0.08,12,10), white); pom.position.y = 0.64; g.add(pom);
@@ -407,12 +408,12 @@ let propeller = null;
     g.add(new THREE.Mesh(new THREE.SphereGeometry(0.055,12,10), m));
     g.position.set(0,-0.6,0.98); head.add(g); CL.bow = {g, mats:[m]}; }
   { const g = new THREE.Group(), m = mat('#f2a541',0.95); m.map = knitTex;
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.93,0.16,14,48), m); ring.scale.set(1,0.86,1); g.add(ring);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.93,0.16,14,48), m); ring.scale.set(1.04,0.9,1); g.add(ring);
     const knot = new THREE.Mesh(new THREE.SphereGeometry(0.17,14,10), m); knot.position.set(0.72,-0.4,0.12); g.add(knot);
-    g.position.set(0,-0.02,0.75); bodyFit.add(g); CL.scarf = {g, mats:[m]}; }
+    g.position.set(0,0.1,0.7); g.rotation.x = 0.35; bodyFit.add(g); CL.scarf = {g, mats:[m]}; }
   { const geo = new THREE.CylinderGeometry(1,1,1,48,12,true), p = geo.attributes.position;
     for (let i=0;i<p.count;i++){
-      const a = Math.atan2(p.getZ(i), p.getX(i)), zz = -0.85 + (p.getY(i)+0.5)*1.15;
+      const a = Math.atan2(p.getZ(i), p.getX(i)), zz = -0.35 + (p.getY(i)+0.5)*1.22;   // covers the chest and front half
       const k = Math.sqrt(Math.max(0.05, 1 - Math.pow((zz+0.25)/1.5, 2)));
       p.setXYZ(i, Math.cos(a)*1.0*k*1.12, Math.sin(a)*0.85*k*1.12, zz + 0.25);
     }
@@ -421,7 +422,7 @@ let propeller = null;
     const g = new THREE.Group(); g.add(new THREE.Mesh(geo, m)); bodyFit.add(g); CL.sweater = {g, mats:[m]}; }
   // holiday items
   { const g = new THREE.Group(), m = mat('#e2b53b',0.4);
-    const band = new THREE.Mesh(new THREE.TorusGeometry(0.73,0.06,8,48), m); band.rotation.x = Math.PI/2; band.scale.set(1,0.9,1); band.position.set(0,-0.3,0.03); g.add(band);
+    const band = new THREE.Mesh(new THREE.TorusGeometry(0.73,0.06,8,48), m); band.rotation.x = Math.PI/2; band.scale.set(1.1,0.72,1); band.position.set(0,-0.3,0.1); g.add(band);
     const star = new THREE.Mesh(extrude(starShape(0.18,0.08), 0.04), gold); star.position.set(0,-0.22,0.66); g.add(star);
     onHead('nyband', g, [m]); }
   { const g = new THREE.Group(), m = mat('#d23b32',0.6);
@@ -444,7 +445,7 @@ let propeller = null;
     const str = new THREE.Mesh(new THREE.TorusGeometry(0.95,0.025,6,48), mat('#e2b53b',0.5)); str.scale.set(1,0.86,1); g.add(str);
     const pouch = new THREE.Mesh(new THREE.SphereGeometry(0.15,14,10), m); pouch.scale.set(1,1.2,0.6); pouch.position.set(0,-0.92,0.12); g.add(pouch);
     const tas = new THREE.Mesh(new THREE.ConeGeometry(0.05,0.18,8), mat('#e2b53b',0.5)); tas.position.set(0,-1.15,0.12); tas.rotation.x = Math.PI; g.add(tas);
-    g.position.set(0,-0.02,0.78); bodyFit.add(g); CL.sachet = {g, mats:[m]}; }
+    g.position.set(0,0.1,0.72); g.rotation.x = 0.35; bodyFit.add(g); CL.sachet = {g, mats:[m]}; }
   { const g = new THREE.Group(), m = mat('#f2a6be',0.6);
     const band = new THREE.Mesh(new THREE.TorusGeometry(0.62,0.035,8,32,Math.PI), m); band.position.set(0,-0.5,0); g.add(band);
     for (const s of [-1,1]){ const e = new THREE.Group(); e.position.set(0.26*s,0.5,0); e.rotation.z = -0.18*s;
@@ -921,6 +922,8 @@ const PREVIEW = FORMS[new URLSearchParams(location.search).get('preview')] ? new
 if (PREVIEW) S = Object.assign(freshSave(), {name:'預覽', form:PREVIEW, seenGuide:true, dayMode:'preview', coins:0, ageMs:3*86400000, growth:400,
   stage: ['golden','forestx','thunder'].includes(PREVIEW) ? 'ultimate' : ['royal','forest','wind'].includes(PREVIEW) ? 'perfect' : 'adult',
   st:{hunger:90, thirst:90, happy:95, energy:90, health: PREVIEW === 'sickly' ? 60 : 100}});
+// ?preview=…&wear=straw,glasses tries clothes on; ?debug exposes internals for tuning in the console.
+if (PREVIEW){ const q = new URLSearchParams(location.search), w = (q.get('wear') || '').split(',').filter(Boolean); w.forEach(id => { S.owned[id] = true; S.worn[id] = true; }); if (q.get('stage')) S.stage = q.get('stage'); }
 
 // ---------- runtime state ----------
 const pos = V3(0,0,0), vel = V3(0,0,0), walkVel = V3(0,0,0), forceSm = V3(0,0,0);
@@ -955,7 +958,49 @@ function poopNow(){
   return true;
 }
 function removePoop(c){ scene.remove(c.m, c.sh.g, c.stink); cubes.splice(cubes.indexOf(c),1); }
-function cleanPoop(c){ if (!cubes.includes(c)) return; const p = c.m.position.clone(); removePoop(c); addCoins(3, p.add(V3(0,0.4,0))); sfx('pop'); }
+// ---------- cleaning tools: a broom + dustpan sweeps poop away, a little hand pulls weeds ----------
+const tools = [];
+const skinMat = mat('#f3d2b8', 0.7), woodMat = mat('#b98b5a', 0.8);
+function makeHand(){
+  const g = new THREE.Group(), palm = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), skinMat); palm.scale.set(0.16, 0.1, 0.14); g.add(palm);
+  const fingers = new THREE.Group(); g.add(fingers);
+  for (let i=0;i<4;i++){ const f = new THREE.Mesh(new THREE.CapsuleGeometry(0.035, 0.12, 4, 8), skinMat); f.position.set(-0.09 + i*0.06, -0.06, 0.12); f.rotation.x = 1.2; fingers.add(f); }
+  const th = new THREE.Mesh(new THREE.CapsuleGeometry(0.035, 0.09, 4, 8), skinMat); th.position.set(0.17, -0.04, 0.02); th.rotation.z = 1.1; g.add(th);
+  const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.13, 0.12, 14), mat('#f6f3ec', 0.9)); cuff.position.set(0, 0.04, -0.17); cuff.rotation.x = Math.PI/2; g.add(cuff);
+  g.userData.fingers = fingers; return g;
+}
+function makeBroom(){
+  const g = new THREE.Group(), stick = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1.1, 8), woodMat); stick.position.y = 0.6; g.add(stick);
+  const brush = new THREE.Mesh(new THREE.ConeGeometry(0.17, 0.28, 12), mat('#e2c37c', 0.9)); brush.position.y = 0.1; brush.rotation.x = Math.PI; brush.scale.z = 0.5; g.add(brush);
+  const tie = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.05, 10), mat('#d23b32', 0.6)); tie.position.y = 0.24; g.add(tie);
+  g.rotation.z = 0.5; return g;
+}
+function makePan(){
+  const g = new THREE.Group(), red = mat('#e45b5b', 0.5);
+  const base = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.02, 0.36), red); base.position.y = 0.01; g.add(base);
+  const back = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.16, 0.02), red); back.position.set(0, 0.08, -0.18); g.add(back);
+  for (const s of [-1,1]){ const side = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.12, 0.36), red); side.position.set(0.21*s, 0.06, 0); g.add(side); }
+  const h = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.3, 8), red); h.position.set(0, 0.2, -0.3); h.rotation.x = 0.9; g.add(h);
+  return g;
+}
+const camRight = () => { const r = V3(1,0,0).applyQuaternion(camera.quaternion); r.y = 0; return r.normalize(); };
+function cleanPoop(c){
+  if (!cubes.includes(c) || c.cleaning) return;
+  c.cleaning = true; c.hb.userData.kind = null; c.v = null;
+  const at = c.m.position.clone(); at.y = 0; const right = camRight();
+  const pan = makePan(), broom = makeBroom(); pan.position.copy(at).addScaledVector(right, 0.42); pan.rotation.y = Math.atan2(-right.x, -right.z);
+  broom.position.copy(at).addScaledVector(right, -0.5); broom.rotation.y = Math.atan2(right.x, right.z) - Math.PI/2;
+  scene.add(pan, broom); pan.scale.setScalar(0.01); broom.scale.setScalar(0.01);
+  tools.push({t:0, dur:1.3, update(t){
+    const k = Math.min(1, t/0.2), out = t > 1.0 ? Math.max(0.01, 1 - (t-1.0)/0.3) : 1;
+    pan.scale.setScalar(k*out); broom.scale.setScalar(k*out);
+    const s = clamp((t-0.25)/0.55, 0, 1);                       // sweep toward the pan
+    broom.position.copy(at).addScaledVector(right, lerp(-0.5, 0.18, s)); broom.rotation.x = Math.sin(t*28)*0.12*(s > 0 && s < 1 ? 1 : 0);
+    if (s > 0.35){ c.m.position.copy(at).addScaledVector(right, lerp(0, 0.4, (s-0.35)/0.65)); c.m.position.y = 0.1*c.sc; c.sh.g.visible = false; c.stink.visible = false; }
+    if (t > 1.0){ pan.position.y = (t-1.0)*1.2; c.m.position.y = pan.position.y + 0.1*c.sc; }
+    if (t > 0.6 && !this.swish){ this.swish = true; sfx('whoosh'); }
+  }, done(){ scene.remove(pan, broom); removePoop(c); addCoins(3, at.add(V3(0,0.5,0))); sfx('pop'); }});
+}
 
 const weeds = [], fxPull = [];
 const bladeGeo = new THREE.ConeGeometry(0.04, 0.42, 4); bladeGeo.translate(0,0.21,0);
@@ -979,38 +1024,107 @@ function spawnWeed(){
 }
 function pullWeed(w){
   if (!weeds.includes(w)) return;
-  weeds.splice(weeds.indexOf(w),1); S.care.nature = (S.care.nature || 0) + 1;
-  const p = w.g.position.clone(); fxPull.push({g:w.g, t:0});
-  addCoins(2, p.add(V3(0,0.6,0))); sfx('pop');
+  weeds.splice(weeds.indexOf(w),1); S.care.nature = (S.care.nature || 0) + 1; w.hb.userData.kind = null;
+  const hand = makeHand(), at = w.g.position.clone(), top = 0.5*w.s;
+  hand.rotation.y = Math.atan2(camera.position.x - at.x, camera.position.z - at.z) + Math.PI; hand.position.set(at.x, 1.8, at.z); scene.add(hand);
+  tools.push({t:0, dur:1.25, update(t){
+    if (t < 0.35) hand.position.y = lerp(1.8, top + 0.12, ease(t/0.35));                         // reach down
+    else if (t < 0.5) hand.userData.fingers.rotation.x = lerp(0, 0.7, (t-0.35)/0.15);              // grab
+    else { const u = ease(clamp((t-0.5)/0.6, 0, 1)); hand.position.y = lerp(top + 0.12, 1.9, u);   // yank it out
+      w.g.position.y = hand.position.y - top - 0.12; w.g.rotation.z = Math.sin(t*30)*0.15*(1-u);
+      if (!this.popped){ this.popped = true; sfx('pop'); addCoins(2, at.clone().add(V3(0,0.6,0))); } }
+    if (t > 1.0){ const f = Math.max(0.01, 1 - (t-1.0)/0.25); hand.scale.setScalar(f); w.g.scale.setScalar(w.s*f); }
+  }, done(){ scene.remove(hand, w.g); }});
+}
+function updateTools(dt){
+  for (let i=tools.length-1;i>=0;i--){ const tl = tools[i]; tl.t += dt; tl.update(Math.min(tl.t, tl.dur)); if (tl.t >= tl.dur){ tl.done(); tools.splice(i,1); } }
 }
 
 const foods = [];
 const grassGeo = new THREE.ConeGeometry(0.035,0.38,5); grassGeo.translate(0,0.19,0);
 const grassMats = ['#6f9a4a','#86b25a','#5c8540'].map(c => mat(c,0.8));
 const leafGeo = new THREE.ConeGeometry(0.025,0.24,5); leafGeo.translate(0,0.12,0);
-function spawnFood(x, z){
-  const r = Math.hypot(x,z); if (r > BOUND-0.3){ x *= (BOUND-0.3)/r; z *= (BOUND-0.3)/r; }
+// Food and drink. Grass and water are free; the rest is bought in the shop and kept in the bag (S.inv).
+const FOODS = [
+  {id:'grass',  name:'青草',   price:0,  hunger:28,             desc:'免費，吃不膩的基本款。'},
+  {id:'carrot', name:'紅蘿蔔', price:6,  hunger:32, happy:6,    desc:'脆脆甜甜。'},
+  {id:'apple',  name:'蘋果',   price:8,  hunger:24, happy:8, thirst:8, desc:'多汁，還能補一點水分。'},
+  {id:'clover', name:'苜蓿',   price:9,  hunger:30, happy:10,   desc:'香香嫩嫩的草。'},
+  {id:'potato', name:'地瓜',   price:10, hunger:45, energy:6,   desc:'很有飽足感。'},
+  {id:'root',   name:'樹根',   price:12, hunger:34, health:6,   desc:'野生袋熊愛啃的根，對身體好。'}
+];
+const DRINKS = [
+  {id:'water', name:'清水',   price:0,  thirst:45,             color:'#6fa8c9', desc:'免費。'},
+  {id:'milk',  name:'牛奶',   price:8,  thirst:32, happy:8, health:3, color:'#f4f1ea', desc:'喝了心情好。'},
+  {id:'coco',  name:'椰子水', price:12, thirst:55, energy:10,  color:'#e7efe3', desc:'解渴又補體力。'}
+];
+const foodInfo = id => FOODS.find(f => f.id === id) || DRINKS.find(f => f.id === id);
+const foodStats = f => [['hunger','飽足'],['thirst','水分'],['happy','心情'],['energy','體力'],['health','健康']].filter(([k]) => f[k]).map(([k,n]) => `${n} +${f[k]}`).join('、');
+function giveFood(id){
+  const f = foodInfo(id), isFood = f.hunger !== undefined;
+  if (!petActive()){ toast(S.stage === 'egg' ? '還沒孵出來喔。' : '現在不需要。'); return; }
+  if (isFood && S.st.hunger > 92){ toast('牠吃得很飽了。'); return; }
+  if (isFood && foods.length >= 3){ toast('地上已經有食物了。'); return; }
+  if (!isFood && S.st.thirst > 92){ toast('牠現在不渴。'); return; }
+  if (!isFood && bowl){ toast('碗裡還有喝的。'); return; }
+  if (f.price){ if (!inv(id)){ toast(`背包裡沒有${f.name}了，到商店買吧。`); return; } invAdd(id, -1); }
+  if (B.mode === 'inHouse') exitHouse(); else if (B.mode === 'sleep') wake(true);
+  if (isFood){ const a = root.rotation.y + rnd(-1.1,1.1), d = 1.9*petS + rnd(1.2,2); spawnFood(pos.x + Math.sin(a)*d, pos.z + Math.cos(a)*d, id); }
+  else { if (id !== 'water' || !BG.pond) spawnBowl(id); B.water = true; if (id === 'water' && BG.pond) toast('牠走去水池喝水。'); }
+}
+const inv = id => (S.inv && S.inv[id]) || 0;
+const invAdd = (id, n) => { S.inv = S.inv || {}; S.inv[id] = Math.max(0, inv(id) + n); };
+function foodMesh(kind){
   const g = new THREE.Group();
-  if (Math.random() < 0.5){
+  if (kind === 'grass' || kind === 'clover'){
     for (let i=0;i<9;i++){ const b = new THREE.Mesh(grassGeo, grassMats[i%3]); b.position.set(rnd(-0.11,0.11),0,rnd(-0.11,0.11)); b.rotation.set(rnd(-0.35,0.35),0,rnd(-0.35,0.35)); b.scale.y = rnd(0.7,1.3); g.add(b); }
-  } else {
+    if (kind === 'clover') for (let i=0;i<3;i++){ const f = new THREE.Mesh(new THREE.SphereGeometry(0.05,8,6), mat('#e9a0c8',0.6)); f.position.set(rnd(-0.08,0.08), rnd(0.3,0.4), rnd(-0.08,0.08)); g.add(f); }
+  } else if (kind === 'carrot'){
     const body = new THREE.Mesh(new THREE.ConeGeometry(0.075,0.5,12), mat('#e8833a',0.6)); body.rotation.z = Math.PI/2; body.position.y = 0.075; g.add(body);
     for (const a of [-0.5,0,0.5]){ const l = new THREE.Mesh(leafGeo, grassMats[1]); l.position.set(0.24,0.075,0); l.rotation.set(a,0,-Math.PI/2+0.5); g.add(l); }
-    g.rotation.y = Math.random()*Math.PI*2;
+  } else if (kind === 'apple'){
+    const a = new THREE.Mesh(new THREE.SphereGeometry(0.15,18,14), mat('#d8423c',0.35)); a.scale.y = 0.9; a.position.y = 0.14; g.add(a);
+    const st = new THREE.Mesh(new THREE.CylinderGeometry(0.012,0.015,0.08,6), woodMat); st.position.y = 0.3; g.add(st);
+    const l = new THREE.Mesh(leafGeo, grassMats[1]); l.position.set(0.03,0.3,0); l.rotation.z = -1.0; g.add(l);
+  } else if (kind === 'potato'){
+    const p = new THREE.Mesh(new THREE.SphereGeometry(0.12,16,12), mat('#9a4f6a',0.75)); p.scale.set(2.0,0.85,0.95); p.position.y = 0.1; g.add(p);
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.05,0.12,8), mat('#9a4f6a',0.75)); tip.rotation.z = Math.PI/2; tip.position.set(0.28,0.1,0); g.add(tip);
+  } else if (kind === 'root'){
+    const m = mat('#8a6040',0.9);
+    for (let i=0;i<4;i++){ const r = new THREE.Mesh(new THREE.CylinderGeometry(0.02,0.045,rnd(0.35,0.5),6), m); r.rotation.set(rnd(-0.3,0.3), rnd(0,6), Math.PI/2 + rnd(-0.4,0.4)); r.position.y = 0.05 + i*0.02; g.add(r); }
   }
-  g.position.set(x, 1.6, z); scene.add(g);
-  foods.push({g, vy:0, landed:false, eat:1, sh:makeShadow(0.6,0.6)});
+  g.rotation.y = Math.random()*Math.PI*2; return g;
+}
+function spawnFood(x, z, kind='grass'){
+  const r = Math.hypot(x,z); if (r > BOUND-0.3){ x *= (BOUND-0.3)/r; z *= (BOUND-0.3)/r; }
+  const g = foodMesh(kind); g.position.set(x, 1.6, z); scene.add(g);
+  foods.push({g, kind, vy:0, landed:false, eat:1, sh:makeShadow(0.6,0.6)});
+}
+// Extra effects of a food or drink, plus the pet's own taste: one favourite and one food it dislikes.
+const rollLikes = () => { const ids = FOODS.map(f => f.id), fav = ids[Math.floor(Math.random()*ids.length)], rest = ids.filter(i => i !== fav && i !== 'grass');
+  return {fav, hate: rest[Math.floor(Math.random()*rest.length)], known:{}}; };
+function foodBonus(fi){
+  const st = S.st;
+  for (const k of ['happy','thirst','energy','health']) if (fi[k]) st[k] = clamp(st[k] + fi[k], 0, 100);
+  if (fi.hunger === undefined) return;   // drinks have no likes/dislikes
+  if (!S.likes) S.likes = rollLikes();
+  const L = S.likes;
+  if (fi.id === L.fav){ st.happy = clamp(st.happy + 12, 0, 100); spawnHearts(3); showEmote('😋', 1.6);
+    if (!L.known.fav){ L.known.fav = true; toast(`${S.name || '牠'}好像特別愛吃${fi.name}！`); } }
+  else if (fi.id === L.hate){ st.happy = clamp(st.happy - 8, 0, 100); showEmote('😖', 1.6); cry('grunt');
+    if (!L.known.hate){ L.known.hate = true; toast(`${S.name || '牠'}好像不太喜歡${fi.name}……`); } }
 }
 let bowl = null;
-function spawnBowl(){
+function spawnBowl(kind='water'){
   const a = root.rotation.y + rnd(-1,1), d = 1.9*petS + 1.3;
   let x = pos.x + Math.sin(a)*d, z = pos.z + Math.cos(a)*d; const r = Math.hypot(x,z); if (r > BOUND-0.3){ x *= (BOUND-0.3)/r; z *= (BOUND-0.3)/r; }
   const g = new THREE.Group();
   const pts = [[0.001,0],[0.3,0],[0.36,0.05],[0.38,0.2],[0.33,0.2],[0.31,0.07],[0.001,0.07]].map(p => new THREE.Vector2(p[0],p[1]));
   g.add(new THREE.Mesh(new THREE.LatheGeometry(pts,28), mat('#d6dde2',0.35)));
-  const w = new THREE.Mesh(new THREE.CircleGeometry(0.31,24), new THREE.MeshStandardMaterial({color:'#6fa8c9', roughness:0.15})); w.rotation.x = -Math.PI/2; w.position.y = 0.17; g.add(w);
+  const w = new THREE.Mesh(new THREE.CircleGeometry(0.31,24), new THREE.MeshStandardMaterial({color:foodInfo(kind).color, roughness:0.15})); w.rotation.x = -Math.PI/2; w.position.y = 0.17; g.add(w);
+  if (kind === 'coco'){ const sh = new THREE.Mesh(new THREE.SphereGeometry(0.16,14,10,0,Math.PI*2,0,Math.PI/2), mat('#7a5634',0.9)); sh.material.side = THREE.DoubleSide; sh.rotation.x = Math.PI; sh.position.set(0.45,0.14,0); g.add(sh); }
   g.position.set(x,0,z); scene.add(g);
-  bowl = {g, w, left:1}; sfx('pop');
+  bowl = {g, w, kind, left:1}; sfx('pop');
 }
 const snowmen = [];
 function makeSnowman(x, z, ry, melt=0){
@@ -1048,8 +1162,17 @@ function addCoins(n, at){
 const FURS = [{name:'經典棕', c:'#8b6b50', b:'#b39a82', w:10}, {name:'灰褐', c:'#847b70', b:'#aaa196', w:10}, {name:'奶油', c:'#cdb48e', b:'#e3d3b8', w:10}, {name:'炭灰', c:'#4c4846', b:'#6e6966', w:8},
   {name:'灰粉', c:'#a8958f', b:'#e1d3cc', w:8}, {name:'巧克力', c:'#6b4a35', b:'#bf9c7f', w:8}, {name:'淡金', c:'#c9a46a', b:'#f0e0bf', w:6}, {name:'雪白', c:'#e6e1d8', b:'#fbf8f2', w:2}];
 const rollFur = () => { let r = Math.random()*FURS.reduce((s, f) => s + f.w, 0); return Math.max(0, FURS.findIndex(f => (r -= f.w) < 0)); };
+// Dyes sold in the shop (each bottle recolours the current pet; a new hatchling starts with its natural coat).
+const DYES = [
+  {name:'焦糖', c:'#a0703f', b:'#e6c9a2'}, {name:'蜂蜜', c:'#c8963e', b:'#f2dfb0'}, {name:'奶茶', c:'#b59a7c', b:'#ece0cf'}, {name:'可可', c:'#5e4031', b:'#b3927a'},
+  {name:'櫻花粉', c:'#e3a6b5', b:'#f7e1e6'}, {name:'蜜桃', c:'#eaa58a', b:'#f9e0d3'}, {name:'莓果紅', c:'#b3475a', b:'#e9b9c2'}, {name:'南瓜橘', c:'#d9822b', b:'#f5d3a8'},
+  {name:'檸檬黃', c:'#e2c84a', b:'#f8efbe'}, {name:'抹茶', c:'#8aa565', b:'#dce8c8'}, {name:'薄荷', c:'#7cc6ae', b:'#d8f0e7'}, {name:'森林綠', c:'#4e7a4a', b:'#b7cfa9'},
+  {name:'天空藍', c:'#7fb2dd', b:'#dcebf7'}, {name:'海洋藍', c:'#3f6fa8', b:'#b3c8e3'}, {name:'薰衣草', c:'#a796cc', b:'#e7e0f3'}, {name:'葡萄紫', c:'#6b4a8a', b:'#c6b4d8'},
+  {name:'銀灰', c:'#a7aaae', b:'#e6e7e9'}, {name:'夜空黑', c:'#2f2d33', b:'#6b6870'}, {name:'雪白', c:'#ecebe6', b:'#ffffff'}, {name:'彩虹金', c:'#d8b34a', b:'#fff2c4'}];
+const DYE_PRICE = 40, UNDYE_PRICE = 15;
+const coatName = () => S.dye != null && DYES[S.dye] ? `${DYES[S.dye].name}（染的）` : `${(FURS[S.fur] || FURS[0]).name}（天生）`;
 function applyFur(){
-  const f = FURS[S.fur] || FURS[0], F = form();
+  const f = S.dye != null && DYES[S.dye] ? DYES[S.dye] : (FURS[S.fur] || FURS[0]), F = form();
   let c = f.c, b = f.b;
   if (F.tint){ c = mixHex(c, F.tint[0], F.tint[1]); b = mixHex(b, F.tint[0], F.tint[1]*0.8); }
   U.uColor.value.set(c); U.uBelly.value.set(b);
@@ -1137,16 +1260,19 @@ function updateFormFx(dt, t){
 
 // ---------- tricks & special activities ----------
 const ACTS = {
-  flip: {name:'後空翻',   dur:1.15},
-  roll: {name:'連續側翻滾', dur:2.6},
-  spin: {name:'跳躍轉圈',  dur:1.05},
-  belly:{name:'翻肚扭扭',  dur:3.4},
-  shake:{name:'抖抖毛',   dur:1.3},
-  dance:{name:'跳舞',     dur:5.2},
-  snowman:  {name:'堆雪人',   dur:7.5, special:true, need:() => weatherNow() === 'snow' || snowCover > 0.3, why:'下雪天才能堆雪人。', desc:'滾兩顆雪球堆成雪人，代幣 +5'},
-  puddle:   {name:'踩水窪',   dur:4.6, special:true, need:() => weatherNow() === 'rain', why:'下雨天（不打雷）才有水窪可以踩。', desc:'跳進水窪濺水花，心情 +15'},
-  fireflies:{name:'看螢火蟲', dur:6.5, special:true, need:() => nightF > 0.6 && ['sunny','cloudy'].includes(weatherNow()), why:'晴朗或多雲的晚上才有螢火蟲。', desc:'安靜地看螢火蟲，心情和體力都會回復'}
+  sit:  {name:'坐下',     dur:4.0, price:0},
+  flip: {name:'後空翻',   dur:1.15, price:60},
+  roll: {name:'連續側翻滾', dur:2.6, price:70},
+  spin: {name:'跳躍轉圈',  dur:1.05, price:0},
+  belly:{name:'翻肚扭扭',  dur:3.4, price:50},
+  shake:{name:'抖抖毛',   dur:1.3, price:0},
+  dance:{name:'跳舞',     dur:5.2, price:80},
+  snowman:  {name:'堆雪人',   dur:7.5, price:60, special:true, need:() => weatherNow() === 'snow' || snowCover > 0.3, why:'下雪天才能堆雪人。', desc:'滾兩顆雪球堆成雪人，代幣 +5'},
+  puddle:   {name:'踩水窪',   dur:4.6, price:50, special:true, need:() => weatherNow() === 'rain', why:'下雨天（不打雷）才有水窪可以踩。', desc:'跳進水窪濺水花，心情 +15'},
+  fireflies:{name:'看螢火蟲', dur:6.5, price:60, special:true, need:() => nightF > 0.6 && ['sunny','cloudy'].includes(weatherNow()), why:'晴朗或多雲的晚上才有螢火蟲。', desc:'安靜地看螢火蟲，心情和體力都會回復'}
 };
+// Tricks: 坐下, 抖抖毛 and 跳躍轉圈 are free; the others are bought in the shop.
+const hasTrick = k => !ACTS[k].price || !!(S.tricks && S.tricks[k]);
 function whyCantPlay(k){
   if (!petActive()) return S.stage === 'egg' ? '還沒孵出來喔。' : '';
   if (B.mode === 'evolve') return '牠正在進化！';
@@ -1160,6 +1286,7 @@ function whyCantPlay(k){
   return null;
 }
 function startAct(k){
+  if (!hasTrick(k)){ toast(`還沒學會「${ACTS[k].name}」，到商店可以學。`); return; }
   const why = whyCantPlay(k); if (why){ toast(why); return; }
   act = {key:k, t:0, dir:1, moved:0, jumped:false, rolls:0, noteT:0, step:0};
   const side = V3(1,0,0).applyAxisAngle(UP, root.rotation.y), fwd = V3(Math.sin(root.rotation.y),0,Math.cos(root.rotation.y));
@@ -1188,7 +1315,7 @@ function endAct(){
   const k = act.key, st = S.st;
   if (act.ball) scene.remove(act.ball); if (act.ball2) scene.remove(act.ball2);
   act = null; actG.rotation.set(0,0,0); actY = 0;
-  const gain = {dance:[8,14], snowman:[10,20], puddle:[6,15], fireflies:[-6,15]}[k] || [6,10];
+  const gain = {sit:[-2,6], dance:[8,14], snowman:[10,20], puddle:[6,15], fireflies:[-6,15]}[k] || [6,10];
   st.energy = clamp(st.energy - gain[0], 0, 100); st.happy = clamp(st.happy + gain[1], 0, 100); st.thirst = clamp(st.thirst - 3, 0, 100);
   S.care.plays++; if (growthOK()) S.growth += 1;
   if (k === 'flip' || k === 'spin'){ sqv += 2.6; sfx('thud'); }
@@ -1199,7 +1326,7 @@ function updateAct(dt){
   const inBelly = act && act.key === 'belly' && act.t/ACTS.belly.dur > 0.2 && act.t/ACTS.belly.dur < 0.8;
   wiggleW += ((inBelly?1:0) - wiggleW) * Math.min(1, dt*8);
   danceW += ((act && act.key === 'dance' ? 1 : 0) - danceW) * Math.min(1, dt*8);
-  sitW += ((act && act.key === 'fireflies' ? 1 : 0) - sitW) * Math.min(1, dt*3);
+  sitW += ((act && (act.key === 'fireflies' || act.key === 'sit') ? 1 : 0) - sitW) * Math.min(1, dt*3);
   if (!act){ return {shake:0, walk:false}; }
   act.t += dt;
   const A = ACTS[act.key], p = Math.min(act.t/A.dur, 1), s = petS; let shakeF = 0, walk = false;
@@ -1398,7 +1525,7 @@ function updateHatch(dt){
   if (!hatching.cracked){
     hatching.cracked = true; eggWob.rotation.z = 0; eggMesh.visible = false;
     eggHalves = [0, Math.PI].map(start => { const m = new THREE.Mesh(new THREE.LatheGeometry(eggPts, 16, start, Math.PI), eggMat); m.position.y = 0.74; eggG.add(m); return {m, v:V3(start ? -1.6 : 1.6, 3, rnd(-0.5,0.5)), r:start ? 4 : -4}; });
-    S.stage = 'baby'; S.form = 'normal'; S.fur = rollFur(); S.ageMs = 0; S.growth = 0; S.st = {hunger:70, thirst:70, happy:80, energy:90, health:100}; S.poopQ = []; S.care = freshCare();
+    S.stage = 'baby'; S.form = 'normal'; S.fur = rollFur(); S.dye = null; S.likes = rollLikes(); S.ageMs = 0; S.growth = 0; S.st = {hunger:70, thirst:70, happy:80, energy:90, health:100}; S.poopQ = []; S.care = freshCare();
     B.mode = 'idle'; B.timer = 3; pos.set(0,0,0); vel.set(0,0,0); root.rotation.y = Math.atan2(camera.position.x, camera.position.z); reveal = 0;
     root.visible = true; shadow.g.visible = true; eggShadow.g.visible = false; nest.visible = false; applyForm();
     petS = stageScale(); sfx('hatch'); sparkles(V3(0,0.9,0), 26, 1); flashV = 0.6;
@@ -1475,7 +1602,7 @@ function resetAll(){
 function petSpeed(){ let v = 0.95*(0.55 + 0.45*Math.min(petS,1)); const st = S.st;
   if (st.health < 35) v *= 0.5; if (S.stage === 'ultimate') v *= 0.85; if (st.energy < 20) v *= 0.7; return v*(form().speed || 1); }
 function nearestFood(){ let best = null, bd = 1e9; for (const f of foods){ if (!f.landed) continue; const d = Math.hypot(f.g.position.x-pos.x, f.g.position.z-pos.z); if (d < bd){ bd = d; best = f; } } return best; }
-function waterSpot(){ if (BG.pond) return {p:SPOTS.pond, r:1.45}; if (bowl) return {p:bowl.g.position, r:0.15}; return null; }
+function waterSpot(){ if (bowl && bowl.kind !== 'water') return {p:bowl.g.position, r:0.15}; if (BG.pond) return {p:SPOTS.pond, r:1.45}; if (bowl) return {p:bowl.g.position, r:0.15}; return null; }
 function pickWander(){
   const obs = obstacles();
   for (let i=0;i<14;i++){
@@ -1551,14 +1678,16 @@ function think(dt){
     case 'eat': {
       const f = B.food;
       if (!f || !foods.includes(f)){ B.mode = 'idle'; B.timer = 1.5; break; }
+      const fi = foodInfo(f.kind || 'grass');
       f.eat -= dt/2.6; f.g.scale.setScalar(Math.max(0.05, f.eat));
-      st.hunger = clamp(st.hunger + 28*dt/2.6, 0, 100);
+      st.hunger = clamp(st.hunger + fi.hunger*dt/2.6, 0, 100);
       B.nomT -= dt; if (B.nomT <= 0){ B.nomT = 0.38; sfx('nom'); }
       if (f.eat <= 0){
         scene.remove(f.g, f.sh.g); foods.splice(foods.indexOf(f),1); B.food = null;
         S.care.meals++; if (B.before > 80) S.care.overfed++;
         if (B.before < 90) addCoins(2, headTop());
         S.growth += growthOK() ? 4 : 0.5; st.happy = clamp(st.happy+3, 0, 100);
+        foodBonus(fi);
         if (Math.random() < 0.75) S.poopQ.push(rnd(1.5,3.5));
         spawnHearts(2); sfx('happy'); cry('happy');
         B.mode = 'idle'; B.timer = 2.5;
@@ -1571,13 +1700,15 @@ function think(dt){
       if (r.dist < mouth + w.r + 0.12 && Math.abs(r.diff) < 0.25){ B.mode = 'drink'; B.timer = 2.4; B.nomT = 0; B.before = st.thirst; }
       break; }
     case 'drink': {
-      st.thirst = clamp(st.thirst + 45*dt/2.4, 0, 100);
+      const di_ = foodInfo(bowl && (bowl.kind !== 'water' || !BG.pond) ? bowl.kind : 'water');
+      st.thirst = clamp(st.thirst + di_.thirst*dt/2.4, 0, 100);
+      if (B.timer <= 0) foodBonus(di_);
       B.nomT -= dt; if (B.nomT <= 0){ B.nomT = 0.45; sfx('drink'); }
-      if (bowl && !BG.pond){ bowl.left -= dt/2.4; bowl.w.position.y = 0.06 + 0.11*Math.max(0, bowl.left); }
+      if (bowl && (bowl.kind !== 'water' || !BG.pond)){ bowl.left -= dt/2.4; bowl.w.position.y = 0.06 + 0.11*Math.max(0, bowl.left); }
       if (B.timer <= 0){
         if (B.before < 90) addCoins(2, headTop());
         if (growthOK()) S.growth += 1.5;
-        if (bowl && !BG.pond){ scene.remove(bowl.g); bowl = null; }
+        if (bowl && (bowl.kind !== 'water' || !BG.pond)){ scene.remove(bowl.g); bowl = null; }
         B.water = null; B.mode = 'idle'; B.timer = 2; spawnHearts(1);
       }
       break; }
@@ -1781,6 +1912,12 @@ function showModal(title, bodyHTML, actions){
   $('#modal').hidden = false; const inp = $('#modalBody input'); (inp || ac.lastChild).focus();
 }
 function closeModal(){ $('#modal').hidden = true; canvas.focus({preventScroll:true}); }
+function renamePet(){
+  showModal('使用改名券', `<p>幫${S.name || '牠'}取個新名字。</p><input id="renameIn" maxlength="8" value="${esc(S.name || '')}" aria-label="新名字">`,
+    [{label:'取消', ghost:true, onClick:()=>{}}, {label:'改名', onClick:() => {
+      const v = ($('#renameIn').value || '').trim(); if (!v || v === S.name){ toast('名字沒有變，改名券先留著。'); return; }
+      S.name = v; S.renameTicket = 0; refreshSign(); save(); hudDirty = true; spawnHearts(2); toast(`以後牠就叫「${v}」了！`); }}]);
+}
 function askName(){
   showModal('孵出來了！', `<p>是一隻袋熊寶寶。幫牠取個名字吧。</p><input id="nameIn" maxlength="8" value="小袋" aria-label="名字">`, [{label:'就叫這個', onClick:()=>{
     S.name = (($('#nameIn') && $('#nameIn').value) || '').trim() || '小袋'; refreshSign(); save(); hudDirty = true;
@@ -1806,11 +1943,20 @@ $('#sheetClose').onclick = closeSheet;
 function md(d){ return `${d.getMonth()+1}/${d.getDate()}`; }
 function renderSheet(){
   if (!sheetKind) return;
-  $('#sheetTitle').textContent = {play:'玩耍', shop:'商店', wardrobe:'衣櫥', settings:'設定'}[sheetKind];
+  $('#sheetTitle').textContent = {play:'玩耍', shop:'商店', wardrobe:'衣櫥', settings:'設定', feed:'餵食', water:'喝水'}[sheetKind];
   let h = '';
-  if (sheetKind === 'play'){
+  if (sheetKind === 'feed' || sheetKind === 'water'){
+    const list = sheetKind === 'feed' ? FOODS : DRINKS, L = S.likes || {known:{}};
+    h = `<p class="sec">${sheetKind === 'feed' ? '要給牠吃什麼？' : '要給牠喝什麼？'}青草和清水免費，其他的要到商店買，或在這裡直接買一份。</p><div class="grid">`
+      + list.map(f => { const n = inv(f.id), tag = L.known && L.known.fav && L.fav === f.id ? '<span class="tag">最愛</span>' : L.known && L.known.hate && L.hate === f.id ? '<span class="tag" style="background:var(--soft)">不愛</span>' : '';
+        const btn = !f.price ? `<button class="btn" data-use="${f.id}">給牠</button>`
+          : n ? `<button class="btn" data-use="${f.id}">給牠（剩 ${n}）</button>`
+          : `<button class="btn ghost" data-usebuy="${f.id}" ${S.coins < f.price ? 'disabled' : ''}>買一份給牠（${f.price}）</button>`;
+        return `<div class="card">${tag}<h3>${f.name}</h3><p>${f.desc}</p><p>${foodStats(f)}</p>${btn}</div>`; }).join('') + `</div>`;
+  } else if (sheetKind === 'play'){
     const card = ([k,a]) => { const why = whyCantPlay(k), sp = a.special;
-      const cost = {dance:'體力 -8，心情 +14', snowman:'', puddle:'', fireflies:''}[k] ?? '體力 -6，心情 +10';
+      if (!hasTrick(k)) return `<div class="card"><h3>🔒 ${a.name}</h3><p>還沒學會。${a.price} 代幣</p><button class="btn ghost" data-buytrick="${k}" ${S.coins < a.price ? 'disabled' : ''}>學會這招</button></div>`;
+      const cost = {dance:'體力 -8，心情 +14', sit:'乖乖坐好，心情 +6', snowman:'', puddle:'', fireflies:''}[k] ?? '體力 -6，心情 +10';
       return `<button class="card" data-act="${k}" ${why && sp ? 'disabled' : ''}><h3>${a.name}</h3><p>${sp ? (why && sp ? a.why : a.desc) : cost}</p></button>`; };
     h = `<div class="grid">` + Object.entries(ACTS).filter(([,a]) => !a.special).map(card).join('') + `</div>`
       + `<p class="sec">特別活動（看天氣和時間）</p><div class="grid">` + Object.entries(ACTS).filter(([,a]) => a.special).map(card).join('') + `</div>`;
@@ -1821,13 +1967,25 @@ function renderSheet(){
     if (hol){
       h += `<p class="sec">${hol.name}限定（${real && real.id === hol.id ? '今天才買得到，買了永久保留' : '預覽中，只能看不能買'}）</p><div class="grid">` + CLOTHES.filter(c => c.holiday === hol.id).map(clothCard).join('') + BUILDS.filter(b => b.holiday === hol.id).map(buildCard).join('') + `</div>`;
     } else if (nx){ h += `<p class="sec">下一個節日：${nx.h.name}（${md(nx.d)}），當天會賣限定服裝和建設。</p>`; }
+    h += `<p class="sec">補給</p><div class="grid"><div class="card"><h3>感冒藥</h3><p>健康 +45。生病時用。</p><p>10 代幣</p><button class="btn" data-med ${S.coins < 10 ? 'disabled' : ''}>購買並餵藥</button></div>`
+      + [...FOODS, ...DRINKS].filter(f => f.price).map(f => `<div class="card"><h3>${f.name}</h3><p>${f.desc}</p><p>${foodStats(f)}</p><p>${f.price} 代幣・背包裡 ${inv(f.id)} 個</p><div class="opts"><button class="btn" data-buyfood="${f.id}|1" ${S.coins < f.price ? 'disabled' : ''}>買 1</button><button class="btn ghost" data-buyfood="${f.id}|5" ${S.coins < f.price*5 ? 'disabled' : ''}>買 5</button></div></div>`).join('') + `</div>`;
+    const locked = Object.entries(ACTS).filter(([k]) => !hasTrick(k));
+    if (locked.length) h += `<p class="sec">招式（學會以後可以在「玩耍」使用）</p><div class="grid">` + locked.map(([k,a]) => `<div class="card"><h3>${a.name}</h3><p>${a.special ? a.desc : '新的才藝。'}</p><p>${a.price} 代幣</p><button class="btn" data-buytrick="${k}" ${S.coins < a.price ? 'disabled' : ''}>學會</button></div>`).join('') + `</div>`;
+    h += `<p class="sec">染劑（現在是${coatName()}。染了以後，下一隻孵出來還是天生的顏色）</p><div class="grid">`
+      + DYES.map((d,i) => `<div class="card"><div class="row"><h3>${d.name}</h3><i class="sw" style="background:${d.c};box-shadow:inset -8px -6px 0 ${d.b}"></i></div><p>${DYE_PRICE} 代幣</p><button class="btn" data-dye="${i}" ${S.coins < DYE_PRICE || S.dye === i ? 'disabled' : ''}>${S.dye === i ? '現在的顏色' : '染這個顏色'}</button></div>`).join('')
+      + (S.dye != null ? `<div class="card"><h3>褪色劑</h3><p>變回天生的${(FURS[S.fur] || FURS[0]).name}。</p><p>${UNDYE_PRICE} 代幣</p><button class="btn" data-undye ${S.coins < UNDYE_PRICE ? 'disabled' : ''}>褪色</button></div>` : '') + `</div>`;
+    h += `<p class="sec">道具</p><div class="grid">`
+      + `<div class="card"><h3>改名券</h3><p>幫牠換一個名字，一張用一次。一次只能持有一張。</p><p>50 代幣</p><button class="btn" data-buyticket ${S.coins < 50 || S.renameTicket ? 'disabled' : ''}>${S.renameTicket ? '已經有一張了' : '購買'}</button></div>`
+      + `<div class="card"><h3>一鍵清理</h3><p>按一下「清理」就把便便和雜草一次清光。永久有效。</p><p>300 代幣</p><button class="btn" data-buyclean ${S.coins < 300 || S.autoClean ? 'disabled' : ''}>${S.autoClean ? '已擁有' : '購買'}</button></div></div>`;
     h += `<p class="sec">衣服</p><div class="grid">` + CLOTHES.filter(c => !c.holiday || (S.owned[c.id] && (!hol || c.holiday !== hol.id))).map(clothCard).join('') + `</div>`;
     h += `<p class="sec">建設</p><div class="grid">` + BUILDS.filter(b => !b.holiday || (S.builds[b.id] && (!hol || b.holiday !== hol.id))).map(buildCard).join('') + `</div>`;
-    h += `<p class="sec">補給</p><div class="grid"><div class="card"><h3>感冒藥</h3><p>健康 +45。生病時用。</p><p>10 代幣</p><button class="btn" data-med ${S.coins < 10 ? 'disabled' : ''}>購買並餵藥</button></div></div>`;
     h += `<p class="sec">清大便一顆 +3、拔雜草一株 +2、牠餓或渴的時候餵食、喝水各 +2、堆雪人 +5、踩水窪 +2、摸摸牠偶爾 +1。</p>`;
   } else if (sheetKind === 'wardrobe'){
     const owned = CLOTHES.filter(c => S.owned[c.id]);
-    h = `<p class="sec">毛色</p><div class="swrow" role="radiogroup" aria-label="毛色">` + FURS.map((f,i) => `<button class="sw" role="radio" aria-checked="${S.fur===i}" aria-label="${f.name}" title="${f.name}" data-fur="${i}" style="background:${f.c}"></button>`).join('') + `</div>`;
+    const L = S.likes || {known:{}}, taste = [L.known.fav && `最愛吃${foodInfo(L.fav).name}`, L.known.hate && `不愛吃${foodInfo(L.hate).name}`].filter(Boolean).join('，');
+    h = `<p class="sec">毛色：${coatName()}。想換顏色，到商店買染劑。</p>`
+      + (taste ? `<p class="sec">口味：${taste}。</p>` : '')
+      + (S.renameTicket ? `<div class="card"><div class="row"><h3>改名券 ×1</h3><button class="btn" data-rename>使用</button></div></div>` : '');
     h += `<div class="row" style="margin-top:14px"><p class="sec" style="margin:0">衣服（同一個位置一次只能穿一件）</p>${owned.length ? `<button class="btn ghost" data-naked>脫光光</button>` : ''}</div>`;
     if (!owned.length) h += `<p style="color:var(--soft)">還沒有衣服。清大便、拔雜草賺代幣，去商店買吧。</p>`;
     else h += owned.map(c => `<div class="card" style="margin-top:10px"><div class="row"><h3>${c.name}</h3><button class="btn ${S.worn[c.id] ? '' : 'ghost'}" data-wear="${c.id}">${S.worn[c.id] ? '脫下' : '穿上'}</button></div><div class="swrow" role="radiogroup" aria-label="${c.name}顏色">` + PALETTE.map(p => `<button class="sw" role="radio" aria-checked="${(S.colors[c.id]||c.def)===p}" aria-label="${p}" data-col="${c.id}|${p}" style="background:${p}"></button>`).join('') + `</div></div>`).join('');
@@ -1870,6 +2028,21 @@ sheetBody.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b || b.disabled) return;
   const d = b.dataset;
   if (d.act){ closeSheet(); startAct(d.act); return; }
+  if (d.use || d.usebuy){ const id = d.use || d.usebuy, f = foodInfo(id);
+    if (d.usebuy){ if (S.coins < f.price) return; S.coins -= f.price; invAdd(id, 1); }
+    closeSheet(); giveFood(id); save(); hudDirty = true; return; }
+  if (d.buyfood){ const [id, n] = d.buyfood.split('|'), f = foodInfo(id), cost = f.price*n;
+    if (S.coins >= cost){ S.coins -= cost; invAdd(id, +n); sfx('coin'); toast(`買了 ${n} 份${f.name}，放進背包了。按「${f.hunger !== undefined ? '餵食' : '喝水'}」就能給牠。`); } }
+  if (d.buytrick){ const a = ACTS[d.buytrick];
+    if (S.coins >= a.price){ S.coins -= a.price; S.tricks = S.tricks || {}; S.tricks[d.buytrick] = true; sfx('happy'); toast(`${S.name || '牠'}學會「${a.name}」了！到「玩耍」試試看。`); } }
+  if (d.dye !== undefined){ const i = +d.dye, dy = DYES[i];
+    showModal(`染成${dy.name}色？`, `<p>花 ${DYE_PRICE} 代幣，把${S.name || '牠'}的毛染成${dy.name}色。</p>`, [{label:'取消', ghost:true, onClick:()=>{}}, {label:'染色', onClick:() => {
+      if (S.coins < DYE_PRICE) return; S.coins -= DYE_PRICE; S.dye = i; applyFur(); sparkles(headTop(), 18, 1.2*petS); sfx('grow');
+      toast(`${S.name || '牠'}變成${dy.name}色了！`); save(); hudDirty = true; }}]); return; }
+  if ('undye' in d){ if (S.coins >= UNDYE_PRICE){ S.coins -= UNDYE_PRICE; S.dye = null; applyFur(); sfx('grow'); toast('變回天生的顏色了。'); } }
+  if ('buyticket' in d){ if (S.coins >= 50 && !S.renameTicket){ S.coins -= 50; S.renameTicket = 1; sfx('coin'); toast('買了改名券，到「衣櫥」使用。'); } }
+  if ('buyclean' in d){ if (S.coins >= 300 && !S.autoClean){ S.coins -= 300; S.autoClean = true; sfx('happy'); toast('有了一鍵清理！以後按「清理」就能一次清光。'); } }
+  if ('rename' in d){ closeSheet(); renamePet(); return; }
   if ('reset' in d){ showModal('全部重新開始？', `<p>袋熊、代幣、衣服和建設都會清掉，從一顆蛋重新開始${cloud.user ? '，雲端存檔也一樣' : ''}。沒辦法復原。</p>`, [{label:'取消', ghost:true, onClick:()=>{}}, {label:'重新開始', onClick:resetAll}]); return; }
   if ('guide' in d){ closeSheet(); openGuide(0); return; }
   if ('export' in d){ closeSheet(); exportSave(); return; }
@@ -2048,20 +2221,12 @@ document.querySelector('.dock').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b || b.disabled) return;
   const c = b.dataset.cmd;
   if (B.mode === 'evolve' && ['feed','water','clean'].includes(c)){ toast('等牠進化完。'); return; }
-  if (c === 'feed'){
-    if (S.st.hunger > 92){ toast('牠吃得很飽了。'); return; }
-    if (foods.length >= 3){ toast('地上已經有食物了。'); return; }
-    if (B.mode === 'inHouse') exitHouse(); else if (B.mode === 'sleep') wake(true);
-    const a = root.rotation.y + rnd(-1.1,1.1), d = 1.9*petS + rnd(1.2,2); spawnFood(pos.x + Math.sin(a)*d, pos.z + Math.cos(a)*d);
-  } else if (c === 'water'){
-    if (S.st.thirst > 92){ toast('牠現在不渴。'); return; }
-    if (B.mode === 'inHouse') exitHouse(); else if (B.mode === 'sleep') wake(true);
-    if (!BG.pond && !bowl) spawnBowl();
-    B.water = true; if (BG.pond) toast('牠走去水池喝水。');
-  } else if (c === 'clean'){
-    const list = [...cubes.map(x => ['p',x]), ...weeds.map(x => ['w',x])];
+  if (c === 'feed' || c === 'water'){ sheetKind === c ? closeSheet() : openSheet(c); }
+  else if (c === 'clean'){
+    const list = [...cubes.filter(x => !x.cleaning).map(x => ['p',x]), ...weeds.map(x => ['w',x])];
     if (!list.length){ toast('很乾淨，沒有東西要清。'); return; }
-    list.forEach(([k,x],i) => setTimeout(() => k === 'p' ? cleanPoop(x) : pullWeed(x), i*140));
+    if (!S.autoClean){ toast('點便便或雜草就能一個一個清理。想按一下就全部清光，可以到商店買「一鍵清理」。'); return; }
+    list.forEach(([k,x],i) => setTimeout(() => k === 'p' ? cleanPoop(x) : pullWeed(x), i*260));
   } else { sheetKind === c ? closeSheet() : openSheet(c); }
   hudDirty = true;
 });
@@ -2274,6 +2439,8 @@ if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
 if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
+if (new URLSearchParams(location.search).has('debug')) window.W = {THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+  cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};
 if (PREVIEW) setTimeout(() => toast(`預覽模式：${form().name}。這裡的變化不會存檔，關掉網址後面的 ?preview 就回到你的袋熊。`), 900);
 
 // ---------- main loop ----------
@@ -2436,8 +2603,8 @@ function step(){
   for (let i=fxPull.length-1;i>=0;i--){ const p = fxPull[i]; p.t += dt;
     if (p.flat){ p.g.material.opacity = Math.max(0, 0.75*(1 - p.t/1.2)); if (p.t > 1.2){ scene.remove(p.g); fxPull.splice(i,1); } continue; }
     p.g.position.y = p.t*3; p.g.rotation.z += dt*8; p.g.scale.multiplyScalar(Math.exp(-3*dt)); if (p.t > 0.6){ scene.remove(p.g); fxPull.splice(i,1); } }
-  if (bowl && BG.pond){ scene.remove(bowl.g); bowl = null; }
-  updateFormFx(dt, t); updateFx(dt);
+  if (bowl && bowl.kind === 'water' && BG.pond){ scene.remove(bowl.g); bowl = null; }
+  updateFormFx(dt, t); updateFx(dt); updateTools(dt);
 
   if (dragging){
     scene.updateMatrixWorld(true);
