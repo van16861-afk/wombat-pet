@@ -2,3 +2,4 @@
 *.tmp
 *.blend1
 .wip/
+__t*.html

@@ -149,9 +149,10 @@ void main(){
   col = mix(col, vec3(1.0, 0.97, 0.88) * 1.25, uWhite);
   gl_FragColor = vec4(col, 1.0); }`;
 const SHELLS = mobile ? 10 : 16, FUR_LEN = 0.075;
-const furMat = i => new THREE.ShaderMaterial({vertexShader:VS, fragmentShader:FS, vertexColors:true,
+const furShells = [];
+const furMat = i => { const m = new THREE.ShaderMaterial({vertexShader:VS, fragmentShader:FS, vertexColors:true,
   uniforms:{uLayer:{value:i/(SHELLS-1)}, uLen:{value:FUR_LEN}, uColor:U.uColor, uBelly:U.uBelly, uBlush:U.uBlush, uLight:U.uLight,
-    uForce:U.uForce, uSky:U.uSky, uGround:U.uGround, uSun:U.uSun, uWhite:U.uWhite}});
+    uForce:U.uForce, uSky:U.uSky, uGround:U.uGround, uSun:U.uSun, uWhite:U.uWhite}}); furShells.push(m); return m; };
 const hit = [], petMats = [];
 const mat = (c, r=0.7) => new THREE.MeshStandardMaterial({color:c, roughness:r, metalness:0});
 function makeShadow(w, d){
@@ -166,6 +167,7 @@ const extrude = (sh, d) => { const g = new THREE.ExtrudeGeometry(sh, {depth:d, b
 // ---------- ground ----------
 // Lawn: a tiling texture of short grass blades in several greens, so the ground reads as turf instead of one flat colour.
 const GRASS_COLS = ['#86ad62','#9cc177','#76a055','#aecd8c','#6c9650','#b9d698'];
+const TUFT_COLS = ['#cfd391','#d9d199','#c4cb8a','#e0d7a2','#bcc684'];   // straw-coloured tufts, so they don't look like the dark green weeds
 const grassTex = canvasTex(256,256,(x,w,h)=>{
   x.fillStyle = '#93b86f'; x.fillRect(0,0,w,h);
   const wrap = (px, py, f) => { for (const ox of [-w,0,w]) for (const oy of [-h,0,h]) f(px+ox, py+oy); };
@@ -191,7 +193,7 @@ const tufts = (() => {
   const M = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color();
   for (let i=0;i<N;i++){ const a = Math.random()*Math.PI*2, r = Math.sqrt(Math.random())*9.4, s = rnd(0.7, 1.3);
     M.compose(V3(Math.sin(a)*r, 0, Math.cos(a)*r), q.setFromAxisAngle(UP, Math.random()*6.28), V3(s, s*rnd(0.8,1.2), s)); m.setMatrixAt(i, M);
-    m.setColorAt(i, col.set(GRASS_COLS[i % GRASS_COLS.length]).multiplyScalar(rnd(0.85, 1.0))); }
+    m.setColorAt(i, col.set(TUFT_COLS[i % TUFT_COLS.length]).multiplyScalar(rnd(0.85, 1.0))); }
   scene.add(m); return m; })();
 
 // ---------- wombat (Blender model: assets/models/wombat.glb, built by blender/wombat_build.py) ----------
@@ -251,10 +253,10 @@ const swapMat = (obj, name, m) => obj.traverse(o => { if (!o.isMesh) return; if 
 // ---------- evolution forms ----------
 const FORMS = {
   normal: {name:'袋熊',     desc:'照顧得剛剛好。'},
-  skinny: {name:'瘦瘦熊',   body:[0.72,0.8,0.95], head:0.9, tint:['#b59c80',0.18], speed:1.05, desc:'進化時太餓，或這個階段常常餓肚子。'},
+  skinny: {name:'瘦瘦熊',   body:[0.66,0.84,1.04], head:0.92, fur:0.55, tint:['#b59c80',0.18], speed:1.05, desc:'進化時太餓，或這個階段常常餓肚子。'},
   sickly: {name:'病懨懨熊', body:[0.9,0.88,1], tint:['#8f9c76',0.42], acc:['bandage','thermo'], droopy:true, speed:0.7, desc:'進化的時候正在生病。'},
   stinky: {name:'臭臭熊',   tint:['#7b7150',0.2], acc:'poop', desc:'進化的時候，場上有 3 坨以上的便便沒清。'},
-  chubby: {name:'胖胖熊',   body:[1.26,1.14,1.05], head:1.06, speed:0.75, desc:'這個階段常常在牠不餓的時候還一直餵。'},
+  chubby: {name:'胖胖熊',   body:[1.26,1.14,1.05], head:1.06, fur:1.25, speed:0.75, desc:'這個階段常常在牠不餓的時候還一直餵。'},
   sporty: {name:'活力熊',   body:[0.98,1.03,1.05], acc:'headband', speed:1.25, desc:'這個階段陪牠玩了很多次（8 次以上）。'},
   royal:  {name:'皇家袋熊', acc:['crown','cape'], desc:'完全體時照顧得幾乎沒有失誤，心情又很好。'},
   forest: {name:'森靈袋熊', acc:['leafcape','sprout'], desc:'完全體時照顧得很好，而且成熟期拔了很多雜草（12 株以上），或家裡同時有小水池和花圃。'},
@@ -1494,7 +1496,7 @@ function updateTools(dt){
 
 const foods = [];
 const grassGeo = new THREE.ConeGeometry(0.035,0.38,5); grassGeo.translate(0,0.19,0);
-const grassMats = ['#6f9a4a','#86b25a','#5c8540'].map(c => mat(c,0.8));
+const grassMats = ['#6f9a4a','#86b25a','#5c8540'].map(c => mat(c,0.8)), freshMats = ['#a8d85a','#93cc4a','#bde372'].map(c => mat(c,0.6));
 const leafGeo = new THREE.ConeGeometry(0.025,0.24,5); leafGeo.translate(0,0.12,0);
 // Food and drink. Grass and water are free; the rest is bought in the shop and kept in the bag (S.inv).
 const FOODS = [
@@ -1561,9 +1563,19 @@ function foodMesh(kind){
   const pr = ['carrot','apple','potato','root'].includes(kind) && propClone('food_' + kind);   // Blender-made food when available
   if (pr){ pr.rotation.y = Math.random()*Math.PI*2; const g = new THREE.Group(); g.add(pr); return g; }
   const g = new THREE.Group();
-  if (kind === 'grass' || kind === 'clover'){
-    for (let i=0;i<9;i++){ const b = new THREE.Mesh(grassGeo, grassMats[i%3]); b.position.set(rnd(-0.11,0.11),0,rnd(-0.11,0.11)); b.rotation.set(rnd(-0.35,0.35),0,rnd(-0.35,0.35)); b.scale.y = rnd(0.7,1.3); g.add(b); }
-    if (kind === 'clover') for (let i=0;i<3;i++){ const f = new THREE.Mesh(new THREE.SphereGeometry(0.05,8,6), mat('#e9a0c8',0.6)); f.position.set(rnd(-0.08,0.08), rnd(0.3,0.4), rnd(-0.08,0.08)); g.add(f); }
+  if (kind === 'grass'){   // a fresh-cut bundle of bright grass lying on the ground, tied with straw
+    const bundle = new THREE.Group();   // built standing up, then laid on its side
+    for (let i=0;i<14;i++){ const b = new THREE.Mesh(grassGeo, freshMats[i%3]); b.scale.set(1.4, rnd(1.4,1.9), 1.4);
+      b.position.set(rnd(-0.05,0.05), 0, rnd(-0.05,0.05)); b.rotation.set(rnd(-0.25,0.25), 0, rnd(-0.25,0.25)); bundle.add(b); }
+    const tie = new THREE.Mesh(new THREE.TorusGeometry(0.075, 0.022, 6, 14), mat('#d9b56a', 0.9)); tie.rotation.x = Math.PI/2; tie.position.y = 0.26; bundle.add(tie);
+    bundle.rotation.z = -Math.PI/2; bundle.position.set(-0.3, 0.08, 0); g.add(bundle);
+  } else if (kind === 'clover'){   // three-leaf clovers with little pink flowers
+    const leafM = mat('#5fae48', 0.6), heartG = new THREE.SphereGeometry(0.06, 10, 6);
+    for (let k=0;k<5;k++){ const s = new THREE.Group(), a = k/5*Math.PI*2, r = k ? 0.13 : 0, h = rnd(0.12, 0.2); s.position.set(Math.cos(a)*r, 0, Math.sin(a)*r);
+      const st = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.01, h, 4), leafM); st.position.y = h/2; s.add(st);
+      for (let j=0;j<3;j++){ const l = new THREE.Mesh(heartG, leafM), b = j/3*Math.PI*2 + k; l.scale.set(1, 0.25, 0.8); l.position.set(Math.cos(b)*0.055, h, Math.sin(b)*0.055); s.add(l); }
+      g.add(s); }
+    for (let i=0;i<3;i++){ const f = new THREE.Mesh(new THREE.SphereGeometry(0.045,8,6), mat('#e9a0c8',0.6)); f.scale.y = 1.3; f.position.set(rnd(-0.12,0.12), rnd(0.24,0.3), rnd(-0.12,0.12)); g.add(f); }
   } else if (kind === 'carrot'){
     const body = new THREE.Mesh(new THREE.ConeGeometry(0.075,0.5,12), mat('#e8833a',0.6)); body.rotation.z = Math.PI/2; body.position.y = 0.075; g.add(body);
     for (const a of [-0.5,0,0.5]){ const l = new THREE.Mesh(leafGeo, grassMats[1]); l.position.set(0.24,0.075,0); l.rotation.set(a,0,-Math.PI/2+0.5); g.add(l); }
@@ -1665,7 +1677,7 @@ function applyFur(){
 }
 function applyForm(){
   const F = form(), bd = F.body || [1,1,1];
-  model.scale.set(bd[0], bd[1], bd[2]); headScale = F.head || 1;
+  model.scale.set(bd[0], bd[1], bd[2]); headScale = F.head || 1; furShells.forEach(m => m.uniforms.uLen.value = FUR_LEN*(F.fur || 1));   // skinny wombats have flatter fur, chubby ones fluffier
   const accs = formAcc(F); Object.entries(ACC).forEach(([k,g]) => g.visible = accs.includes(k));
   hatLift = accs.some(a => ['poop','crown','sprout','antler'].includes(a)) ? 0.34 : 0;
   applyFur(); applyClothes();
@@ -2436,15 +2448,16 @@ function updateWorld(dt, t){
   document.documentElement.style.setProperty('--bg', sky);
   const theme = di.n > 0.5 ? 'dark' : 'light'; if (theme !== lastTheme){ lastTheme = theme; document.documentElement.dataset.theme = theme; }
   snowCover = clamp(snowCover + (w === 'snow' ? 0.015 : -0.006)*dt, 0, 0.75);
-  ground.material.color.set(mixHex('#ffffff', '#2c3a3c', di.n));
+  ground.material.color.set(mixHex('#ffffff', '#2c3a3c', di.n)).multiplyScalar(S.bright || 1);
   snowGround.material.opacity = snowCover*0.92; snowGround.visible = snowCover > 0.01; snowGround.material.color.set(mixHex('#f3f6f7', '#5f6a72', di.n));
   tufts.material.color.set(mixHex('#ffffff', '#f6f8f8', snowCover)); tufts.visible = snowCover < 0.6;
   flashV *= Math.exp(-5*dt); $('#flash').style.opacity = (flashV*0.8).toFixed(3);
   const dim = W.dim*(1 - fxoV*0.45);
-  hemi.intensity = (lerp(0.8, 0.32, di.n)*dim + flashV*1.2)*LI;
-  sun.intensity = (lerp(0.75, 0.1, di.n)*dim + flashV)*LI;
-  U.uSun.value = lerp(1, 0.22, di.n)*dim + flashV;
-  U.uSky.value.set(mixHex('#fff8ec', '#7584ab', di.n));
+  const BR = S.bright || 1;   // brightness setting
+  hemi.intensity = (lerp(0.8, 0.32, di.n)*dim*BR + flashV*1.2)*LI;
+  sun.intensity = (lerp(0.75, 0.1, di.n)*dim*BR + flashV)*LI;
+  U.uSun.value = lerp(1, 0.22, di.n)*dim*BR + flashV;
+  U.uSky.value.set(mixHex('#fff8ec', '#7584ab', di.n)).multiplyScalar(BR);
   U.uGround.value.set(mixHex('#77806a', '#283040', di.n));
   const on = Math.max(clamp((di.n - 0.3)/0.4, 0, 1), w === 'storm' ? 0.6 : 0);
   nightGlow.forEach(m => m.emissiveIntensity = on*1.3);
@@ -2681,6 +2694,8 @@ function renderSheet(){
       + `<p class="sec">時間流速（只影響成長和數值，10 倍、60 倍適合想快點看牠進化）</p><div class="opts">` + sp.map(v => `<button class="icon" data-speed="${v}" aria-pressed="${S.speed===v}">${v} 倍</button>`).join('') + `</div>`
       + `<p class="sec">天氣</p><div class="opts">` + wx.map(([k,l]) => `<button class="icon" data-wx="${k}" aria-pressed="${(S.weather.forced||'auto')===k}">${l}</button>`).join('') + `</div>`
       + `<p class="sec">節日預覽（看背景和音樂，限定商品只能在真正的節日當天買）</p><div class="opts"><button class="icon" data-hol="" aria-pressed="${!previewHoliday}">關閉</button>` + HOLIDAYS.map(x => `<button class="icon" data-hol="${x.id}" aria-pressed="${previewHoliday===x.id}">${x.name}</button>`).join('') + `</div>`
+      + `<p class="sec">畫面亮度（晚上太暗可以調亮）：<b id="brightV">${Math.round((S.bright || 1)*100)}%</b></p><input type="range" id="brightIn" min="60" max="180" step="5" value="${Math.round((S.bright || 1)*100)}" aria-label="畫面亮度" style="width:100%">`
+      + `<div class="opts" style="margin-top:6px"><button class="icon" data-bright="100">回到 100%</button></div>`
       + `<p class="sec">介面</p><div class="opts"><button class="icon" data-hideui>隱藏全部介面</button><button class="icon" data-guide>打開說明書</button></div>`
       + `<p class="sec">進化型態預覽（看看長什麼樣子，不會存檔，也不會影響你的袋熊）</p><div class="opts">` + (PREVIEW ? `<button class="btn" data-exitpreview>回到我的袋熊</button>` : '')
       + Object.keys(FORMS).filter(k => k !== 'normal').map(k => `<button class="icon" data-preview="${k}" aria-pressed="${PREVIEW===k}">${FORMS[k].name}</button>`).join('') + `</div>`
@@ -2749,6 +2764,7 @@ sheetBody.addEventListener('click', e => {
   if ('naked' in d){ CLOTHES.forEach(c => S.worn[c.id] = false); applyClothes(); toast('脫光光了。'); }
   if (d.wear){ wear(d.wear, !S.worn[d.wear]); }
   if (d.col){ const [id, col] = d.col.split('|'); S.colors[id] = col; applyClothes(); }
+  if (d.bright){ S.bright = +d.bright/100; }
   if (d.speed){ S.speed = +d.speed; }
   if (d.day){ S.dayMode = d.day; lastPhase = null; }
   if (d.wx){ S.weather.forced = d.wx === 'auto' ? null : d.wx; }
@@ -2756,6 +2772,11 @@ sheetBody.addEventListener('click', e => {
   if ('hideui' in d){ S.uiHidden = true; closeSheet(); }
   save(); hudDirty = true; if (sheetKind) renderSheet();
 });
+sheetBody.addEventListener('input', e => {
+  if (e.target.id !== 'brightIn') return;
+  S.bright = +e.target.value/100; $('#brightV').textContent = e.target.value + '%';
+});
+sheetBody.addEventListener('change', e => { if (e.target.id === 'brightIn') save(); });
 function giveMedicine(){
   if (!petActive()){ toast('現在不需要吃藥。'); return; }
   if (S.coins < 10){ toast('代幣不夠。清大便、拔雜草可以賺代幣。'); return; }
@@ -3196,7 +3217,7 @@ if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
 if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
-if (new URLSearchParams(location.search).has('debug')) window.W = {startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+if (new URLSearchParams(location.search).has('debug')) window.W = {spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};
 if (PREVIEW) setTimeout(() => toast(`預覽模式：${form().name}。這裡的變化不會存檔，關掉網址後面的 ?preview 就回到你的袋熊。`), 900);
@@ -3325,7 +3346,7 @@ function step(manual){
     lookY += (hy - lookY)*Math.min(1, dt*hs);
     lookX += (hx - lookX)*Math.min(1, dt*hs);
     turnBone(BONE.head, -lookX, 0, lookY);           // bone +X tilts the head up, +Z turns it toward +x
-    BONE.head.scale.multiplyScalar(headScale);
+    BONE.head.scale.setScalar(headScale);   // the clips never scale the head, so set it (multiplying every frame made it shrink or grow forever)
 
     blinkTimer -= dt; if (blinkTimer <= 0){ blinkT = 0.14; blinkTimer = rnd(2,5.5); } if (blinkT > 0) blinkT -= dt;
     const closed = asleep() || B.mode === 'dying' || (evo && evo.t < 3.9);
