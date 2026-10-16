@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { cloud } from './cloud.js';
+import { createWorld, newWorld, HALF, WATER_Y, plotKey, PLOT_KEYS } from './world.js';
 
 // Keep r128-era colour handling so the hand-tuned palette and fur shader look the same.
 THREE.ColorManagement.enabled = false;
@@ -36,7 +37,7 @@ const pad = n => String(n).padStart(2,'0');
 function isShown(o){ while (o){ if (!o.visible) return false; o = o.parent; } return true; }
 
 // ---------- scene / camera ----------
-const scene = new THREE.Scene();
+const scene = new THREE.Scene(); scene.fog = new THREE.Fog('#d9e1d2', 30, 90);
 const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 200);
 const camTarget = V3(0, 0.9, 0);
 let yaw = 0.75, pitch = 0.42, zoom = 1, baseDist = 14, camY = 0.9, zoomFx = 1;
@@ -179,25 +180,12 @@ const grassTex = canvasTex(256,256,(x,w,h)=>{
     wrap(px, py, (a0, b0) => { if (a0 < -10 || b0 < -10 || a0 > w+10 || b0 > h+10) return; x.beginPath(); x.moveTo(a0,b0); x.lineTo(a0 + Math.cos(a)*len, b0 + Math.sin(a)*len); x.stroke(); }); }
 });
 grassTex.wrapS = grassTex.wrapT = THREE.RepeatWrapping; grassTex.repeat.set(9, 9); grassTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
-const groundTex = canvasTex(256,256,(x)=>{ const g = x.createRadialGradient(128,128,0,128,128,128);
-  g.addColorStop(0,'rgba(255,255,255,1)'); g.addColorStop(0.78,'rgba(255,255,255,1)'); g.addColorStop(1,'rgba(255,255,255,0)'); x.fillStyle = g; x.fillRect(0,0,256,256); });
-const ground = new THREE.Mesh(new THREE.CircleGeometry(10, 72), new THREE.MeshBasicMaterial({color:'#ffffff', map:grassTex, alphaMap:groundTex, transparent:true, depthWrite:false}));
-ground.rotation.x = -Math.PI/2; ground.position.y = 0.002; ground.renderOrder = -2; scene.add(ground);
-const snowGround = new THREE.Mesh(ground.geometry, new THREE.MeshBasicMaterial({color:'#f3f6f7', alphaMap:groundTex, transparent:true, opacity:0, depthWrite:false}));
-snowGround.rotation.x = -Math.PI/2; snowGround.position.y = 0.004; snowGround.renderOrder = -2; snowGround.visible = false; scene.add(snowGround);
-// Little tufts of grass standing up out of the lawn.
-const tufts = (() => {
-  const blade = (a, tilt, h) => { const g = new THREE.ConeGeometry(0.028, h, 3); g.translate(0, h/2, 0); g.rotateZ(tilt); g.rotateY(a); return g; };
-  const geo = mergeGeometries([blade(0, 0.25, 0.3), blade(2.1, 0.3, 0.24), blade(4.2, 0.2, 0.34), blade(1.0, -0.15, 0.22)]);
-  const N = mobile ? 700 : 1300, m = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({roughness:1}), N);
-  const M = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color();
-  for (let i=0;i<N;i++){ const a = Math.random()*Math.PI*2, r = Math.sqrt(Math.random())*9.4, s = rnd(0.7, 1.3);
-    M.compose(V3(Math.sin(a)*r, 0, Math.cos(a)*r), q.setFromAxisAngle(UP, Math.random()*6.28), V3(s, s*rnd(0.8,1.2), s)); m.setMatrixAt(i, M);
-    m.setColorAt(i, col.set(TUFT_COLS[i % TUFT_COLS.length]).multiplyScalar(rnd(0.85, 1.0))); }
-  scene.add(m); return m; })();
+// The world (terrain, river, sea, nature: js/world.js) is built from S.world once the save is loaded; gy() is the ground height anywhere.
+let world = null;
+const gy = (x, z) => world ? world.gy(x, z) : 0;
 
 // ---------- wombat (Blender model: assets/models/wombat.glb, built by blender/wombat_build.py) ----------
-const root = new THREE.Group(); scene.add(root);
+const root = new THREE.Group(); root.rotation.order = 'YXZ'; scene.add(root);
 const tiltG = new THREE.Group(); tiltG.position.y = 0.95; root.add(tiltG);
 const actG = new THREE.Group(); tiltG.add(actG);
 const offG = new THREE.Group(); offG.position.y = -0.95; actG.add(offG);
@@ -526,7 +514,7 @@ const rings = [0,1,2].map(i => { const m = new THREE.Mesh(new THREE.TorusGeometr
   m.rotation.x = Math.PI/2; m.visible = false; scene.add(m); return m; });
 
 // ---------- world layout & buildings ----------
-const BOUND = 5.4, WANDER = 4.4;
+const BOUND = 5.4;   // old yard radius (only used for legacy building spots)
 const SPOTS = { house:V3(-4.0,0,-3.5), pond:V3(4.0,0,-3.4), lamp:V3(1.0,0,-5.3), flowers:V3(-4.5,0,3.0) };
 const ringSpot = deg => V3(Math.sin(deg*Math.PI/180)*8.3, 0, Math.cos(deg*Math.PI/180)*8.3);
 // size = footprint in grid cells [width, depth] (1 cell = 1 unit); the fence has no footprint (it rings the yard).
@@ -618,13 +606,17 @@ function build(id){
     }
     g.position.copy(SPOTS.flowers);
   } else if (id === 'fence'){
-    const N = 40, R = 7.1, postG = new THREE.BoxGeometry(0.14,0.9,0.14);
-    for (let i=0;i<N;i++){
-      const a = i/N*Math.PI*2, a2 = (i+1)/N*Math.PI*2, len = 2*R*Math.sin(Math.PI/N);
-      const p = new THREE.Mesh(postG, wood); p.position.set(Math.cos(a)*R, 0.45, Math.sin(a)*R); g.add(p);
-      for (const y of [0.35, 0.68]){ const rail = new THREE.Mesh(new THREE.BoxGeometry(len,0.08,0.06), wood);
-        rail.position.set(Math.cos((a+a2)/2)*R*Math.cos(Math.PI/N), y, Math.sin((a+a2)/2)*R*Math.cos(Math.PI/N)); rail.rotation.y = -((a+a2)/2) + Math.PI/2; g.add(rail); }
-    }
+    // a square fence round the home plot, with a gate gap in the middle of each side
+    const R = FENCE_R, postG = new THREE.BoxGeometry(0.14,0.9,0.14), railG = new THREE.BoxGeometry(1.0,0.08,0.06);
+    for (let side=0; side<4; side++){ const posts = new Set(); for (let s = -R; s < R - 0.01; s += 1.0){
+      if (Math.abs(s + 0.5) < 1.6) continue;
+      const along = [[1,0],[0,1],[-1,0],[0,-1]][side], out = [[0,-1],[1,0],[0,1],[-1,0]][side];
+      for (const u of [s, s + 1]){ const key = u.toFixed(1); if (posts.has(key) || (side && Math.abs(Math.abs(u) - R) < 0.01 && u < 0)) continue; posts.add(key);
+        const x = out[0]*R + along[0]*u, z = out[1]*R + along[1]*u, p = new THREE.Mesh(postG, wood); p.position.set(x, 0.45 + gy(x, z), z); g.add(p); }
+      const mx = out[0]*R + along[0]*(s + 0.5), mz = out[1]*R + along[1]*(s + 0.5);
+      for (const y of [0.35, 0.68]){ const rail = new THREE.Mesh(railG, wood); rail.position.set(mx, y + gy(mx, mz), mz); rail.rotation.y = Math.atan2(-along[1], along[0]); g.add(rail); }
+    } }
+    NAV.dirty = true;
   } else if (id === 'fireworks'){
     const box = new THREE.Mesh(new THREE.BoxGeometry(0.9,0.5,0.9), mat('#8c2f2a',0.8)); box.position.y = 0.25; g.add(box);
     for (let i=0;i<4;i++){ const t = new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.1,0.5,10), mat(['#e2b53b','#4f86c6','#5aa469','#e0607e'][i],0.6)); t.position.set((i%2-0.5)*0.4, 0.7, (Math.floor(i/2)-0.5)*0.4); g.add(t); }
@@ -750,35 +742,39 @@ function build(id){
   scene.add(g); BG[id] = g; applyPlace(id);
 }
 function unbuildAll(){ Object.keys(BG).forEach(id => { scene.remove(BG[id]); delete BG[id]; }); nightGlow.length = 0; }
-function obstacles(){ return BUILDS.filter(b => b.r && BG[b.id]).map(b => ({c:SPOTS[b.id], r:b.r})).concat(trees.map(tr => ({c:tr.g.position, r:0.55*tr.d.s}))); }
+function obstacles(){ return BUILDS.filter(b => b.r && BG[b.id]).map(b => ({c:SPOTS[b.id], r:b.r})).concat(trees.map(tr => ({c:tr.g.position, r:0.55*tr.d.s})), world ? world.feats.map(f => ({c:f.g.position, r:world.featR(f.d)})) : []); }
 function houseDoor(){ const h = SPOTS.house, ry = BG.house ? BG.house.rotation.y : Math.atan2(-h.x, -h.z), d = V3(Math.sin(ry), 0, Math.cos(ry)); return h.clone().addScaledVector(d, 2.2 + 1.6*petS + 0.3); }
 // ---------- building placement on a 1×1 grid ----------
 // S.place[id] = {i, j, rot}: the footprint covers cells [i, i+w) × [j, j+d) (w/d swap when rot is odd); rot × 90° turns
 // the building, whose front faces +z before turning.
-const YARD = 8.4, REACH = 5.8;
 const bdef = id => BUILDS.find(b => b.id === id);
 const rotSize = (b, rot) => rot % 2 ? [b.size[1], b.size[0]] : b.size;
 const placeCenter = (b, p) => { const [w, d] = rotSize(b, p.rot); return V3(p.i + w/2, 0, p.j + d/2); };
 const facingIn = (x, z) => ((Math.round(Math.atan2(-x, -z)/(Math.PI/2)) % 4) + 4) % 4;
 function cellsOf(b, p){ const [w, d] = rotSize(b, p.rot), out = []; for (let a=0;a<w;a++) for (let c=0;c<d;c++) out.push([p.i + a + 0.5, p.j + c + 0.5]); return out; }
+const footY = (b, p) => { const hs = cellsOf(b, p).map(([x, z]) => gy(x, z)); return hs.reduce((s, h) => s + h, 0)/hs.length; };
 function canPlace(id, p){
   const b = bdef(id), cells = cellsOf(b, p), c = placeCenter(b, p);
-  if (cells.some(([x, z]) => Math.hypot(x, z) > YARD)) return {ok:false, why:'超出草地範圍了。'};
-  if (['house','pond','flowers','fountain','bench','swing','sandbox'].includes(id) && Math.hypot(c.x, c.z) > REACH + Math.max(...b.size)/2 - 0.6) return {ok:false, why:'離院子中間太遠，袋熊走不到。'};
+  if (cells.some(([x, z]) => !world.isOpen(x, z))) return {ok:false, why:'這裡還沒開拓，先把這塊地整理好。'};
+  if (cells.some(([x, z]) => !world.buildable(x, z))) return {ok:false, why:'這裡太斜、或太靠近水邊，不能蓋。'};
+  const hs = cells.map(([x, z]) => gy(x, z)); if (Math.max(...hs) - Math.min(...hs) > 0.45) return {ok:false, why:'地面高低不平，找平一點的地方。'};
+  if (BG.fence && cells.some(([x, z]) => Math.abs(Math.max(Math.abs(x), Math.abs(z)) - FENCE_R) < 0.7)) return {ok:false, why:'跟圍籬重疊了。'};
   for (const [oid, op] of Object.entries(S.place || {})){
     const ob = bdef(oid); if (oid === id || !ob || !ob.size || !S.builds[oid]) continue;
     const taken = new Set(cellsOf(ob, op).map(k => k.join()));
     if (cells.some(k => taken.has(k.join()))) return {ok:false, why:`跟${ob.name}重疊了。`};
   }
-  if (trees.some(tr => cells.some(([x, z]) => Math.hypot(x - tr.d.x, z - tr.d.z) < 0.9*tr.d.s))) return {ok:false, why:'有樹擋在這裡。'};
+  if (trees.some(tr => cells.some(([x, z]) => Math.hypot(x - tr.d.x, z - tr.d.z) < 0.9*tr.d.s))) return {ok:false, why:'有樹擋在這裡（點樹可以砍掉）。'};
+  if (world.feats.some(f => cells.some(([x, z]) => Math.hypot(x - f.d.x, z - f.d.z) < world.featR(f.d) + 0.3))) return {ok:false, why:'有石頭或樹叢擋在這裡（點一下可以清掉）。'};
+  if (S.stage === 'egg' && cells.some(([x, z]) => Math.hypot(x, z) < 1.2)) return {ok:false, why:'蛋在這裡。'};
   if (id === 'house'){ const dir = V3(Math.sin(p.rot*Math.PI/2), 0, Math.cos(p.rot*Math.PI/2)), door = c.clone().addScaledVector(dir, 2.2 + 1.6*Math.max(petS, 1) + 0.3);
-    if (Math.hypot(door.x, door.z) > BOUND - 0.2) return {ok:false, why:'門口要朝向院子裡，袋熊才進得去（按「旋轉」）。'}; }
+    if (!groundOK(door.x, door.z)) return {ok:false, why:'門口前面要有空地，袋熊才進得去（按「旋轉」）。'}; }
   return {ok:true};
 }
-function freeSpot(id){   // the nearest valid spot from the middle outwards, facing the centre
-  const b = bdef(id);
-  for (const r of [3.5,4,4.5,5,5.5,6,6.5,7,7.5,8,3,2.5,2,1.5,1]) for (let k=0;k<16;k++){
-    const a = k/16*Math.PI*2 + r, x = Math.sin(a)*r, z = Math.cos(a)*r, rot = facingIn(x, z), [w, d] = rotSize(b, rot), p = {i:Math.round(x - w/2), j:Math.round(z - d/2), rot};
+function freeSpot(id, near){   // the nearest valid spot, searching outward from `near` (the middle of the view)
+  const b = bdef(id), cx = near ? near.x : 0, cz = near ? near.z : 0;
+  for (let r = 0; r <= 26; r += 0.75) for (let k=0, n = Math.max(1, Math.round(r*3)); k<n; k++){
+    const a = k/n*Math.PI*2 + r, x = cx + Math.sin(a)*r, z = cz + Math.cos(a)*r, rot = facingIn(x, z), [w, d] = rotSize(b, rot), p = {i:Math.round(x - w/2), j:Math.round(z - d/2), rot};
     if (canPlace(id, p).ok) return p; }
   return null;
 }
@@ -791,7 +787,7 @@ function legacyPlace(id){   // buildings from before the grid keep (roughly) the
 function applyPlace(id){
   const b = bdef(id), g = BG[id]; if (!b || !b.size || !g) return;
   S.place = S.place || {}; if (!S.place[id]) S.place[id] = legacyPlace(id);
-  const c = placeCenter(b, S.place[id]); g.position.copy(c); g.rotation.y = S.place[id].rot*Math.PI/2; SPOTS[id] = c.clone(); NAV.dirty = true;
+  const c = placeCenter(b, S.place[id]); g.position.copy(c); g.position.y = footY(b, S.place[id]); g.rotation.y = S.place[id].rot*Math.PI/2; SPOTS[id] = c.clone(); NAV.dirty = true;
   if (!g.userData.hb){ const hb = new THREE.Mesh(new THREE.BoxGeometry(b.size[0], 1.6, b.size[1]), hbMat); hb.position.y = 0.8; hb.userData.kind = id === 'house' ? 'house' : 'build'; hb.userData.ref = id; g.add(hb); g.userData.hb = hb; }
 }
 function buildMenu(id){
@@ -799,12 +795,17 @@ function buildMenu(id){
   showModal(b.name, `<div class="bigicon">${BUILD_ICON[id] || '🏗️'}</div><p>${b.desc}</p>`,
     [{label:'關閉', ghost:true, onClick:()=>{}}, ...(b.size ? [{label:'移動', onClick:() => startPlace(id, false)}] : [])]);
 }
-// Placement mode: a grid on the lawn, a green/red footprint, the camera locked to top-down or 45°.
+// Placement mode: a grid laid over the ground around the footprint, a green/red footprint, the camera locked to top-down or 45°.
 let placing = null;
-const gridMesh = (() => { const v = [];
-  for (let k=-9;k<=9;k++){ const h = Math.sqrt(Math.max(0, 81 - k*k)); v.push(k,0.02,-h, k,0.02,h, -h,0.02,k, h,0.02,k); }
-  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
-  const m = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({color:'#ffffff', transparent:true, opacity:0.4, depthWrite:false})); m.visible = false; scene.add(m); return m; })();
+const gridMesh = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({color:'#ffffff', transparent:true, opacity:0.45, depthWrite:false}));
+gridMesh.visible = false; gridMesh.renderOrder = 4; scene.add(gridMesh);
+function layGrid(cx, cz){
+  const v = [], R = 8, i0 = Math.round(cx), j0 = Math.round(cz);
+  for (let k=-R; k<=R; k++) for (let s=-R; s<R; s++){
+    const a = [i0 + s, j0 + k], b = [i0 + s + 1, j0 + k], c = [i0 + k, j0 + s], d = [i0 + k, j0 + s + 1];
+    for (const [p, q] of [[a, b], [c, d]]){ if (!world.isOpen((p[0] + q[0])/2, (p[1] + q[1])/2)) continue; v.push(p[0], gy(p[0], p[1]) + 0.05, p[1], q[0], gy(q[0], q[1]) + 0.05, q[1]); } }
+  gridMesh.geometry.dispose(); gridMesh.geometry = new THREE.BufferGeometry(); gridMesh.geometry.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+}
 const foot = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({color:'#5ad16a', transparent:true, opacity:0.4, depthWrite:false}));
 foot.rotation.x = -Math.PI/2; foot.renderOrder = 2; foot.visible = false; scene.add(foot);
 const doorArrow = new THREE.Mesh(new THREE.ConeGeometry(0.35, 0.7, 3), new THREE.MeshBasicMaterial({color:'#ffffff', transparent:true, opacity:0.85, depthWrite:false}));
@@ -817,7 +818,7 @@ function startPlace(id, isNew){
   const prev = S.place && S.place[id] ? {...S.place[id]} : null;
   let mesh = BG[id];
   if (isNew){ build(id); mesh = BG[id]; delete BG[id]; }   // a preview that only becomes real when you confirm
-  const p = (isNew ? freeSpot(id) : prev) || {i:-1, j:-1, rot:0};
+  const p = (isNew ? freeSpot(id, camTarget) || freeSpot(id) : prev) || {i:-1, j:-1, rot:0};
   placing = {id, b, mesh, isNew, prev, p:{...p}, cam:{yaw, pitch, zoom}};
   gridMesh.visible = foot.visible = true; document.body.classList.add('placing'); $('#placeBar').hidden = false;
   $('#placeName').textContent = (isNew ? '蓋' : '移動') + b.name + (isNew ? `（${b.price} 代幣）` : '');
@@ -825,18 +826,17 @@ function startPlace(id, isNew){
   updatePlace();
 }
 function updatePlace(){
-  const P = placing, [w, d] = rotSize(P.b, P.p.rot), c = placeCenter(P.b, P.p);
-  P.mesh.position.copy(c); P.mesh.rotation.y = P.p.rot*Math.PI/2;
-  foot.position.set(c.x, 0.03, c.z); foot.scale.set(w, d, 1);
+  const P = placing, [w, d] = rotSize(P.b, P.p.rot), c = placeCenter(P.b, P.p), y = footY(P.b, P.p);
+  P.mesh.position.copy(c).setY(y); P.mesh.rotation.y = P.p.rot*Math.PI/2;
+  foot.position.set(c.x, y + 0.06, c.z); foot.scale.set(w, d, 1); layGrid(c.x, c.z);
   const v = canPlace(P.id, P.p); P.ok = v.ok; foot.material.color.set(v.ok ? '#5ad16a' : '#e05a4f');
   doorArrow.visible = P.id === 'house';
-  if (doorArrow.visible){ const dir = V3(Math.sin(P.p.rot*Math.PI/2), 0, Math.cos(P.p.rot*Math.PI/2)); doorArrow.position.copy(c).addScaledVector(dir, d/2 + 0.6).setY(0.1); doorArrow.rotation.set(Math.PI/2, 0, -P.p.rot*Math.PI/2); }
+  if (doorArrow.visible){ const dir = V3(Math.sin(P.p.rot*Math.PI/2), 0, Math.cos(P.p.rot*Math.PI/2)); doorArrow.position.copy(c).addScaledVector(dir, d/2 + 0.6); doorArrow.position.y = gy(doorArrow.position.x, doorArrow.position.z) + 0.15; doorArrow.rotation.set(Math.PI/2, 0, -P.p.rot*Math.PI/2); }
   $('#placeHint').textContent = v.ok ? '拖曳移動位置，按「旋轉」換方向，好了按「確定」。' : v.why;
   $('#placeOk').disabled = !v.ok;
 }
 function placePointer(e){
-  setNdc(e); ray.setFromCamera(ndc, camera); const hitP = V3(0,0,0);
-  if (!ray.ray.intersectPlane(groundPlane, hitP)) return;
+  const hitP = groundHit(e); if (!hitP) return;
   const P = placing, [w, d] = rotSize(P.b, P.p.rot), i = Math.round(hitP.x - w/2), j = Math.round(hitP.z - d/2);
   if (i !== P.p.i || j !== P.p.j){ P.p.i = i; P.p.j = j; updatePlace(); }
 }
@@ -854,7 +854,7 @@ function commitPlace(){
   if (B.mode === 'inHouse' && BG.house) pos.copy(SPOTS.house);
   else if (cellsOf(P.b, P.p).some(([x, z]) => Math.abs(x - pos.x) < 0.9 && Math.abs(z - pos.z) < 0.9)){   // don't leave the wombat stuck inside
     const c = SPOTS[P.id], d = V3(pos.x - c.x, 0, pos.z - c.z); if (d.lengthSq() < 0.01) d.set(1, 0, 0);
-    d.setLength(Math.max(...P.b.size)/2 + 1); pos.set(c.x + d.x, 0, c.z + d.z); if (pos.length() > BOUND - 0.3) pos.setLength(BOUND - 0.3); }
+    d.setLength(Math.max(...P.b.size)/2 + 1); pos.set(c.x + d.x, 0, c.z + d.z); snapToLand(pos); }
   endPlace();
 }
 function cancelPlace(){
@@ -891,7 +891,7 @@ function setupDeco(h){
   decoObjs.forEach(o => scene.remove(o)); decoObjs.length = 0; decoId = h ? h.id : null;
   if (!h) return;
   const ring = (emoji, n, y, size) => { for (let i=0;i<n;i++){ const a = i/n*Math.PI*2 + 0.2, s = new THREE.Sprite(new THREE.SpriteMaterial({map:emojiTex(emoji), transparent:true, depthWrite:false}));
-    s.position.set(Math.sin(a)*6.6, y, Math.cos(a)*6.6); s.scale.setScalar(size); s.userData.y = y; s.userData.ph = i; scene.add(s); decoObjs.push(s); } };
+    const yy = y + gy(Math.sin(a)*6.6, Math.cos(a)*6.6); s.position.set(Math.sin(a)*6.6, yy, Math.cos(a)*6.6); s.scale.setScalar(size); s.userData.y = yy; s.userData.ph = i; scene.add(s); decoObjs.push(s); } };
   if (h.deco === 'pumpkins') ring('🎃', 10, 0.42, 0.9);
   if (h.deco === 'gifts') ring('🎁', 10, 0.4, 0.8);
   if (h.deco === 'lanterns') ring('🏮', 8, 2.6, 0.9);
@@ -1183,7 +1183,8 @@ const pos = V3(0,0,0), vel = V3(0,0,0), walkVel = V3(0,0,0), forceSm = V3(0,0,0)
 let tx=0, tz=0, tvx=0, tvz=0, sq=0, sqv=0, liftW=0, gaitW=0, walkClock=0, wiggleW=0, danceW=0, sleepW=0, sitW=0;
 let petS = 0.45, reveal = 1, dragging = false, act = null, actY = 0, lastMouse = -1e9, hasHover = false, hatLift = 0, clothesHidden = false;
 let blinkTimer = 2.5, blinkT = 0, snowCover = 0, flashV = 0, thunderT = 6, hatching = null, evo = null, nightF = 0, fxoV = 0, hudDirty = true;
-const grabLocal = V3(0,0,0), pointerWorld = V3(0,0,0), plane = new THREE.Plane(), ROPE = 0.35;
+const grabLocal = V3(0,0,0), pointerWorld = V3(0,0,0), plane = new THREE.Plane(), ROPE = 0.35, lastLand = V3(0,0,0);
+let petGY = 0, justLanded = 0;   // ground height under the wombat (smoothed); a moment after being dropped
 const B = {mode:'idle', timer:2, target:V3(0,0,0), lookT:0, lookYaw:0, lookPitch:0, food:null, water:null, nomT:0,
   sleeping:false, sleepAfter:false, anim:0, from:V3(0,0,0), emoteT:4, stompT:3, petCd:0, petTimes:[], zzzT:0, cryT:12};
 const petActive = () => S.stage !== 'egg' && !S.dead && B.mode !== 'dying' && B.mode !== 'dead';
@@ -1240,7 +1241,7 @@ const camRight = () => { const r = V3(1,0,0).applyQuaternion(camera.quaternion);
 function cleanPoop(c){
   if (!cubes.includes(c) || c.cleaning) return;
   c.cleaning = true; c.hb.userData.kind = null; c.v = null;
-  const at = c.m.position.clone(); at.y = 0; const right = camRight();
+  const at = c.m.position.clone(); at.y = gy(at.x, at.z); const right = camRight();
   const pan = makePan(), broom = makeBroom(); pan.position.copy(at).addScaledVector(right, 0.42); pan.rotation.y = Math.atan2(-right.x, -right.z);
   broom.position.copy(at).addScaledVector(right, -0.5); broom.rotation.y = Math.atan2(right.x, right.z) - Math.PI/2;
   scene.add(pan, broom); pan.scale.setScalar(0.01); broom.scale.setScalar(0.01);
@@ -1250,7 +1251,7 @@ function cleanPoop(c){
     const s = clamp((t-0.25)/0.55, 0, 1);                       // sweep toward the pan
     broom.position.copy(at).addScaledVector(right, lerp(-0.5, 0.18, s)); broom.rotation.x = Math.sin(t*28)*0.12*(s > 0 && s < 1 ? 1 : 0);
     if (s > 0.35){ c.m.position.copy(at).addScaledVector(right, lerp(0, 0.4, (s-0.35)/0.65)); c.m.position.y = 0.1*c.sc; c.sh.g.visible = false; c.stink.visible = false; }
-    if (t > 1.0){ pan.position.y = (t-1.0)*1.2; c.m.position.y = pan.position.y + 0.1*c.sc; }
+    if (t > 1.0){ pan.position.y = at.y + (t-1.0)*1.2; c.m.position.y = pan.position.y + 0.1*c.sc; }
     if (t > 0.6 && !this.swish){ this.swish = true; sfx('whoosh'); }
   }, done(){ scene.remove(pan, broom); removePoop(c); addCoins(3, at.add(V3(0,0.5,0))); sfx('pop'); }});
 }
@@ -1262,14 +1263,15 @@ function makeWeed(x, z, s){
   const g = new THREE.Group();
   for (let i=0;i<6;i++){ const b = new THREE.Mesh(bladeGeo, weedMats[i%3]); b.position.set(rnd(-0.1,0.1),0,rnd(-0.1,0.1)); b.rotation.set(rnd(-0.6,0.6),0,rnd(-0.6,0.6)); b.scale.y = rnd(0.6,1.3); g.add(b); }
   if (Math.random() < 0.35){ const f = new THREE.Mesh(new THREE.SphereGeometry(0.06,8,6), mat('#f3d250',0.6)); f.position.set(0,0.42,0); g.add(f); }
-  g.position.set(x, 0, z); g.scale.setScalar(s); scene.add(g);
+  g.position.set(x, gy(x, z), z); g.scale.setScalar(s); scene.add(g);
   const hb = new THREE.Mesh(new THREE.SphereGeometry(0.4,8,6), hbMat); hb.position.y = 0.2; hb.userData.kind = 'weed'; g.add(hb);
   const w = {g, x, z, s, hb}; hb.userData.ref = w; weeds.push(w); return w;
 }
 function spawnWeed(){
   if (weeds.length >= 12) return;
   for (let k=0;k<12;k++){
-    const a = Math.random()*Math.PI*2, r = Math.sqrt(Math.random())*5.6, x = Math.sin(a)*r, z = Math.cos(a)*r;
+    const a = Math.random()*Math.PI*2, r = Math.sqrt(Math.random())*8, x = pos.x*0.6 + Math.sin(a)*r, z = pos.z*0.6 + Math.cos(a)*r;
+    if (!groundOK(x, z) || world.isBeach(x, z) || world.isMud(x, z)) continue;
     if (obstacles().some(o => Math.hypot(o.c.x-x, o.c.z-z) < o.r + 0.4)) continue;
     if (Math.hypot(pos.x-x, pos.z-z) < 1.6) continue;
     makeWeed(+x.toFixed(2), +z.toFixed(2), +rnd(0.8,1.25).toFixed(2)); return;
@@ -1279,11 +1281,11 @@ function pullWeed(w){
   if (!weeds.includes(w)) return;
   weeds.splice(weeds.indexOf(w),1); S.care.nature = (S.care.nature || 0) + 1; w.hb.userData.kind = null;
   const hand = makeHand(), at = w.g.position.clone(), top = 0.5*w.s;
-  hand.rotation.y = Math.atan2(camera.position.x - at.x, camera.position.z - at.z) + Math.PI; hand.position.set(at.x, 1.8, at.z); scene.add(hand);
+  hand.rotation.y = Math.atan2(camera.position.x - at.x, camera.position.z - at.z) + Math.PI; const base = at.y; hand.position.set(at.x, base + 1.8, at.z); scene.add(hand);
   tools.push({t:0, dur:1.25, update(t){
-    if (t < 0.35) hand.position.y = lerp(1.8, top + 0.12, ease(t/0.35));                         // reach down
+    if (t < 0.35) hand.position.y = base + lerp(1.8, top + 0.12, ease(t/0.35));                         // reach down
     else if (t < 0.5) hand.userData.fingers.rotation.x = lerp(0, 0.7, (t-0.35)/0.15);              // grab
-    else { const u = ease(clamp((t-0.5)/0.6, 0, 1)); hand.position.y = lerp(top + 0.12, 1.9, u);   // yank it out
+    else { const u = ease(clamp((t-0.5)/0.6, 0, 1)); hand.position.y = base + lerp(top + 0.12, 1.9, u);   // yank it out
       w.g.position.y = hand.position.y - top - 0.12; w.g.rotation.z = Math.sin(t*30)*0.15*(1-u);
       if (!this.popped){ this.popped = true; sfx('pop'); addCoins(2, at.clone().add(V3(0,0.6,0))); } }
     if (t > 1.0){ const f = Math.max(0.01, 1 - (t-1.0)/0.25); hand.scale.setScalar(f); w.g.scale.setScalar(w.s*f); }
@@ -1302,7 +1304,7 @@ function makeRoach(){
   for (let i=0;i<6;i++){ const s = i%2 ? 1 : -1, z = (Math.floor(i/2)-1)*0.07, l = new THREE.Mesh(new THREE.CylinderGeometry(0.006,0.006,0.14,4), dark);
     l.position.set(0.08*s, 0.03, z); l.rotation.z = s*1.2; g.add(l); legs_.push(l); }
   for (const s of [-1,1]){ const a = new THREE.Mesh(new THREE.CylinderGeometry(0.004,0.004,0.2,4), dark); a.position.set(0.04*s,0.07,0.25); a.rotation.set(1.2,0,-0.5*s); g.add(a); }
-  const a = Math.random()*Math.PI*2; g.position.set(Math.sin(a)*7, 0, Math.cos(a)*7); scene.add(g);
+  const a = Math.random()*Math.PI*2; g.position.set(pos.x + Math.sin(a)*7, 0, pos.z + Math.cos(a)*7); scene.add(g);
   return {g, legs:legs_, tgt:V3(0,0,0), retarget:0, leaving:false};
 }
 function updatePests(dt){
@@ -1311,17 +1313,18 @@ function updatePests(dt){
   while (flies.length < wantFlies){ const s = new THREE.Sprite(new THREE.SpriteMaterial({map:flyTex, transparent:true, depthWrite:false})); s.scale.setScalar(0.16); scene.add(s); flies.push({s, i:Math.floor(Math.random()*99), ph:Math.random()*9, r:rnd(0.25,0.6), sp:rnd(5,7)}); }
   while (flies.length > wantFlies){ scene.remove(flies.pop().s); }
   flies.forEach(f => { const c = spots[f.i % spots.length]; if (!c) return; const a = t*f.sp + f.ph;
-    f.s.position.set(c.x + Math.cos(a)*f.r + Math.sin(t*13+f.ph)*0.05, 0.35 + Math.sin(a*1.7+f.ph)*0.18 + 0.15, c.z + Math.sin(a)*f.r); });
+    f.s.position.set(c.x + Math.cos(a)*f.r + Math.sin(t*13+f.ph)*0.05, c.y + 0.3 + Math.sin(a*1.7+f.ph)*0.18, c.z + Math.sin(a)*f.r); });
   if (flies.length >= 3){ buzzT -= dt; if (buzzT <= 0){ buzzT = rnd(6,10); sfx('buzz'); } }
   while (roaches.filter(r => !r.leaving).length < wantRoaches) roaches.push(makeRoach());
-  roaches.filter(r => !r.leaving).slice(wantRoaches).forEach(r => { r.leaving = true; const a = Math.atan2(r.g.position.x, r.g.position.z); r.tgt.set(Math.sin(a)*8, 0, Math.cos(a)*8); });
+  roaches.filter(r => !r.leaving).slice(wantRoaches).forEach(r => { r.leaving = true; const a = Math.atan2(r.g.position.x - pos.x, r.g.position.z - pos.z); r.tgt.set(pos.x + Math.sin(a)*8, 0, pos.z + Math.cos(a)*8); });
   for (let i=roaches.length-1;i>=0;i--){ const r = roaches[i], p = r.g.position;
     const near = petActive() && root.visible && Math.hypot(p.x-pos.x, p.z-pos.z) < 1.4*Math.max(petS,0.6);
     r.retarget -= dt;
-    if (!r.leaving && (r.retarget <= 0 || near)){ r.retarget = rnd(1.5,4); if (near){ const d = V3(p.x-pos.x,0,p.z-pos.z).normalize(); r.tgt.copy(p).addScaledVector(d, 2.5); } else { const a = Math.random()*Math.PI*2, rr = rnd(1,5); r.tgt.set(Math.sin(a)*rr, 0, Math.cos(a)*rr); } }
+    if (!r.leaving && (r.retarget <= 0 || near)){ r.retarget = rnd(1.5,4); if (near){ const d = V3(p.x-pos.x,0,p.z-pos.z).normalize(); r.tgt.copy(p).addScaledVector(d, 2.5); } else { const a = Math.random()*Math.PI*2, rr = rnd(1,5); r.tgt.set(pos.x + Math.sin(a)*rr, 0, pos.z + Math.cos(a)*rr); } }
     const d = V3(r.tgt.x-p.x, 0, r.tgt.z-p.z), dist = d.length();
     if (dist > 0.1){ const sp = (near || r.leaving ? 2.6 : 1.1)*dt; p.addScaledVector(d.normalize(), Math.min(sp, dist));
       r.g.rotation.y += clamp(wrapA(Math.atan2(d.x, d.z) - r.g.rotation.y), -8*dt, 8*dt); r.legs.forEach((l,k) => l.rotation.x = Math.sin(t*30 + k*1.3)*0.5); }
+    p.y = gy(p.x, p.z);
     if (r.leaving && dist < 0.2){ scene.remove(r.g); roaches.splice(i,1); }
   }
 }
@@ -1339,10 +1342,10 @@ function makeTree(d){
     const hole = new THREE.Mesh(new THREE.CircleGeometry(0.05, 12), new THREE.MeshBasicMaterial({color:'#2a1a08'})); hole.position.set(0, -0.05, 0.22); h.add(hole);
     h.position.set(0.5, 1.3, 0.4); g.add(h); g.userData.hive = h;
   }
-  g.position.set(d.x, 0, d.z); g.rotation.y = d.ry || 0; g.scale.setScalar(d.s); scene.add(g);
+  g.position.set(d.x, gy(d.x, d.z) - 0.05, d.z); g.rotation.y = d.ry || 0; g.scale.setScalar(d.s); scene.add(g);
   const hb = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 2.6, 8), hbMat); hb.position.y = 1.3; hb.userData.kind = 'tree'; g.add(hb);
   const fade = []; g.traverse(o => { if (o.isMesh && o !== hb) { o.material = o.material.clone(); o.material.transparent = true; fade.push(o.material); } });
-  const tr = {d, g, hb, fade, alpha:1, shake:0, sh:makeShadow(2.6*d.s, 2.6*d.s)}; tr.sh.g.position.set(d.x, 0, d.z); hb.userData.ref = tr; trees.push(tr); NAV.dirty = true; return tr;
+  const tr = {d, g, hb, fade, alpha:1, shake:0, sh:makeShadow(2.6*d.s, 2.6*d.s)}; tr.sh.g.position.set(d.x, gy(d.x, d.z), d.z); hb.userData.ref = tr; trees.push(tr); NAV.dirty = true; return tr;
 }
 function plantTrees(){
   S.trees = []; const n = 3 + Math.floor(Math.random()*3);
@@ -1429,6 +1432,135 @@ function cutTree(tr){
   toast('樹砍掉了。'); save();
 }
 
+// ---------- expanding the territory: clearing plots, rocks and bushes, building bridges ----------
+const FEAT_PRICE = {bush:10, small:15, mid:30, big:50}, BRIDGE_PRICE = 80;
+function dust(x, z, n, spread){ for (let i=0;i<n;i++){ const px = x + rnd(-spread, spread), pz = z + rnd(-spread, spread);
+  floatSprite(radialTex('rgba(214,196,160,0.85)','rgba(214,196,160,0)'), V3(px, gy(px, pz) + 0.3, pz), {size:rnd(0.8,1.6), vy:rnd(0.3,0.9), vx:rnd(-0.4,0.4), max:1.6, grow:1.2, delay:Math.random()*0.6}); } }
+function plotMenu(k){
+  if (world.isOpenKey(k)) return;
+  const name = world.plotName(k), price = world.price();
+  if (!world.canOpen(k)){ showModal(name, `<div class="bigicon">🌲</div><p>這塊地被樹叢和石頭擋住，離你的領地太遠了。先把旁邊相連的土地整理好，才能一路打通過來。</p>`, [{label:'好', onClick:()=>{}}]); return; }
+  showModal(`整理${name}？`, `<div class="bigicon">🪓</div><p>這塊 18 × 18 格的土地長滿了樹叢、灌木和石頭。花 <b>${price} 代幣</b>請人整理乾淨，打通以後${S.name || '袋熊'}就能過去玩，也能在上面蓋東西。</p><p class="note">整理後還會留下一些樹和石頭，之後可以再一個一個清掉。每多開拓一塊，下一塊會貴一點。</p>`,
+    [{label:'再想想', ghost:true, onClick:()=>{}}, {label:`整理（${price}）`, onClick:() => openPlot(k)}]);
+}
+function openPlot(k){
+  const price = world.price(); if (!pay(price)) return;
+  const [a, b] = k.split(',').map(Number), cx = a*18, cz = b*18;
+  world.openPlot(k);
+  S.trees.filter(d => d.p === k).forEach(d => { const tr = makeTree(d); tr.g.scale.setScalar(0.01); tools.push({t:0, dur:0.8, update(t){ tr.g.scale.setScalar(Math.max(0.01, d.s*Math.min(1, t/0.6))); }, done(){ tr.g.scale.setScalar(d.s); }}); });
+  dust(cx, cz, 26, 8); sfx('whoosh'); setTimeout(() => sfx('grow'), 600);
+  NAV.dirty = true; panTarget.set(cx*0.6, 0, cz*0.6); clampPan(); setupBeach();
+  toast(`${world.plotName(k)}整理好了！領地變大了。`); save(); hudDirty = true;
+}
+function featMenu(f){
+  const d = f.d, rock = d.k === 'rock', size = rock ? world.rockSize(d) : 'bush', price = FEAT_PRICE[size];
+  const name = rock ? {big:'大石頭', mid:'石頭', small:'小石頭'}[size] : '樹叢';
+  showModal(name, `<div class="bigicon">${rock ? '🪨' : '🌳'}</div><p>${rock ? (size === 'big' ? `比${S.name || '袋熊'}還大的石頭，擋住了路。` : '路邊的石頭。') : '一叢矮矮的灌木。'}花 ${price} 代幣可以${rock ? '請人搬走' : '清掉'}，空出位置蓋東西。</p>`,
+    [{label:'關閉', ghost:true, onClick:()=>{}}, {label:`${rock ? '搬走' : '清掉'}（${price}）`, onClick:() => {
+      if (!world.feats.includes(f) || !pay(price)) return;
+      dust(d.x, d.z, rock ? 10 : 6, d.s*0.6); sfx(rock ? 'thud' : 'whoosh'); world.removeFeat(f);
+      if (!rock) leafFall({g:f.g, d:{s:1}}, 6);
+      toast(`${name}清掉了。`); save(); }}]);
+}
+function bridgeMenu(p){
+  if (!p) return;
+  const z = p.z;
+  if (!world.isOpen(p.x, p.z)){ plotMenu(plotKey(p.x, p.z)); return; }
+  if (!world.canBridge(z)){ toast(world.bridges.some(b => Math.abs(b.z - z) < 3.2) ? '這附近已經有橋了。' : '河的兩岸都要是你的領地，才能蓋橋。'); return; }
+  showModal('在這裡蓋一座橋？', `<div class="bigicon">🌉</div><p>河水清清的，看得到水底的石頭和魚。要過河就要蓋橋：花 ${BRIDGE_PRICE} 代幣，在這裡蓋一座木頭拱橋。</p>`,
+    [{label:'再想想', ghost:true, onClick:()=>{}}, {label:`蓋橋（${BRIDGE_PRICE}）`, onClick:() => {
+      if (!pay(BRIDGE_PRICE)) return;
+      const b = world.addBridge(z); b.g.scale.set(0.01, 0.01, 0.01); tools.push({t:0, dur:0.9, update(t){ const k = ease(Math.min(1, t/0.8)); b.g.scale.set(1, Math.max(0.01, k), 1); }, done(){ b.g.scale.set(1, 1, 1); }});
+      dust(b.x, b.z, 10, 2); sfx('grow'); NAV.dirty = true; toast('橋蓋好了！袋熊可以過河了。'); save(); }}]);
+}
+
+// ---------- the beach: crabs, hermit crabs, shells to pick up and the odd message in a bottle ----------
+const crabs = [], shells = [], beachHit = [];
+let bottle = null, bottleT = rnd(60, 150), shellT = 20;
+const beachSpot = (open, wet) => { for (let i=0;i<30;i++){ const z = rnd(-HALF + 1, HALF - 1), sx = world.shoreX(z), x = wet ? sx + rnd(1.4, 2.0) : rnd(sx - 4.5, sx + 1.3);
+  if (world.isWater(x, z) && !wet) continue; if (open && !world.isOpen(x, z)) continue; return V3(x, 0, z); } return null; };
+function makeCrab(hermit){
+  const g = new THREE.Group(), legs = [];
+  if (hermit){
+    const shell = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.34, 10), mat(['#e9c9a8','#d8a87e','#f0dcc8'][Math.floor(Math.random()*3)], 0.6)); shell.rotation.x = -1.2; shell.position.set(0, 0.14, -0.05); g.add(shell);
+    const swirl = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.03, 6, 14), mat('#c49270', 0.6)); swirl.position.set(0, 0.16, 0.08); g.add(swirl);
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), mat('#e07a4f', 0.5)); body.position.set(0, 0.07, 0.13); g.add(body); g.userData.body = body;
+  } else {
+    const body = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), mat('#d9573f', 0.45)); body.scale.set(0.17, 0.08, 0.13); body.position.y = 0.09; g.add(body);
+    for (const s of [-1, 1]){ const claw = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), body.material); claw.scale.set(1, 0.7, 1.3); claw.position.set(0.12*s, 0.09, 0.16); g.add(claw);
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 6), mat('#1b1b1b', 0.3)); eye.position.set(0.04*s, 0.2, 0.09); g.add(eye); }
+  }
+  for (let i=0;i<6;i++){ const s = i < 3 ? 1 : -1, l = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.16, 4), mat(hermit ? '#e07a4f' : '#c44a36', 0.5));
+    l.position.set(0.13*s, 0.05, ((i % 3) - 1)*0.06 + (hermit ? 0.1 : 0)); l.rotation.z = s*1.1; g.add(l); legs.push(l); }
+  const p = beachSpot(false) || V3(world.shoreX(0) - 2, 0, 0); g.position.copy(p); g.scale.setScalar(hermit ? 1.2 : 1.3); scene.add(g);
+  const hb = new THREE.Mesh(new THREE.SphereGeometry(0.4, 8, 6), hbMat); hb.position.y = 0.1; hb.userData.kind = 'crab'; g.add(hb);
+  const c = {g, legs, hermit, tgt:p.clone(), wait:rnd(0, 3), hide:0, hb}; hb.userData.ref = c; crabs.push(c); beachHit.push(hb); return c;
+}
+const SHELL_KINDS = [['#f6d7c8', 'fan'], ['#fbeee0', 'conch'], ['#e8b4b8', 'fan'], ['#f3e3b5', 'spiral'], ['#d9e4f0', 'fan']];
+function makeShell(p){
+  const [c, kind] = SHELL_KINDS[Math.floor(Math.random()*SHELL_KINDS.length)], g = new THREE.Group(), m = mat(c, 0.5);
+  if (kind === 'fan'){ const s = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 6, 0, Math.PI*2, 0, Math.PI/2), m); s.scale.set(1, 0.35, 0.9); g.add(s);
+    for (let i=0;i<5;i++){ const r = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.03, 0.13), mat('#ffffff', 0.5)); r.rotation.y = (i - 2)*0.32; r.position.set(Math.sin((i - 2)*0.32)*0.06, 0.03, Math.cos((i - 2)*0.32)*0.06); g.add(r); } }
+  else if (kind === 'conch'){ const s = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.24, 9), m); s.rotation.z = Math.PI/2; s.position.y = 0.05; g.add(s); }
+  else { const s = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.035, 8, 16), m); s.rotation.x = Math.PI/2; s.position.y = 0.03; g.add(s); }
+  g.position.set(p.x, gy(p.x, p.z) + 0.01, p.z); g.rotation.y = Math.random()*6.28; g.scale.setScalar(1.9); scene.add(g);
+  const hb = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), hbMat); hb.userData.kind = 'shell'; g.add(hb);
+  const s = {g, hb}; hb.userData.ref = s; shells.push(s); beachHit.push(hb); return s;
+}
+function makeBottle(p){
+  const g = new THREE.Group(), glass = new THREE.MeshStandardMaterial({color:'#8fd0b8', roughness:0.1, transparent:true, opacity:0.7});
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.32, 12), glass); body.rotation.z = Math.PI/2; g.add(body);
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.06, 0.12, 10), glass); neck.rotation.z = Math.PI/2; neck.position.x = 0.22; g.add(neck);
+  const cork = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.06, 8), mat('#b98b5a', 0.9)); cork.rotation.z = Math.PI/2; cork.position.x = 0.3; g.add(cork);
+  const paper = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.2, 8), mat('#f4ead2', 0.8)); paper.rotation.z = Math.PI/2; g.add(paper);
+  g.position.set(p.x, WATER_Y, p.z); g.rotation.y = Math.random()*6.28; g.scale.setScalar(1.4); scene.add(g);
+  const hb = new THREE.Mesh(new THREE.SphereGeometry(0.45, 8, 6), hbMat); hb.userData.kind = 'bottle'; g.add(hb);
+  const b = {g, hb, t:0, from:p.clone().setX(p.x + 6), to:p.clone()}; hb.userData.ref = b; beachHit.push(hb); return b;
+}
+const beachPick = () => beachHit;
+function setupBeach(){
+  while (crabs.length < 6) makeCrab(crabs.length >= 4);
+  const openBeach = !!beachSpot(true);
+  while (openBeach && shells.length < 7){ const p = beachSpot(true); if (!p) break; makeShell(p); }
+}
+const LETTERS = ['「給撿到這封信的人：今天的海很藍，希望你也有好心情。」', '「我是住在海的另一邊的海獺，我很好，你呢？」', '「把願望寫在紙上放進瓶子裡，就會實現喔。」',
+  '「祝你和你的袋熊每天都吃得飽、睡得好。」', '「這是一張藏寶圖……好像被水泡糊了。」', '「謝謝你撿起這個瓶子，海灘又乾淨一點了！」', '「月亮圓的晚上，記得抬頭看看。」'];
+function openBottle(b){
+  if (!b || b !== bottle) return;
+  const coins = Math.random() < 0.65 ? 3 + Math.floor(Math.random()*13) : 0, at = b.g.position.clone().add(V3(0, 0.6, 0));
+  scene.remove(b.g); beachHit.splice(beachHit.indexOf(b.hb), 1); bottle = null; bottleT = rnd(240, 540); sfx('pop');
+  showModal('瓶中信', `<div class="bigicon">🍾</div><p>${LETTERS[Math.floor(Math.random()*LETTERS.length)]}</p><p>${coins ? `瓶子裡還有 <b>${coins} 代幣</b>！` : '瓶子裡只有這封信。'}</p>`, [{label:'收下', onClick:() => { if (coins) addCoins(coins, at); save(); }}]);
+}
+function pickShell(s){
+  if (!shells.includes(s)) return;
+  shells.splice(shells.indexOf(s), 1); beachHit.splice(beachHit.indexOf(s.hb), 1); const at = s.g.position.clone();
+  tools.push({t:0, dur:0.5, update(t){ s.g.position.y = at.y + t*1.5; s.g.scale.setScalar(Math.max(0.01, 1 - t*1.6)); }, done(){ scene.remove(s.g); }});
+  addCoins(1, at.add(V3(0, 0.5, 0))); S.shells = (S.shells || 0) + 1;
+  if (S.shells === 1 || S.shells % 10 === 0) toast(`撿到貝殼了！目前一共撿了 ${S.shells} 個。`);
+}
+function pokeCrab(c){ c.hide = c.hermit ? 3 : 0; if (!c.hermit){ const a = Math.random()*6.28; c.tgt.set(c.g.position.x + Math.sin(a)*2.5, 0, c.g.position.z + Math.cos(a)*2.5); c.wait = 0; } sfx('pop'); }
+function updateBeach(dt, t){
+  for (const c of crabs){
+    const p = c.g.position, near = petActive() && root.visible && Math.hypot(p.x - pos.x, p.z - pos.z) < 2.2*Math.max(petS, 0.6);
+    if (c.hermit && near) c.hide = 2.5;
+    if (c.hide > 0){ c.hide -= dt; c.legs.forEach(l => l.visible = false); if (c.g.userData.body) c.g.userData.body.visible = false; continue; }
+    c.legs.forEach(l => l.visible = true); if (c.g.userData.body) c.g.userData.body.visible = true;
+    c.wait -= dt;
+    if (near && !c.hermit){ const d = V3(p.x - pos.x, 0, p.z - pos.z).normalize(); c.tgt.set(p.x + d.x*3, 0, p.z + d.z*3); c.wait = 0; }
+    else if (c.wait <= 0 && Math.hypot(c.tgt.x - p.x, c.tgt.z - p.z) < 0.15){ c.wait = rnd(1, 5); const q = beachSpot(false); if (q && Math.hypot(q.x - p.x, q.z - p.z) < 8) c.tgt.copy(q); else c.tgt.set(p.x + rnd(-2, 2), 0, p.z + rnd(-2, 2)); }
+    if (world.isWater(c.tgt.x, c.tgt.z) || !world.isBeach(c.tgt.x, c.tgt.z) || Math.abs(c.tgt.z) > HALF - 1) c.tgt.set(world.shoreX(p.z) - rnd(1, 3.5), 0, clamp(p.z, -HALF + 2, HALF - 2));
+    const d = V3(c.tgt.x - p.x, 0, c.tgt.z - p.z), L = d.length();
+    if (c.wait <= 0 && L > 0.05){ const sp = (c.hermit ? 0.35 : near ? 2.4 : 1.1)*dt; p.addScaledVector(d.normalize(), Math.min(sp, L));
+      const face = Math.atan2(d.x, d.z) + (c.hermit ? 0 : Math.PI/2); c.g.rotation.y += clamp(wrapA(face - c.g.rotation.y), -6*dt, 6*dt);   // crabs walk sideways
+      c.legs.forEach((l, k) => l.rotation.x = Math.sin(t*(c.hermit ? 12 : 26) + k*1.4)*0.5); }
+    p.y = gy(p.x, p.z);
+  }
+  // a bottle drifts in on the waves now and then, if some of the beach is yours
+  if (!bottle){ bottleT -= dt; if (bottleT <= 0){ const p = beachSpot(true, true); bottleT = rnd(240, 540); if (p){ bottle = makeBottle(p); } } }
+  if (bottle){ const b = bottle; b.t += dt; const u = Math.min(1, b.t/8); b.g.position.x = lerp(b.from.x, b.to.x, ease(u)); b.g.position.z = b.to.z;
+    b.g.position.y = WATER_Y + 0.05 + Math.sin(t*2)*0.04; b.g.rotation.z = Math.sin(t*1.6)*0.25; }
+  shellT -= dt; if (shellT <= 0){ shellT = rnd(40, 90); if (shells.length < 7){ const p = beachSpot(true); if (p) makeShell(p); } }
+}
 // ---------- butterflies on sunny days (the wombat sometimes chases them) ----------
 const butterflies = [];
 const wingTex = c => canvasTex(64,64,(x)=>{ x.fillStyle = c; x.beginPath(); x.ellipse(30,22,26,19,-0.2,0,Math.PI*2); x.fill(); x.beginPath(); x.ellipse(24,46,16,13,0.4,0,Math.PI*2); x.fill();
@@ -1438,25 +1570,25 @@ function makeButterfly(){
   const g = new THREE.Group(), wm = new THREE.MeshBasicMaterial({map:WING_TEX[Math.floor(Math.random()*WING_TEX.length)], transparent:true, side:THREE.DoubleSide, depthWrite:false});
   const wings = [1, -1].map(s => { const p = new THREE.Group(), w = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.3), wm); w.rotation.x = -Math.PI/2; w.position.x = 0.15; w.scale.x = 1; p.add(w); p.scale.x = s; g.add(p); return p; });
   const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.025, 0.16, 4, 8), mat('#3b2f2a', 0.6)); body.rotation.x = Math.PI/2; g.add(body);
-  const a = Math.random()*Math.PI*2; g.position.set(Math.sin(a)*7, rnd(1,2), Math.cos(a)*7); scene.add(g);
+  const a = Math.random()*Math.PI*2; g.position.set(pos.x + Math.sin(a)*7, gy(pos.x, pos.z) + rnd(1,2), pos.z + Math.cos(a)*7); scene.add(g);
   return {g, wings, tgt:V3(0,1,0), retarget:0, ph:Math.random()*9, leaving:false};
 }
 function updateButterflies(dt){
   const want = !S.dead && S.stage !== 'egg' && weatherNow() === 'sunny' && nightF < 0.3 ? 2 : 0;
   while (butterflies.filter(b => !b.leaving).length < want) butterflies.push(makeButterfly());
-  butterflies.filter(b => !b.leaving).slice(want).forEach(b => { b.leaving = true; b.tgt.set(b.g.position.x*3, 6, b.g.position.z*3); });
+  butterflies.filter(b => !b.leaving).slice(want).forEach(b => { b.leaving = true; b.tgt.set(b.g.position.x + rnd(-6,6), b.g.position.y + 8, b.g.position.z + rnd(-6,6)); });
   for (let i=butterflies.length-1;i>=0;i--){ const b = butterflies[i], p = b.g.position;
     const scared = petActive() && Math.hypot(p.x-pos.x, p.z-pos.z) < 1.5*Math.max(petS,0.6);
     b.retarget -= dt;
     if (!b.leaving && (b.retarget <= 0 || scared || p.distanceTo(b.tgt) < 0.3)){ b.retarget = rnd(2,4);
       if (scared){ const d = V3(p.x-pos.x, 0, p.z-pos.z).normalize(); b.tgt.set(p.x + d.x*2.5, rnd(1.2,2), p.z + d.z*2.5); }
-      else { const a = Math.random()*Math.PI*2, r = rnd(0.5, 5); b.tgt.set(Math.sin(a)*r, rnd(0.5,1.7), Math.cos(a)*r); }
-      if (b.tgt.length() > 6) b.tgt.setLength(6); }
+      else { const a = Math.random()*Math.PI*2, r = rnd(0.5, 5); b.tgt.set(pos.x + Math.sin(a)*r, 0, pos.z + Math.cos(a)*r); b.tgt.y = gy(b.tgt.x, b.tgt.z) + rnd(0.5,1.7); }
+      }
     const d = b.tgt.clone().sub(p), sp = (scared ? 2.2 : 1.1)*dt;
     if (d.length() > 0.01) p.addScaledVector(d.normalize(), Math.min(sp, d.length()));
-    p.y += Math.sin(t*6 + b.ph)*0.01; b.g.rotation.y = Math.atan2(d.x, d.z);
+    p.y += Math.sin(t*6 + b.ph)*0.01; if (!b.leaving) p.y = Math.max(p.y, gy(p.x, p.z) + 0.4); b.g.rotation.y = Math.atan2(d.x, d.z);
     const flap = Math.sin(t*22 + b.ph)*0.9; b.wings[0].rotation.z = flap; b.wings[1].rotation.z = flap;
-    if (b.leaving && p.y > 5.5){ scene.remove(b.g); butterflies.splice(i,1); }
+    if (b.leaving && p.y > gy(p.x, p.z) + 5.5){ scene.remove(b.g); butterflies.splice(i,1); }
   }
 }
 
@@ -1472,18 +1604,18 @@ const ghostTex = canvasTex(128,160,(x)=>{
 let ghost = null, ascending = null;
 function makeGhost(at){
   const s = new THREE.Sprite(new THREE.SpriteMaterial({map:ghostTex, transparent:true, opacity:0.85, depthWrite:false}));
-  s.scale.set(1.0, 1.25, 1); s.position.set(at.x, 1.9, at.z); s.renderOrder = 6; scene.add(s); return s;
+  s.scale.set(1.0, 1.25, 1); s.position.set(at.x, gy(at.x, at.z) + 1.9, at.z); s.renderOrder = 6; scene.add(s); return s;
 }
 function updateGhost(dt){
   if (!ghost) return;
   if (ascending){ ascending.t += dt; const u = ascending.t;
     ghost.position.y += dt*(0.6 + u*1.2); ghost.material.opacity = Math.max(0, 0.85 - u*0.28);
-    spot.visible = spotPool.visible = true; spot.position.set(tomb.position.x, 4.5, tomb.position.z); spotPool.position.set(tomb.position.x, 0.012, tomb.position.z);
+    spot.visible = spotPool.visible = true; spot.position.set(tomb.position.x, tomb.position.y + 4.5, tomb.position.z); spotPool.position.set(tomb.position.x, tomb.position.y + 0.03, tomb.position.z);
     spot.material.opacity = Math.min(0.8, u)*Math.min(1, (3.2-u)); spotPool.material.opacity = spot.material.opacity;
     if (Math.random() < dt*12) sparkles(ghost.position.clone(), 1, 0.5);
     if (u > 3.2){ spot.visible = spotPool.visible = false; scene.remove(ghost); ghost = null; ascending = null; newEgg(); }
     return; }
-  ghost.position.y = 1.9 + Math.sin(t*1.4)*0.15; ghost.material.rotation = Math.sin(t*0.9)*0.08;
+  ghost.position.y = (tomb ? tomb.position.y : 0) + 1.9 + Math.sin(t*1.4)*0.15; ghost.material.rotation = Math.sin(t*0.9)*0.08;
 }
 function releaseSpirit(){
   if (!S.dead || ascending) return;
@@ -1593,8 +1725,8 @@ function foodMesh(kind){
   g.rotation.y = Math.random()*Math.PI*2; return g;
 }
 function spawnFood(x, z, kind='grass'){
-  const r = Math.hypot(x,z); if (r > BOUND-0.3){ x *= (BOUND-0.3)/r; z *= (BOUND-0.3)/r; }
-  const g = foodMesh(kind); g.position.set(x, 1.6, z); scene.add(g);
+  { const p = V3(x, 0, z); snapToLand(p); x = p.x; z = p.z; }
+  const g = foodMesh(kind); g.position.set(x, gy(x, z) + 1.6, z); scene.add(g);
   foods.push({g, kind, vy:0, landed:false, eat:1, sh:makeShadow(0.6,0.6)});
 }
 // Extra effects of a food or drink, plus the pet's own taste: one favourite and one food it dislikes.
@@ -1615,13 +1747,13 @@ function foodBonus(fi){
 let bowl = null;
 function spawnBowl(kind='water'){
   const a = root.rotation.y + rnd(-1,1), d = 1.9*petS + 1.3;
-  let x = pos.x + Math.sin(a)*d, z = pos.z + Math.cos(a)*d; const r = Math.hypot(x,z); if (r > BOUND-0.3){ x *= (BOUND-0.3)/r; z *= (BOUND-0.3)/r; }
+  let x = pos.x + Math.sin(a)*d, z = pos.z + Math.cos(a)*d; { const p = V3(x, 0, z); snapToLand(p); x = p.x; z = p.z; }
   const g = new THREE.Group();
   const pts = [[0.001,0],[0.3,0],[0.36,0.05],[0.38,0.2],[0.33,0.2],[0.31,0.07],[0.001,0.07]].map(p => new THREE.Vector2(p[0],p[1]));
   g.add(new THREE.Mesh(new THREE.LatheGeometry(pts,28), mat('#d6dde2',0.35)));
   const w = new THREE.Mesh(new THREE.CircleGeometry(0.31,24), new THREE.MeshStandardMaterial({color:foodInfo(kind).color, roughness:0.15})); w.rotation.x = -Math.PI/2; w.position.y = 0.17; g.add(w);
   if (kind === 'coco'){ const sh = new THREE.Mesh(new THREE.SphereGeometry(0.16,14,10,0,Math.PI*2,0,Math.PI/2), mat('#7a5634',0.9)); sh.material.side = THREE.DoubleSide; sh.rotation.x = Math.PI; sh.position.set(0.45,0.14,0); g.add(sh); }
-  g.position.set(x,0,z); scene.add(g);
+  g.position.set(x,gy(x, z),z); scene.add(g);
   bowl = {g, w, kind, left:1}; sfx('pop');
 }
 const snowmen = [];
@@ -1633,8 +1765,8 @@ function makeSnowman(x, z, ry, melt=0){
     const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.025,0.02,0.7,6), mat('#6b4f37',0.9)); arm.position.set(0.6*s,0.95,0); arm.rotation.z = -1.0*s; g.add(arm); }
   const nose = new THREE.Mesh(new THREE.ConeGeometry(0.06,0.28,10), mat('#e8833a',0.6)); nose.rotation.x = Math.PI/2; nose.position.set(0,1.26,0.48); g.add(nose);
   const sc = new THREE.Mesh(new THREE.TorusGeometry(0.33,0.07,8,24), mat('#d23b32',0.8)); sc.rotation.x = Math.PI/2; sc.position.y = 0.95; g.add(sc);
-  g.position.set(x,0,z); g.rotation.y = ry; scene.add(g);
-  const o = {g, x, z, ry, melt, sh:makeShadow(1.4,1.4)}; o.sh.g.position.set(x,0,z); snowmen.push(o); return o;
+  g.position.set(x,gy(x, z),z); g.rotation.y = ry; scene.add(g);
+  const o = {g, x, z, ry, melt, sh:makeShadow(1.4,1.4)}; o.sh.g.position.set(x,gy(x, z),z); snowmen.push(o); return o;
 }
 const puddles = [];
 
@@ -1768,7 +1900,8 @@ const ACTS = {
   ballroll:{name:'滾成一顆球', dur:2.8, price:70},
   snowman:  {name:'堆雪人',   dur:7.5, price:60, special:true, need:() => weatherNow() === 'snow' || snowCover > 0.3, why:'下雪天才能堆雪人。', desc:'滾兩顆雪球堆成雪人，代幣 +5'},
   puddle:   {name:'踩水窪',   dur:4.6, price:50, special:true, need:() => weatherNow() === 'rain', why:'下雨天（不打雷）才有水窪可以踩。', desc:'跳進水窪濺水花，心情 +15'},
-  fireflies:{name:'看螢火蟲', dur:6.5, price:60, special:true, need:() => nightF > 0.6 && ['sunny','cloudy'].includes(weatherNow()), why:'晴朗或多雲的晚上才有螢火蟲。', desc:'安靜地看螢火蟲，心情和體力都會回復'}
+  fireflies:{name:'看螢火蟲', dur:6.5, price:60, special:true, need:() => nightF > 0.6 && ['sunny','cloudy'].includes(weatherNow()), why:'晴朗或多雲的晚上才有螢火蟲。', desc:'安靜地看螢火蟲，心情和體力都會回復'},
+  moonview:{name:'賞月', dur:9, price:60, special:true, need:() => nightF > 0.6 && ['sunny','cloudy'].includes(weatherNow()) && isFullMoon() && moonDirNow.y > 0.05, why:'晴朗的晚上、月亮升起來，而且是滿月（或中秋節）才能賞月。', desc:'坐下來安靜地欣賞滿月，心情大幅回復'}
 };
 // Tricks: 坐下, 抖抖毛 and 跳躍轉圈 are free; the others are bought in the shop.
 const hasTrick = k => !ACTS[k].price || !!(S.tricks && S.tricks[k]);
@@ -1781,7 +1914,7 @@ function whyCantPlay(k){
   if (k && ACTS[k].special && !ACTS[k].need()) return ACTS[k].why;
   if (S.st.health < 35) return '牠生病了，先餵藥。';
   if (S.st.hunger < 25) return '牠肚子餓在生氣，先餵牠吃東西。';
-  if (S.st.energy < 15 && k !== 'fireflies') return '牠太累了，讓牠休息一下。';
+  if (S.st.energy < 15 && k !== 'fireflies' && k !== 'moonview') return '牠太累了，讓牠休息一下。';
   if (act || dragging || pos.y > 0.05) return '等牠忙完這個。';
   return null;
 }
@@ -1791,21 +1924,21 @@ function startAct(k){
   if (S.aff < 40 && Math.random() < (40 - S.aff)/50){ showEmote('😤', 1.6); cry('huff'); toast(`${S.name || '牠'}哼了一聲，不想理你……（親暱值太低，多餵牠、摸摸牠吧）`); return; }
   act = {key:k, t:0, dir:1, moved:0, jumped:false, rolls:0, noteT:0, step:0};
   const side = V3(1,0,0).applyAxisAngle(UP, root.rotation.y), fwd = V3(Math.sin(root.rotation.y),0,Math.cos(root.rotation.y));
-  if (k === 'roll') act.dir = pos.clone().addScaledVector(side, 3.2*petS).length() > BOUND-0.5 ? -1 : 1;
+  if (k === 'roll'){ const e = pos.clone().addScaledVector(side, 3.2*petS); act.dir = groundOK(e.x, e.z) ? 1 : -1; }
   if (k === 'flip' || k === 'spin') sqv += 2.2;
   if (k === 'shake') sfx('whoosh');
   if (k === 'dance' && !SND.on) toast('打開右上角的音樂，跳起來更好看。');
   if (k === 'snowman'){
-    let c = pos.clone().addScaledVector(side, 1.4*petS); if (c.length() > BOUND-1.5) c.multiplyScalar((BOUND-1.5)/c.length());
+    let c = pos.clone().addScaledVector(side, 1.4*petS); if (!groundOK(c.x, c.z)) c = pos.clone().addScaledVector(side, -1.4*petS);
     act.c = c; act.a0 = Math.atan2(pos.x-c.x, pos.z-c.z); act.R = 1.4*petS;
     act.ball = new THREE.Mesh(new THREE.SphereGeometry(1,20,14), mat('#f7f9fb',0.9)); scene.add(act.ball); act.ball2 = null;
   }
   if (k === 'puddle'){
     act.spots = [];
     let p = pos.clone(), yawP = root.rotation.y;
-    for (let i=0;i<3;i++){ yawP += rnd(-0.6,0.6); let q = p.clone().add(V3(Math.sin(yawP),0,Math.cos(yawP)).multiplyScalar(1.6*petS + 0.6)); if (q.length() > BOUND-0.5){ yawP += Math.PI; q = p.clone().add(V3(Math.sin(yawP),0,Math.cos(yawP)).multiplyScalar(1.6*petS + 0.6)); }
+    for (let i=0;i<3;i++){ yawP += rnd(-0.6,0.6); let q = p.clone().add(V3(Math.sin(yawP),0,Math.cos(yawP)).multiplyScalar(1.6*petS + 0.6)); if (!groundOK(q.x, q.z)){ yawP += Math.PI; q = p.clone().add(V3(Math.sin(yawP),0,Math.cos(yawP)).multiplyScalar(1.6*petS + 0.6)); }
       const m = new THREE.Mesh(new THREE.CircleGeometry(0.8*Math.max(petS,0.6), 28), new THREE.MeshStandardMaterial({color:'#8fb1c4', roughness:0.1, transparent:true, opacity:0.75}));
-      m.rotation.x = -Math.PI/2; m.position.set(q.x, 0.015, q.z); m.scale.set(1.2,0.85,1); scene.add(m); puddles.push(m); act.spots.push(q); p = q; }
+      m.rotation.x = -Math.PI/2; m.position.set(q.x, gy(q.x, q.z) + 0.03, q.z); m.scale.set(1.2,0.85,1); scene.add(m); puddles.push(m); act.spots.push(q); p = q; }
     act.from = pos.clone();
   }
   if (k === 'fireflies'){ act.wasVis = true; }
@@ -1816,7 +1949,7 @@ function endAct(){
   const k = act.key, st = S.st;
   if (act.ball) scene.remove(act.ball); if (act.ball2) scene.remove(act.ball2);
   act = null; actG.rotation.set(0,0,0); actY = 0;
-  const gain = {sit:[-2,6], ballroll:[6,12], dance:[8,14], snowman:[10,20], puddle:[6,15], fireflies:[-6,15]}[k] || [6,10];
+  const gain = {sit:[-2,6], ballroll:[6,12], dance:[8,14], snowman:[10,20], puddle:[6,15], fireflies:[-6,15], moonview:[-5,22]}[k] || [6,10];
   st.energy = clamp(st.energy - gain[0], 0, 100); st.happy = clamp(st.happy + gain[1], 0, 100); st.thirst = clamp(st.thirst - 3, 0, 100);
   S.care.plays++; if (growthOK()) S.growth += 1; S.aff = clamp(S.aff + 4, 0, 100);
   if (k === 'flip' || k === 'spin'){ sqv += 2.6; sfx('thud'); }
@@ -1827,7 +1960,7 @@ function updateAct(dt){
   const inBelly = act && act.key === 'belly' && act.t/ACTS.belly.dur > 0.2 && act.t/ACTS.belly.dur < 0.8;
   wiggleW += ((inBelly?1:0) - wiggleW) * Math.min(1, dt*8);
   danceW += ((act && act.key === 'dance' ? 1 : 0) - danceW) * Math.min(1, dt*8);
-  sitW += ((act && (act.key === 'fireflies' || act.key === 'sit')) || (B.mode === 'beg' && B.begSit) || B.mode === 'scratch' ? 1 - sitW : -sitW) * Math.min(1, dt*3);
+  sitW += ((act && (act.key === 'fireflies' || act.key === 'sit' || act.key === 'moonview')) || (B.mode === 'beg' && B.begSit) || B.mode === 'scratch' ? 1 - sitW : -sitW) * Math.min(1, dt*3);
   if (!act){ return {shake:0, walk:false}; }
   act.t += dt;
   const A = ACTS[act.key], p = Math.min(act.t/A.dur, 1), s = petS; let shakeF = 0, walk = false;
@@ -1864,7 +1997,7 @@ function updateAct(dt){
         const fwd = V3(Math.sin(root.rotation.y),0,Math.cos(root.rotation.y));
         const big = T < 3.4, r = big ? lerp(0.12, 0.55, T/3.4) : lerp(0.1, 0.38, (T-3.4)/2.8);
         const ball = big ? act.ball : (act.ball2 || (act.ball2 = new THREE.Mesh(new THREE.SphereGeometry(1,20,14), act.ball.material), scene.add(act.ball2), act.ball2));
-        ball.scale.setScalar(r); ball.position.copy(pos).addScaledVector(fwd, 2.05*s + r); ball.position.y = r; ball.rotation.x += dt*3;
+        ball.scale.setScalar(r); ball.position.copy(pos).addScaledVector(fwd, 2.05*s + r); ball.position.y = gy(ball.position.x, ball.position.z) + r; ball.rotation.x += dt*3;
         if (!big && !act.parked){ act.parked = act.ball.position.clone(); }
         if (act.parked) act.ball.position.copy(act.parked);
       } else if (!act.built){
@@ -1881,9 +2014,13 @@ function updateAct(dt){
       if (u > 0.15 && u < 0.9){ pos.x = lerp(from.x, to.x, lu); pos.z = lerp(from.z, to.z, lu); actY = 4*1.2*s*lu*(1-lu); }
       root.rotation.y += clamp(wrapA(Math.atan2(to.x-from.x, to.z-from.z) - root.rotation.y), -6*dt, 6*dt);
       if (act.step <= i && u >= 0.88){ act.step = i+1; sqv += 2.2; sfx('splash');
-        for (let k=0;k<14;k++){ const a = Math.random()*Math.PI*2; floatSprite(radialTex('rgba(210,232,245,1)','rgba(210,232,245,0)'), V3(to.x,0.15,to.z), {size:0.22, vx:Math.cos(a)*rnd(1,2.2), vz:Math.sin(a)*rnd(1,2.2), vy:rnd(2,3.5), g:9, max:0.8, grow:0}); } }
+        for (let k=0;k<14;k++){ const a = Math.random()*Math.PI*2; floatSprite(radialTex('rgba(210,232,245,1)','rgba(210,232,245,0)'), V3(to.x, gy(to.x, to.z) + 0.15, to.z), {size:0.22, vx:Math.cos(a)*rnd(1,2.2), vz:Math.sin(a)*rnd(1,2.2), vy:rnd(2,3.5), g:9, max:0.8, grow:0}); } }
       break; }
     case 'fireflies': { if (act.t > act.noteT){ act.noteT = act.t + 1.6; spawnHearts(1); } break; }
+    case 'moonview': {   // sit facing the moon and gaze up at it
+      root.rotation.y += clamp(wrapA(Math.atan2(moonDirNow.x, moonDirNow.z) - root.rotation.y), -2*dt, 2*dt);
+      if (act.t > act.noteT){ act.noteT = act.t + 2.2; if (act.t > 1.5) floatSprite(sparkTex, headTop(), {size:0.3, vy:0.6, add:true, max:1.4}); }
+      break; }
   }
   if (p >= 1) endAct();
   return {shake:shakeF, walk};
@@ -2002,10 +2139,10 @@ function updateEvo(dt){
   const white = t < 0.6 ? 0 : t < 2.6 ? ease((t-0.6)/2) : t < 3.9 ? 1 : 1 - ease(clamp((t-3.9)/0.8,0,1));
   U.uWhite.value = white; petMats.forEach(m => m.emissive.setScalar(white*0.95));
   const pOp = t < 0.8 ? t/0.8 : t < 4.4 ? 1 : Math.max(0, 1 - (t-4.4)/0.8);
-  pillar.visible = true; pillar.position.set(pos.x, 8, pos.z); pillar.scale.setScalar(Math.max(s, 0.6)); pillar.material.opacity = pOp*0.75;
-  rings.forEach((r,i) => { const ph = (t*0.55 + i/3)%1; r.visible = true; r.position.set(pos.x, 0.2 + ph*4*Math.max(s,0.6), pos.z); r.scale.setScalar((1.25 - ph*0.65)*Math.max(s,0.6)); r.material.opacity = Math.sin(ph*Math.PI)*pOp; });
+  pillar.visible = true; pillar.position.set(pos.x, petGY + 8, pos.z); pillar.scale.setScalar(Math.max(s, 0.6)); pillar.material.opacity = pOp*0.75;
+  rings.forEach((r,i) => { const ph = (t*0.55 + i/3)%1; r.visible = true; r.position.set(pos.x, petGY + 0.2 + ph*4*Math.max(s,0.6), pos.z); r.scale.setScalar((1.25 - ph*0.65)*Math.max(s,0.6)); r.material.opacity = Math.sin(ph*Math.PI)*pOp; });
   e.sp = (e.sp || 0) - dt;
-  if (t < 3.9 && e.sp <= 0){ e.sp = 0.05; const a = t*9; floatSprite(sparkTex, V3(pos.x + Math.sin(a)*1.7*Math.max(s,0.6), 0.2, pos.z + Math.cos(a)*1.7*Math.max(s,0.6)), {size:0.35, vy:2.2, add:true, max:1.4, depthTest:false}); }
+  if (t < 3.9 && e.sp <= 0){ e.sp = 0.05; const a = t*9; floatSprite(sparkTex, V3(pos.x + Math.sin(a)*1.7*Math.max(s,0.6), petGY + 0.2, pos.z + Math.cos(a)*1.7*Math.max(s,0.6)), {size:0.35, vy:2.2, add:true, max:1.4, depthTest:false}); }
   if (!e.swapped && t >= 3.0){ e.swapped = true; S.stage = e.next; S.form = e.form; S.care = freshCare(); applyForm(); petS = stageScale(); hudDirty = true; }
   if (!e.burst && t >= 3.9){ e.burst = true; flashV = 1; sparkles(V3(pos.x, 1.2*s, pos.z), 34, 2.2*Math.max(s,0.6));
     fxo.classList.add('reveal'); fxSub.textContent = `${S.name || '牠'}進化成`; fxName.textContent = `${STAGES[S.stage].name}　${form().name}`; }
@@ -2055,7 +2192,7 @@ function makeTomb(p){
   const top = new THREE.Mesh(new THREE.SphereGeometry(0.42,24,12,0,Math.PI*2,0,Math.PI/2), mat('#a3a59d',0.9)); top.position.y = 0.8; top.scale.z = 0.45; g.add(top);
   const cols = ['#f2a541','#e0607e','#f3d250','#f2f0ea'];
   for (let i=0;i<7;i++){ const f = new THREE.Mesh(new THREE.SphereGeometry(0.08,8,6), mat(cols[i%4],0.6)); f.position.set(rnd(-0.6,0.6),0.08,rnd(0.25,0.55)); g.add(f); }
-  g.position.set(p.x, 0, p.z); g.rotation.y = Math.atan2(camera.position.x - p.x, camera.position.z - p.z); scene.add(g);
+  g.position.set(p.x, gy(p.x, p.z), p.z); g.rotation.y = Math.atan2(camera.position.x - p.x, camera.position.z - p.z); scene.add(g);
   const hb = new THREE.Mesh(new THREE.CylinderGeometry(0.7,0.7,2.6,8), hbMat); hb.position.y = 1.2; hb.userData.kind = 'tomb'; g.add(hb); g.userData.hb = hb;
   ghost = makeGhost(g.position); return g;
 }
@@ -2099,15 +2236,15 @@ function newEgg(){
   applyForm(); save(); hudDirty = true; toast('一顆新的蛋出現了。點一點牠，幫牠保暖。');
 }
 function resetAll(){
-  clearPetWorld();
-  weeds.slice().forEach(w => { scene.remove(w.g); }); weeds.length = 0;
-  snowmen.forEach(o => scene.remove(o.g, o.sh.g)); snowmen.length = 0;
-  unbuildAll();
-  trees.forEach(tr => scene.remove(tr.g, tr.sh.g)); trees.length = 0;
-  S = freshSave(); S.camV = 2; previewHoliday = null; plantTrees(); S.trees.forEach(makeTree); applyBumps(); refreshViewBtn();
-  try { localStorage.removeItem(KEY); } catch(e){}
-  applyForm(); save(); hudDirty = true; closeSheet();
-  toast('全部重新開始了。點一點蛋，幫牠保暖。');
+  // A fresh start also means a brand-new world, so the page reloads with an empty save (and pushes it to the cloud).
+  halted = true; S = freshSave(); S.camV = 2; S.camMode = 'iso';
+  lsSet(KEY, JSON.stringify(S)); lsSet(FORCE_LOCAL, '1'); location.reload();
+}
+// A new world gets rocks, bushes and trees in every plot (each plot's show up when it is cleared).
+function seedWorldNature(){
+  const taken = (x, z, r) => Math.hypot(x, z) < 3.5 || S.trees.some(t => Math.hypot(t.x - x, t.z - z) < r + 1.6)
+    || Object.entries(S.place || {}).some(([id, p]) => { const b = bdef(id); return b && b.size && S.builds[id] && cellsOf(b, p).some(([cx, cz]) => Math.hypot(cx - x, cz - z) < r + 1); });
+  for (const k of PLOT_KEYS) S.trees.push(...world.genFeats(k, taken));
 }
 
 // ---------- navigation: a 0.5-unit grid over the ground; A* routes the wombat around trees, buildings and anything else in the way ----------
@@ -2115,7 +2252,21 @@ function resetAll(){
 const NAV = {cell:0.5, half:28, n:112, block:null, dirty:true, petS:0};
 const navIdx = (x, z) => { const i = Math.floor((x + NAV.half)/NAV.cell), j = Math.floor((z + NAV.half)/NAV.cell); return i < 0 || j < 0 || i >= NAV.n || j >= NAV.n ? -1 : j*NAV.n + i; };
 const navX = k => (k % NAV.n + 0.5)*NAV.cell - NAV.half, navZ = k => (Math.floor(k/NAV.n) + 0.5)*NAV.cell - NAV.half;
-const groundOK = (x, z) => Math.hypot(x, z) < BOUND;
+const FENCE_R = 8.6;   // the fence runs round the home plot, with a gate in the middle of each side
+const fenceAt = (x, z) => { if (!BG.fence) return false; const ax = Math.abs(x), az = Math.abs(z), m = Math.max(ax, az); return Math.abs(m - FENCE_R) < 0.3 && (ax > az ? az : ax) > 1.6; };
+const groundOK = (x, z) => world.walkable(x, z) && !fenceAt(x, z);
+// Put a point back on walkable land (after being thrown into the river, onto a cliff, past the edge…).
+function snapToLand(p){
+  navEnsure(); const k = navIdx(p.x, p.z);
+  if (k >= 0 && NAV.block[k] !== 2) return false;
+  let best = null, bd = 1e9;
+  for (let r = 0.5; r < 14 && !best; r += 0.5) for (let a = 0; a < 24; a++){ const x = p.x + Math.sin(a/24*Math.PI*2)*r, z = p.z + Math.cos(a/24*Math.PI*2)*r, kk = navIdx(x, z);
+    if (kk >= 0 && NAV.block[kk] !== 2){ const d = Math.hypot(x - p.x, z - p.z); if (d < bd){ bd = d; best = [x, z]; } } }
+  if (!best){ best = [0, 2]; }
+  p.x = best[0]; p.z = best[1]; return true;
+}
+// Where a screen point hits the ground.
+function groundHit(e){ setNdc(e); ray.setFromCamera(ndc, camera); const h = ray.intersectObject(world.terrain, false)[0]; return h ? h.point : null; }
 function navEnsure(){
   if (!NAV.dirty && NAV.block && Math.abs(NAV.petS - petS) < 0.08) return;
   const n = NAV.n, b = new Uint8Array(n*n), pr = 0.8*Math.max(petS, 0.5), obs = obstacles();
@@ -2127,7 +2278,7 @@ function navEnsure(){
 function navClear(ax, az, bx, bz){   // straight walk from a to b without touching a blocked cell (cells right next to the start don't count)
   const L = Math.hypot(bx - ax, bz - az), steps = Math.ceil(L/0.25);
   for (let s=1;s<=steps;s++){ const u = s/steps, x = ax + (bx - ax)*u, z = az + (bz - az)*u;
-    if (u*L < 0.6) continue; const k = navIdx(x, z); if (k < 0 || NAV.block[k]) return false; }
+    const k = navIdx(x, z); if (k < 0 || NAV.block[k] === 2 || (NAV.block[k] && u*L >= 0.6)) return false; }
   return true;
 }
 function nearestFree(k0){
@@ -2145,11 +2296,11 @@ function findPath(ax, az, bx, bz){
   const G = new Float32Array(n*n).fill(1e9), from = new Int32Array(n*n).fill(-1), shut = new Uint8Array(n*n), heap = [];
   const gi = g % n, gj = Math.floor(g/n);
   const hf = k => { const di = Math.abs(k % n - gi), dj = Math.abs(Math.floor(k/n) - gj); return Math.max(di, dj) + 0.414*Math.min(di, dj); };
-  const push = (k, f) => { heap.push([f, k]); let i = heap.length - 1; while (i > 0){ const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
+  const push = (f, k) => { heap.push([f, k]); let i = heap.length - 1; while (i > 0){ const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
   const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length){ heap[0] = last; let i = 0;
     for (;;){ const l = 2*i + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
   G[s] = 0; push(hf(s), s); let found = false, iter = 0;
-  while (heap.length && iter++ < 9000){
+  while (heap.length && iter++ < 80000){
     const [, k] = pop(); if (shut[k]) continue; shut[k] = 1; if (k === g){ found = true; break; }
     const i = k % n, j = Math.floor(k/n);
     for (let di=-1; di<=1; di++) for (let dj=-1; dj<=1; dj++){
@@ -2180,6 +2331,7 @@ function walkTo(x, z, dt, speed, stopDist){
   } else B.path = null;
   const r = walkTowards(wx, wz, dt, speed, sd);
   r.dist = Math.hypot(x - pos.x, z - pos.z); r.diff = wrapA(Math.atan2(x - pos.x, z - pos.z) - root.rotation.y);
+  r.arrived = !!(B.path && B.path.pts.length === 1 && Math.hypot(B.path.pts[0].x - pos.x, B.path.pts[0].z - pos.z) < 0.4);   // end of a route to a spot that can't be reached exactly
   return r;
 }
 
@@ -2190,17 +2342,20 @@ function nearestFood(){ let best = null, bd = 1e9; for (const f of foods){ if (!
 function waterSpot(){ if (bowl && bowl.kind !== 'water') return {p:bowl.g.position, r:0.15}; if (BG.pond) return {p:SPOTS.pond, r:1.45}; if (bowl) return {p:bowl.g.position, r:0.15}; return null; }
 function pickWander(){
   const obs = obstacles();
-  if (trees.length && Math.random() < 0.12){   // go sniff around a tree (hives make this risky)
-    const tr = trees[Math.floor(Math.random()*trees.length)];
+  const near = trees.filter(tr => Math.hypot(tr.d.x - pos.x, tr.d.z - pos.z) < 9);
+  if (near.length && Math.random() < 0.12){   // go sniff around a tree (hives make this risky)
+    const tr = near[Math.floor(Math.random()*near.length)];
     B.target.set(tr.d.x, 0, tr.d.z); B.treeVisit = tr; return; }
   B.treeVisit = null;
-  for (let i=0;i<14;i++){
-    const a = Math.random()*Math.PI*2, r = Math.sqrt(Math.random())*WANDER, x = Math.sin(a)*r, z = Math.cos(a)*r;
-    if (Math.hypot(x-pos.x, z-pos.z) < 1.4) continue;
+  // mostly ambles around nearby; now and then heads back toward home or off to explore further
+  const far = Math.random() < 0.15, cx = far ? rnd(-HALF + 3, HALF - 3) : Math.random() < 0.3 ? pos.x*0.4 : pos.x, cz = far ? rnd(-HALF + 3, HALF - 3) : Math.random() < 0.3 ? pos.z*0.4 : pos.z;
+  for (let i=0;i<24;i++){
+    const a = Math.random()*Math.PI*2, r = (far ? Math.random()*4 : 1.5 + Math.random()*5.5), x = cx + Math.sin(a)*r, z = cz + Math.cos(a)*r;
+    if (Math.hypot(x-pos.x, z-pos.z) < 1.4 || !groundOK(x, z)) continue;
     if (obs.some(o => Math.hypot(o.c.x-x, o.c.z-z) < o.r + 1.4*petS)) continue;
     B.target.set(x,0,z); return;
   }
-  B.target.set(-pos.x*0.5, 0, -pos.z*0.5);
+  B.target.set(pos.x*0.6, 0, pos.z*0.6);
 }
 function walkTowards(tx_, tz_, dt, speed, stopDist){
   const dx = tx_-pos.x, dz = tz_-pos.z, dist = Math.hypot(dx,dz), diff = wrapA(Math.atan2(dx,dz) - root.rotation.y);
@@ -2253,9 +2408,9 @@ function think(dt){
         B.begT = (B.begT ?? rnd(12,25)) - dt;
         if (B.begT <= 0){ B.begT = rnd(35,60); B.mode = 'beg'; B.timer = 14; B.begSit = false; B.begE = 0;
           const d = V3(camera.position.x - camTarget.x, 0, camera.position.z - camTarget.z).normalize(), p = V3(camTarget.x, 0, camTarget.z).addScaledVector(d, 2.2);
-          if (p.length() > BOUND - 1) p.setLength(BOUND - 1); B.target.copy(p); break; }
+          if (!groundOK(p.x, p.z)) p.copy(pos); B.target.copy(p); break; }
       }
-      if (B.timer <= 0){ if (Math.random() < (st.health < 35 ? 0.3 : 0.72)){ pickWander(); B.mode = 'walk'; B.timer = 14; } else B.timer = rnd(2,4); }
+      if (B.timer <= 0){ if (Math.random() < (st.health < 35 ? 0.3 : 0.72)){ pickWander(); B.mode = 'walk'; B.timer = 10 + Math.hypot(B.target.x - pos.x, B.target.z - pos.z)*2; B.path = null; } else B.timer = rnd(2,4); }
       break; }
     case 'walk': case 'goto': {
       const tv = B.mode === 'walk' && B.treeVisit && trees.includes(B.treeVisit) ? B.treeVisit : null;
@@ -2265,7 +2420,7 @@ function think(dt){
         else if (B.timer <= 0){ B.mode = 'idle'; B.timer = 2; B.treeVisit = null; }
         break; }
       const r = walkTo(B.target.x, B.target.z, dt, sp, 0.25); moving = r.moving;
-      if (r.dist < 0.3 || B.timer <= 0){ B.mode = 'idle'; B.timer = rnd(2,5); B.lookT = 0; B.path = null; }
+      if (r.dist < 0.3 || r.arrived || B.timer <= 0){ B.mode = 'idle'; B.timer = rnd(2,5); B.lookT = 0; B.path = null; }
       break; }
     case 'scratch': {   // up on the hind legs, scratching the bark with the front paws
       const tv = B.scr;
@@ -2427,6 +2582,42 @@ function dayInfo(){
   const phase = !dayHour ? 'night' : m < 20 ? 'morning' : m < 50 ? 'day' : 'evening';
   return {d, n, dusk, phase, left:Math.ceil(60 - m), dayHour};
 }
+// ---------- sun & moon ----------
+// The sun rises in the east (+x, over the sea), arcs across the southern sky (+z) and sets in the west (-x).
+// The moon follows the same path, lagging behind the sun by its phase, and its shape follows the real moon over Taiwan.
+const SYNODIC = 29.530588853, NEW_MOON = Date.UTC(2000, 0, 6, 18, 14);
+const moonPhase = () => { const p = ((Date.now() - NEW_MOON)/86400000/SYNODIC) % 1; return p < 0 ? p + 1 : p; };
+const MOON_NAMES = ['新月','眉月','上弦月','盈凸月','滿月','虧凸月','下弦月','殘月'], MOON_ICON = ['🌑','🌒','🌓','🌔','🌕','🌖','🌗','🌘'];
+const moonIdx = p => Math.round(p*8) % 8;
+const isFullMoon = () => Math.abs(moonPhase() - 0.5) < 0.034 || (activeHoliday() && activeHoliday().id === 'midautumn');
+function sunAngle(di){   // 0 = sunrise in the east, π/2 = noon, π = sunset in the west, above π = below the horizon
+  if (S.dayMode === 'preview') return Math.PI*0.42;
+  const d = di.d;
+  if (S.dayMode === 'real'){ const h = d.getHours() + d.getMinutes()/60; return ((h - 6)/12*Math.PI + Math.PI*4) % (Math.PI*2); }
+  const m = d.getMinutes() + d.getSeconds()/60;
+  return (di.dayHour ? 0 : Math.PI) + m/60*Math.PI;
+}
+const TILT = 0.41;   // ≈ 23.5° — Taiwan's latitude tips the arc toward the south
+const skyDir = a => V3(Math.cos(a), Math.sin(a)*Math.cos(TILT), Math.sin(a)*Math.sin(TILT));
+const sunDirNow = V3(0, 1, 0), moonDirNow = V3(0, 1, 0);
+function updateSky(di){
+  const a = sunAngle(di), ph = moonPhase();
+  sunDirNow.copy(skyDir(a)); moonDirNow.copy(skyDir(a - ph*Math.PI*2));
+  const W_ = WX[weatherNow()], clear = 1 - W_.grey*1.4;
+  world.sun.position.copy(camTarget).addScaledVector(sunDirNow, 90); world.sun.visible = sunDirNow.y > -0.08;
+  world.sun.material.opacity = clamp(sunDirNow.y*6 + 0.4, 0, 1)*clamp(clear, 0.1, 1);
+  world.sun.material.color.set(mixHex('#ffffff', '#ffb070', clamp(1 - sunDirNow.y*3, 0, 1)));
+  world.drawMoon(ph);
+  const moonView = act && act.key === 'moonview';
+  const md = moonView ? V3(moonDirNow.x, 0, moonDirNow.z).normalize().multiplyScalar(Math.cos(0.2)).setY(Math.sin(0.2)) : moonDirNow;
+  world.moon.position.copy(moonView ? root.position : camTarget).addScaledVector(md, moonView ? 70 : 85); world.moon.visible = moonDirNow.y > -0.06 && ph > 0.03 && ph < 0.97;
+  world.moon.material.opacity = clamp(moonDirNow.y*6 + 0.3, 0, 1)*clamp(clear, 0.05, 1)*lerp(0.35, 1, di.n);
+  world.moon.scale.setScalar(moonView ? 12 : 9);
+  // the main light comes from the sun by day and from the moon at night
+  const ld = (di.n < 0.5 || moonDirNow.y < 0 ? sunDirNow : moonDirNow).clone(); ld.y = Math.max(ld.y, 0.3); ld.normalize();
+  L.lerp(ld, 0.05).normalize(); sun.position.copy(L).multiplyScalar(10);
+  sun.color.set(mixHex('#ffffff', '#ffc890', clamp(1 - sunDirNow.y*2.5, 0, 1)*(1 - di.n)));
+}
 function updateWorld(dt, t){
   const di = dayInfo(); nightF = di.n;
   if (lastPhase && lastPhase !== di.phase && S.dayMode === 'hourly'){ if (di.phase === 'night') toast('天黑了。'); if (di.phase === 'morning') toast('天亮了，早安！'); }
@@ -2448,9 +2639,12 @@ function updateWorld(dt, t){
   document.documentElement.style.setProperty('--bg', sky);
   const theme = di.n > 0.5 ? 'dark' : 'light'; if (theme !== lastTheme){ lastTheme = theme; document.documentElement.dataset.theme = theme; }
   snowCover = clamp(snowCover + (w === 'snow' ? 0.015 : -0.006)*dt, 0, 0.75);
-  ground.material.color.set(mixHex('#ffffff', '#2c3a3c', di.n)).multiplyScalar(S.bright || 1);
-  snowGround.material.opacity = snowCover*0.92; snowGround.visible = snowCover > 0.01; snowGround.material.color.set(mixHex('#f3f6f7', '#5f6a72', di.n));
-  tufts.material.color.set(mixHex('#ffffff', '#f6f8f8', snowCover)); tufts.visible = snowCover < 0.6;
+  // snow settles on the ground; fog fades the far edges of the world into the sky colour
+  const tm = world.terrain.material; tm.emissive.setScalar(snowCover*0.55*(1 - di.n*0.7)); tm.color.setScalar(0.74*(1 - snowCover*0.25)); world.tufts.visible = snowCover < 0.45;
+  const camD = camera.position.distanceTo(camTarget); scene.fog.color.set(sky); scene.fog.near = camD*1.5; scene.fog.far = camD*4.2;
+  updateSky(di);
+  world.update(dt, t, {night:di.n, fog:scene.fog, pet: petActive() && root.visible ? pos : null});
+  updateBeach(dt, t);
   flashV *= Math.exp(-5*dt); $('#flash').style.opacity = (flashV*0.8).toFixed(3);
   const dim = W.dim*(1 - fxoV*0.45);
   const BR = S.bright || 1;   // brightness setting
@@ -2464,7 +2658,7 @@ function updateWorld(dt, t){
   if (BG.lamp) BG.lamp.userData.glows.forEach(m => m.opacity = on);
   rain.visible = w === 'rain' || w === 'storm';
   if (rain.visible){
-    rain.position.set(camTarget.x, 0, camTarget.z);
+    rain.position.set(camTarget.x, gy(camTarget.x, camTarget.z), camTarget.z);
     for (let i=0;i<RN;i++){ let y = rainPos[i*6+1] - rainSpd[i]*dt*(w==='storm'?1.3:1);
       if (y < 0){ y += 11; const x = rnd(-11,11), z = rnd(-11,11); rainPos[i*6] = x; rainPos[i*6+2] = z; rainPos[i*6+3] = x+0.08; rainPos[i*6+5] = z; }
       rainPos[i*6+1] = y; rainPos[i*6+4] = y + 0.4; }
@@ -2472,7 +2666,7 @@ function updateWorld(dt, t){
   }
   snow.visible = w === 'snow';
   if (snow.visible){
-    snow.position.set(camTarget.x, 0, camTarget.z);
+    snow.position.set(camTarget.x, gy(camTarget.x, camTarget.z), camTarget.z);
     for (let i=0;i<SN;i++){ let y = snowPos[i*3+1] - 0.9*dt; snowPos[i*3] += Math.sin(t*0.8 + i)*0.25*dt;
       if (y < 0){ y += 11; snowPos[i*3] = rnd(-11,11); snowPos[i*3+2] = rnd(-11,11); } snowPos[i*3+1] = y; }
     snowGeo.attributes.position.needsUpdate = true;
@@ -2530,7 +2724,8 @@ function renderHUD(){
     else setBar('grow', 100, '最終');
   }
   const di = dayInfo(), hh = pad(di.d.getHours()), mm = pad(di.d.getMinutes()), hol = activeHoliday();
-  let env = `${WX[weatherNow()].name}　${PHASE_NAME[di.phase]}`;
+  const mi = moonIdx(moonPhase());
+  let env = `${WX[weatherNow()].name}　${PHASE_NAME[di.phase]}　${di.n > 0.5 ? MOON_ICON[mi] + MOON_NAMES[mi] : sunDirNow.y > 0 ? "☀️" : MOON_ICON[mi]}`;
   env += di.left != null ? `（${di.left} 分鐘後${di.dayHour ? '天黑' : '天亮'}）` : ` ${hh}:${mm}`;
   if (hol) env += `<br>今天是${hol.name}！`;
   if (SND.on && SND.songId) env += `<br>♪ ${hol && SND.songId === hol.song ? hol.name : (SONG_NAME[SND.songId] || '')}之歌`;
@@ -2584,7 +2779,7 @@ function closeSheet(){ sheet.hidden = true; sheetKind = null; }
 $('#sheetClose').onclick = closeSheet;
 function md(d){ return `${d.getMonth()+1}/${d.getDate()}`; }
 // ---------- icon-tile catalogues (shop, feeding, tricks) ----------
-const TRICK_ICON = {sit:'🐾', flip:'🤸', roll:'🌀', spin:'⭐', belly:'🙃', shake:'💨', dance:'💃', ballroll:'🎳', snowman:'⛄', puddle:'💦', fireflies:'✨'};
+const TRICK_ICON = {sit:'🐾', flip:'🤸', roll:'🌀', spin:'⭐', belly:'🙃', shake:'💨', dance:'💃', ballroll:'🎳', snowman:'⛄', puddle:'💦', fireflies:'✨', moonview:'🌕'};
 const TRICK_DESC = {sit:'乖乖坐下，看著你。心情 +6', flip:'原地一個後空翻！體力 -6，心情 +10', roll:'連續側翻滾三圈。體力 -6，心情 +10', spin:'跳起來轉一圈。體力 -6，心情 +10',
   belly:'翻過來露出肚子扭扭。體力 -6，心情 +10', shake:'甩甩全身的毛。體力 -6，心情 +10', dance:'跟著音樂跳舞。體力 -8，心情 +14', ballroll:'縮成一顆球往前滾。體力 -6，心情 +12'};
 const CLOTH_ICON = {party:'🥳', straw:'👒', glasses:'👓', bow:'🎀', scarf:'🧣', sweater:'🧶', nyband:'🎊', caishen:'🧧', heartgl:'😍', propeller:'🚁', sachet:'🎐', bunny:'🐰', witch:'🧙', santa:'🎅'};
@@ -2900,13 +3095,29 @@ const GUIDE = [
       <li><b>吃太撐</b>：已經很飽還硬餵，牠會肚子鼓鼓、四腳朝天躺一分鐘動不了。</li>
       <li><b>蓋建築</b>：在商店選好建築後，會進入擺放模式：拖曳選位置、按「旋轉」換方向，綠色可以蓋、紅色不行。蓋好後點建築可以再「移動」。</li>
       <li><b>告別</b>：牠離開後魂魄會在墳上飄，點墳墓就能送牠去天堂，然後出現新的蛋。</li></ul>`},
+  {title:'擴張領地：河流、高台和海邊', svg:svgWrap(`
+    <rect x="0" y="0" width="320" height="180" fill="#a9c98a"/>
+    <path d="M70 0 C50 40 95 80 60 120 S70 170 62 180" stroke="#6fb3c4" stroke-width="22" fill="none"/>
+    <rect x="52" y="64" width="34" height="9" fill="#a87b52"/>
+    <path d="M262 0 C250 60 275 110 258 180 L320 180 L320 0z" fill="#e9d6a6"/><path d="M286 0 C276 60 298 110 284 180 L320 180 L320 0z" fill="#6cb6c8"/>
+    <rect x="110" y="60" width="100" height="62" fill="#c5dca9" stroke="#fff4d6" stroke-dasharray="4 3" stroke-width="2"/>
+    ${wbSvg(160,95,0.4)}${T(160,52,'家',12)}
+    ${[[30,30],[230,150],[120,150],[200,25]].map(([x,y])=>`<circle cx="${x}" cy="${y}" r="9" fill="#4f7d34"/>`).join('')}
+    <rect x="150" y="140" width="40" height="22" fill="#b9b2a2"/>${T(170,175,'高台',11)}
+    <text x="290" y="120" font-size="16" text-anchor="middle">🦀</text><text x="240" y="40" font-size="16" text-anchor="middle">🔒</text>`),
+    html:`<ul><li>世界是 <b>3 × 3 塊領地</b>，每塊 18 × 18 格。一開始只有中間的家，其他 8 塊長滿樹叢和石頭，上面插著「未開拓」的牌子。</li>
+      <li><b>點未開拓的土地</b>就能花代幣整理、打通；要先打通相連的那一塊才能往外擴。每多開一塊，下一塊會貴一點。</li>
+      <li>地上的<b>石頭、樹叢、樹</b>點一下都可以花代幣清掉（大石頭比袋熊還大）。樹上的<b>蜂窩</b>也能單獨清除。</li>
+      <li><b>西邊有一條河</b>：看得到水在流、水底的石頭和魚。要過河就<b>點河面蓋橋</b>。把袋熊丟進河裡，牠會自己爬上岸。</li>
+      <li><b>東邊是沙灘和海</b>：有螃蟹、寄居蟹，點<b>貝殼</b>可以撿（+1 代幣），偶爾會漂來<b>瓶中信</b>，打開可能有代幣。</li>
+      <li>地形有小山丘、低窪的泥巴地、斜坡和大高台。右上角「視角」可以切換，拖曳畫面移動鏡頭，「🐾 找牠」把鏡頭移回袋熊身上。</li></ul>`},
   {title:'天氣、晝夜和特別活動', svg:svgWrap(`
     <rect x="0" y="0" width="160" height="90" fill="#d9e1d2"/><rect x="160" y="0" width="160" height="90" fill="#1a2130"/>
     ${ICON.sun(80,40)}${ICON.moon(240,40)}${T(80,78,'整點偶數小時：白天',11,'middle','#2c3a31')}${T(240,78,'奇數小時：晚上',11,'middle','#e2e9de')}
     ${ICON.cloud(36,118)}<path d="M28 132 l-3 8 M38 132 l-3 8 M48 132 l-3 8" stroke="#7fa3c0" stroke-width="2"/>${T(40,165,'雨：踩水窪',11)}
     <circle cx="140" cy="140" r="15" fill="#f7f9fb" stroke="#cfd6db"/><circle cx="140" cy="116" r="10" fill="#f7f9fb" stroke="#cfd6db"/><path d="M140 117 l9 2 -9 2z" fill="#e8833a"/>${T(140,170,'雪：堆雪人',11)}
     ${[0,1,2,3,4].map(i=>`<circle cx="${225+i*13}" cy="${125+(i%2)*10}" r="3" fill="#e9f59a"/>`).join('')}${T(255,165,'晴朗夜晚：看螢火蟲',11)}`),
-    html:`<ul><li><b>晝夜</b>：預設每一小時切換一次——偶數整點（0、2、4…點）是白天，奇數整點是晚上，交界的前 5 分鐘是日出或日落。設定裡也可以改成跟現實時間同步。</li><li><b>天氣</b>：晴、多雲、雨、雪、雷雨會自己輪替。下雨打雷時牠會躲進小窩，打雷會害怕。</li><li><b>音樂</b>：早上、午後、傍晚、夜晚、雨天、雷雨、雪天，各有不同的曲子。</li><li><b>特別活動</b>（玩耍 → 特別活動）：下雪天堆雪人，下雨天踩水窪，晴朗的晚上看螢火蟲。雪人在雪停以後會慢慢融化。</li></ul>`},
+    html:`<ul><li><b>晝夜</b>：預設每一小時切換一次——偶數整點（0、2、4…點）是白天，奇數整點是晚上，交界的前 5 分鐘是日出或日落。設定裡也可以改成跟現實時間同步。</li><li><b>天氣</b>：晴、多雲、雨、雪、雷雨會自己輪替。下雨打雷時牠會躲進小窩，打雷會害怕。</li><li><b>音樂</b>：早上、午後、傍晚、夜晚、雨天、雷雨、雪天，各有不同的曲子。</li><li><b>特別活動</b>（玩耍 → 特別活動）：下雪天堆雪人，下雨天踩水窪，晴朗的晚上看螢火蟲。雪人在雪停以後會慢慢融化。</li><li><b>太陽和月亮</b>：太陽從東邊的海上升起、往西邊落下；月亮的形狀跟著台灣真實的月相變化（狀態面板會顯示今天的月相）。<b>滿月</b>的晴朗夜晚可以「賞月」。</li></ul>`},
   {title:'商店、衣櫥和節日', svg:svgWrap(`
     ${wbSvg(70,110,0.75,{acc:'hat'})}${T(70,160,'買衣服、換顏色',12)}
     <path d="M150 128 a40 34 0 0 1 80 0z" fill="#7f8f5b"/><path d="M180 128 a10 12 0 0 1 20 0z" fill="#1a1410"/><rect x="203" y="92" width="8" height="16" fill="#a35e46"/>${T(190,160,'蓋建設',12)}
@@ -2978,7 +3189,7 @@ function panBy(dx, dy){
   panTarget.addScaledVector(right, -dx*k).addScaledVector(fwd, dy*k/Math.max(0.5, Math.sin(pitch)));
   clampPan();
 }
-function clampPan(){ const r = Math.hypot(panTarget.x, panTarget.z), R = 9; if (r > R) panTarget.multiplyScalar(R/r); }
+function clampPan(){ panTarget.x = clamp(panTarget.x, -HALF, HALF + 4); panTarget.z = clamp(panTarget.z, -HALF, HALF); }
 
 // ---------- input ----------
 const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.014,0.014,1,8), new THREE.MeshBasicMaterial({color:'#3f6b55'}));
@@ -2986,7 +3197,7 @@ const handle = new THREE.Mesh(new THREE.SphereGeometry(0.07,16,12), rope.materia
 rope.visible = handle.visible = false; scene.add(rope, handle);
 const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), hoverNdc = new THREE.Vector2(), groundPlane = new THREE.Plane(UP, 0);
 const pts = new Map();
-let mode = null, downX=0, downY=0, downT=0, lastX=0, lastY=0, hitPoint=null, tapObj=null, pinchD=1, pinchZ=1;
+let mode = null, downX=0, downY=0, downT=0, lastX=0, lastY=0, hitPoint=null, tapObj=null, tapPoint=null, pinchD=1, pinchZ=1;
 const setNdc = e => ndc.set(e.clientX/innerWidth*2-1, -(e.clientY/innerHeight)*2+1);
 const locked = () => !!(evo || hatching);
 function pickAt(e){
@@ -2998,12 +3209,13 @@ function pickAt(e){
   if (BG.house) list.push(BG.house.userData.dome);
   Object.values(BG).forEach(g => g.userData.hb && list.push(g.userData.hb));
   trees.forEach(tr => list.push(tr.hb)); if (tomb && tomb.userData.hb) list.push(tomb.userData.hb);
+  list.push(...world.pick, ...beachPick());
   scene.updateMatrixWorld(true);
   return ray.intersectObjects(list, false).find(h => isShown(['poop','weed'].includes(h.object.userData.kind) ? h.object.parent : h.object)) || null;
 }
 function updatePointerWorld(e){
   setNdc(e); ray.setFromCamera(ndc, camera); const p = V3(0,0,0);
-  if (ray.ray.intersectPlane(plane, p)){ p.y = clamp(p.y, 0.3, 3.6*Math.max(petS,0.6)); const r = Math.hypot(p.x,p.z); if (r > BOUND){ p.x *= BOUND/r; p.z *= BOUND/r; } pointerWorld.copy(p); }
+  if (ray.ray.intersectPlane(plane, p)){ const g0 = gy(p.x, p.z); p.y = clamp(p.y, g0 + 0.3, g0 + 3.6*Math.max(petS,0.6)); p.x = clamp(p.x, -HALF + 0.5, HALF - 0.5); p.z = clamp(p.z, -HALF + 0.5, HALF - 0.5); pointerWorld.copy(p); }
 }
 function startGrab(e){
   if (act){ if (act.ball) scene.remove(act.ball); if (act.ball2) scene.remove(act.ball2); puddles.forEach(m => scene.remove(m)); puddles.length = 0; act = null; actG.rotation.set(0,0,0); actY = 0; }
@@ -3015,7 +3227,7 @@ function startGrab(e){
   plane.setFromNormalAndCoplanarPoint(n, hitPoint); pointerWorld.copy(hitPoint);
   rope.visible = handle.visible = true; canvas.style.cursor = 'grabbing'; updatePointerWorld(e); cry('grunt');
 }
-function endGrab(){ dragging = false; rope.visible = handle.visible = false; B.timer = 1.5; }
+function endGrab(){ dragging = false; rope.visible = handle.visible = false; B.timer = 1.5; justLanded = 2.5; }
 function petTap(){
   if (!petActive() || B.mode === 'evolve') return;
   if (asleep()){ wake(true); return; }
@@ -3054,7 +3266,7 @@ canvas.addEventListener('pointerdown', e => {
   if (locked()){ mode = 'orbit'; return; }
   const h = pickAt(e);
   if (h && h.object.userData.kind === 'pet'){ mode = 'pending'; hitPoint = h.point.clone(); }
-  else if (h){ mode = 'tap'; tapObj = h.object; }
+  else if (h){ mode = 'tap'; tapObj = h.object; tapPoint = h.point.clone(); }
   else mode = 'orbit';
 });
 canvas.addEventListener('pointermove', e => {
@@ -3087,17 +3299,27 @@ function up(e){
     else if (k === 'tree') treeMenu(tapObj.userData.ref);
     else if (k === 'house'){ if (B.mode === 'inHouse'){ if (B.sleeping) wake(true); exitHouse(); } else buildMenu('house'); }
     else if (k === 'build') buildMenu(tapObj.userData.ref);
+    else if (k === 'rock' || k === 'bush') featMenu(tapObj.userData.ref);
+    else if (k === 'locked') plotMenu(tapObj.userData.ref);
+    else if (k === 'river') bridgeMenu(tapPoint);
+    else if (k === 'shell') pickShell(tapObj.userData.ref);
+    else if (k === 'bottle') openBottle(tapObj.userData.ref);
+    else if (k === 'crab') pokeCrab(tapObj.userData.ref);
     hudDirty = true;
-  } else if (quick && mode === 'orbit' && !locked() && petActive() && !asleep() && !act && !['inHouse','enter','exit','eat','drink','evolve'].includes(B.mode)){
-    setNdc(e); ray.setFromCamera(ndc, camera); const p = V3(0,0,0);
-    if (ray.ray.intersectPlane(groundPlane, p) && Math.hypot(p.x,p.z) < BOUND){ B.target.copy(p); B.mode = 'goto'; B.timer = 12; B.treeVisit = null; B.path = null; showEmote('❗',0.9); }
+  } else if (quick && mode === 'orbit' && !locked()){
+    const p = groundHit(e), key = p && plotKey(p.x, p.z);
+    if (p && key && !world.isOpenKey(key)) plotMenu(key);
+    else if (p && petActive() && !asleep() && !act && !['inHouse','enter','exit','eat','drink','evolve'].includes(B.mode)){
+      if (groundOK(p.x, p.z)){ B.target.copy(p).setY(0); B.mode = 'goto'; B.timer = 25; B.treeVisit = null; B.path = null; showEmote('❗',0.9); }
+      else if (world.isWater(p.x, p.z)) toast('那裡是水，袋熊過不去。河上可以蓋橋（點一下河面）。');
+    }
   }
   if (mode === 'grab') endGrab();
   if (pts.size === 0){ mode = null; canvas.style.cursor = 'default'; } else if (mode === 'pinch') mode = 'orbit';
 }
 canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
 canvas.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse' && !pts.size) hasHover = false; });
-const maxZoom = () => camMode() === 'follow' ? 1.7 : 2.4;
+const maxZoom = () => camMode() === 'follow' ? 1.7 : 4.2;
 canvas.addEventListener('wheel', e => { e.preventDefault(); zoom = clamp(zoom*Math.exp(e.deltaY*0.001), 0.5, maxZoom()); }, {passive:false});
 canvas.addEventListener('keydown', e => {
   const fixed = camMode() !== 'follow', arrow = {ArrowLeft:[40,0], ArrowRight:[-40,0], ArrowUp:[0,40], ArrowDown:[0,-40]}[e.key];
@@ -3196,11 +3418,18 @@ function importSave(){
 }
 
 // ---------- restore ----------
+const worldIsNew = !S.world || S.world.v !== 1;
+if (worldIsNew) S.world = newWorld(Math.floor(Math.random()*2147483647));
+world = createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFeatGone:() => { NAV.dirty = true; }});
+world.load(S.world);
 Object.keys(S.builds).forEach(id => S.builds[id] && build(id));
 if (!S.trees) plantTrees();
-S.trees.forEach(makeTree); applyBumps();
+if (worldIsNew) seedWorldNature();
+S.trees.filter(d => world.isOpenKey(d.p || '0,0')).forEach(makeTree); applyBumps();
+world.showFeats();
 (S.weeds || []).forEach(([x,z,s]) => makeWeed(x,z,s));
-(S.poops || []).forEach(([x,z,ry,sc]) => { const c = makePoop(V3(x, 0.1*(sc||1), z), null, sc||1); c.m.rotation.y = ry; });
+(S.poops || []).forEach(([x,z,ry,sc]) => { const c = makePoop(V3(x, gy(x, z) + 0.1*(sc||1), z), null, sc||1); c.m.rotation.y = ry; });
+setupBeach();
 (S.snowmen || []).forEach(([x,z,ry,m]) => makeSnowman(x,z,ry,m));
 if (S.petPos){ pos.set(S.petPos[0], 0, S.petPos[1]); root.rotation.y = S.petPos[2]; }
 applyForm();
@@ -3217,15 +3446,16 @@ if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
 if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
-if (new URLSearchParams(location.search).has('debug')) window.W = {spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+if (new URLSearchParams(location.search).has('debug')) window.W = {ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
+  sim:(secs) => { skipRender = true; try { for (let i=0;i<secs*30;i++) step(true); } finally { skipRender = false; } clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};
 if (PREVIEW) setTimeout(() => toast(`預覽模式：${form().name}。這裡的變化不會存檔，關掉網址後面的 ?preview 就回到你的袋熊。`), 900);
 
 // ---------- main loop ----------
 const clock = new THREE.Clock();
 const tmpQ = new THREE.Quaternion(), tmpQi = new THREE.Quaternion();
-let t = 0, hudT = 0, lastReal = performance.now();
+let t = 0, hudT = 0, lastReal = performance.now(), skipRender = false;
 function step(manual){
   manual = manual === true;   // W.run() drives frames by hand in tests
   if (halted) return;
@@ -3255,18 +3485,20 @@ function step(manual){
 
   // camera: a fixed 45° view or straight down (both panned by dragging, not tracking the wombat), or following the wombat;
   // building placement, hatching and evolving take over the view while they run
-  const cm = camMode(), tracking = placing || evo || hatching || cm === 'follow';
+  const moonView = act && act.key === 'moonview';
+  const cm = camMode(), tracking = placing || evo || hatching || moonView || cm === 'follow';
   const focus = placing ? placing.mesh.position : !tracking ? panTarget : S.stage === 'egg' || hatching ? V3(0,0,0) : (S.dead && tomb ? tomb.position : pos);
   const ck = Math.min(1, dt*4);
   if (placing){ const top = S.buildView !== 'iso'; pitch += ((top ? 1.42 : 0.79) - pitch)*ck; yaw += ((top ? 0 : 0.785) - yaw)*ck; zoom += (1.2 - zoom)*ck; }
   else if (evo || hatching){}
+  else if (moonView){ pitch += (0.08 - pitch)*ck; yaw += wrapA(Math.atan2(-moonDirNow.x, -moonDirNow.z) - yaw)*ck; zoom += (0.8 - zoom)*ck; }   // low behind the wombat, looking up at the moon
   else if (cm === 'iso'){ pitch += (0.79 - pitch)*ck; yaw += (wrapA(0.785 - yaw))*ck; }
   else if (cm === 'top'){ pitch += (1.42 - pitch)*ck; yaw += (wrapA(0 - yaw))*ck; }
   if (zoom > maxZoom()) zoom += (maxZoom() - zoom)*ck;
   const camK = Math.min(1, dt*(tracking ? 1.5 : 6));
   camTarget.x += (focus.x - camTarget.x)*camK;
   camTarget.z += (focus.z - camTarget.z)*camK;
-  const ty = S.stage === 'egg' || hatching ? 0.8 : evo ? 1.2*petS + 0.4 : camY;
+  const ty = gy(camTarget.x, camTarget.z) + (S.stage === 'egg' || hatching ? 0.8 : evo ? 1.2*petS + 0.4 : camY);
   camTarget.y += (ty - camTarget.y)*Math.min(1, dt*3);
   zoomFx += ((evo ? 0.78 : hatching ? 0.62 : 1) - zoomFx)*Math.min(1, dt*2);
   placeCam();
@@ -3284,7 +3516,7 @@ function step(manual){
     tmpQ.setFromAxisAngle(UP, root.rotation.y); tmpQi.copy(tmpQ).invert();
     if (dragging){
       const off = V3(grabLocal.x,0,grabLocal.z).applyQuaternion(tmpQ).multiplyScalar(0.4*petS);
-      const desired = V3(pointerWorld.x-off.x, pointerWorld.y - ROPE - grabLocal.y*petS, pointerWorld.z-off.z);
+      const desired = V3(pointerWorld.x-off.x, pointerWorld.y - ROPE - grabLocal.y*petS - petGY, pointerWorld.z-off.z);
       vel.addScaledVector(desired.sub(pos).multiplyScalar(60).sub(vel.clone().multiplyScalar(9)), dt);
       pos.addScaledVector(vel, dt); if (pos.y < 0){ pos.y = 0; if (vel.y < 0) vel.y = 0; }
     } else if (B.mode !== 'inHouse'){
@@ -3293,10 +3525,24 @@ function step(manual){
         if (impact > 2.5){ vel.y = impact*0.22; sqv += Math.min(impact*0.3, 3.2); if (impact > 5) sfx('thud'); } else vel.y = 0;
         const f = Math.exp(-7*dt); vel.x *= f; vel.z *= f; }
     }
-    const r = Math.hypot(pos.x, pos.z);
-    if (r > BOUND && !['enter','exit','inHouse'].includes(B.mode)){ const nx = pos.x/r, nz = pos.z/r; pos.x = nx*BOUND; pos.z = nz*BOUND; const vn = vel.x*nx + vel.z*nz; if (vn > 0){ vel.x -= 1.4*vn*nx; vel.z -= 1.4*vn*nz; } }
+    // stay on land: walking can't step into water, locked plots or off a cliff; landing there after a throw splashes and climbs out
+    if (!['enter','exit','inHouse'].includes(B.mode) && !dragging){
+      if (groundOK(pos.x, pos.z)) lastLand.set(pos.x, 0, pos.z);
+      else if (pos.y < 0.05){
+        if (Math.hypot(vel.x, vel.z) > 1.2 || justLanded > 0){
+          if (world.isWater(pos.x, pos.z)){ sfx('splash'); for (let k=0;k<12;k++){ const a = Math.random()*Math.PI*2; floatSprite(radialTex('rgba(210,232,245,1)','rgba(210,232,245,0)'), V3(pos.x, WATER_Y + 0.1, pos.z), {size:0.25, vx:Math.cos(a)*rnd(1,2), vz:Math.sin(a)*rnd(1,2), vy:rnd(2,3.5), g:9, max:0.8, grow:0}); }
+            showEmote('💦', 1.6); cry('huff'); if (!S.toldSplash){ S.toldSplash = true; toast(`${S.name || '牠'}掉進水裡，自己爬上岸了。`); } }
+          snapToLand(pos); vel.x = vel.z = 0;
+        } else { pos.x = lastLand.x; pos.z = lastLand.z; }
+      }
+    }
+    justLanded -= dt;
+    petGY += (gy(pos.x, pos.z) - petGY)*Math.min(1, dt*15);
     const bob = gaitW*Math.abs(Math.sin(walkClock))*0.03*petS;
-    root.position.set(pos.x, pos.y + actY + bob, pos.z);
+    root.position.set(pos.x, petGY + pos.y + actY + bob, pos.z);
+    { const fx_ = Math.sin(root.rotation.y)*0.7*petS, fz_ = Math.cos(root.rotation.y)*0.7*petS;   // lean with the slope
+      const want = pos.y < 0.05 && !act ? -Math.atan((gy(pos.x + fx_, pos.z + fz_) - gy(pos.x - fx_, pos.z - fz_))/(1.4*petS))*0.85 : 0;
+      root.rotation.x += (clamp(want, -0.5, 0.5) - root.rotation.x)*Math.min(1, dt*8); }
     bloatW += ((B.mode === 'bloated' ? 1 : 0) - bloatW)*Math.min(1, dt*3);
     if (bloatW > 0.01 && !act && !evo){ actG.rotation.z = Math.PI*bloatW + Math.sin(t*1.6)*0.05*bloatW; actY = 0; }
     else if (!act && !evo && B.mode !== 'dying'){
@@ -3335,7 +3581,7 @@ function step(manual){
     else if (B.mode === 'dying') hx = 0.3;
     else if (asleep() || eatOn) hx = 0;
     else if (evo) hx = -0.2;
-    else if (act) hx = act.key === 'belly' ? -0.25 : act.key === 'fireflies' ? -0.4 + Math.sin(t*0.8)*0.1 : act.key === 'snowman' ? 0.25 : 0;
+    else if (act) hx = act.key === 'belly' ? -0.25 : act.key === 'fireflies' ? -0.4 + Math.sin(t*0.8)*0.1 : act.key === 'moonview' ? -0.5 : act.key === 'snowman' ? 0.25 : 0;
     else if (['walk','seek','seekWater','goto','goHouse','enter','exit'].includes(B.mode)){ hy = Math.sin(t*1.3)*0.12; hx = 0.05; }
     else if (hasHover && performance.now() - lastMouse < 2000){
       scene.updateMatrixWorld(true);
@@ -3356,7 +3602,7 @@ function step(manual){
     ears.forEach(e => { if (!reduced && Math.random() < dt*0.25 && !asleep()) e.v += rnd(-5,5); e.v += (-e.a*120 - e.v*8)*dt; e.a += e.v*dt;
       turnBone(e.bone, -(e.a*0.3 + droop), 0, e.a*0.15*e.s); });
 
-    const h = pos.y + actY; shadow.g.position.set(pos.x, 0, pos.z); shadow.g.rotation.y = root.rotation.y;
+    const h = pos.y + actY; shadow.g.position.set(pos.x, petGY + 0.02, pos.z); shadow.g.rotation.set(root.rotation.x, root.rotation.y, 0, "YXZ");
     shadow.g.scale.set((1+h*0.12)*petS*reveal, 1, (1+h*0.12)*petS*reveal); shadow.m.material.opacity = clamp(1-h/5, 0.15, 1);
 
     if (petActive() && !evo){
@@ -3375,22 +3621,22 @@ function step(manual){
 
   foods.forEach(f => {
     if (!f.landed){ f.vy -= 20*dt; f.g.position.y += f.vy*dt;
-      if (f.g.position.y <= 0){ f.g.position.y = 0; if (f.vy < -3){ f.vy *= -0.3; sfx('pop'); } else { f.vy = 0; f.landed = true; } } }
-    f.sh.g.position.set(f.g.position.x, 0, f.g.position.z); f.sh.m.material.opacity = clamp(1 - f.g.position.y/2, 0.2, 1);
+      const fg = gy(f.g.position.x, f.g.position.z); if (f.g.position.y <= fg){ f.g.position.y = fg; if (f.vy < -3){ f.vy *= -0.3; sfx('pop'); } else { f.vy = 0; f.landed = true; } } }
+    { const sy = gy(f.g.position.x, f.g.position.z); f.sh.g.position.set(f.g.position.x, sy, f.g.position.z); f.sh.m.material.opacity = clamp(1 - (f.g.position.y - sy)/2, 0.2, 1); }
   });
   const smelly = cubes.length >= 3;
   cubes.forEach(c => {
     if (c.v){
       c.v.y -= 25*dt; c.m.position.addScaledVector(c.v, dt); const half = 0.1*c.sc;
-      if (c.m.position.y <= half){ c.m.position.y = half; if (c.v.y < -1.5) c.v.y *= -0.25; else c.v.y = 0;
+      const cg = gy(c.m.position.x, c.m.position.z) + half; if (c.m.position.y <= cg){ c.m.position.y = cg; if (c.v.y < -1.5) c.v.y *= -0.25; else c.v.y = 0;
         const f = Math.exp(-6*dt); c.v.x *= f; c.v.z *= f; c.a.multiplyScalar(Math.exp(-8*dt)); const q = Math.PI/2;
         c.m.rotation.x += (Math.round(c.m.rotation.x/q)*q - c.m.rotation.x)*Math.min(1, dt*8); c.m.rotation.z += (Math.round(c.m.rotation.z/q)*q - c.m.rotation.z)*Math.min(1, dt*8);
         if (Math.abs(c.v.x) + Math.abs(c.v.z) < 0.02 && c.v.y === 0 && c.a.length() < 0.05) c.v = null;
       } else { c.m.rotation.x += c.a.x*dt; c.m.rotation.z += c.a.z*dt; }
       if (c.v) c.m.rotation.y += c.a.y*dt;
-      const cr = Math.hypot(c.m.position.x, c.m.position.z); if (cr > BOUND+0.3){ c.m.position.x *= (BOUND+0.3)/cr; c.m.position.z *= (BOUND+0.3)/cr; if (c.v){ c.v.x *= -0.3; c.v.z *= -0.3; } }
+      { const p = c.m.position; if (!world.inWorld(p.x, p.z) || world.isWater(p.x, p.z) || !world.isOpen(p.x, p.z)){ const q = V3(p.x, 0, p.z); snapToLand(q); p.x = q.x; p.z = q.z; if (c.v){ c.v.x *= -0.3; c.v.z *= -0.3; } } }
     }
-    c.sh.g.position.set(c.m.position.x, 0, c.m.position.z);
+    c.sh.g.position.set(c.m.position.x, gy(c.m.position.x, c.m.position.z), c.m.position.z);
     c.stink.visible = smelly; if (smelly){ c.stink.position.set(c.m.position.x + Math.sin(t*1.5+c.ph)*0.05, 0.55 + Math.sin(t*2+c.ph)*0.08, c.m.position.z); c.stink.material.opacity = 0.6 + 0.3*Math.sin(t*3+c.ph); }
   });
   for (let i=fxPull.length-1;i>=0;i--){ const p = fxPull[i]; p.t += dt;
@@ -3406,7 +3652,7 @@ function step(manual){
   }
 
   hudT -= dt; if (hudDirty || hudT <= 0){ hudT = 0.5; renderHUD(); }
-  renderer.render(scene, camera);
+  if (!skipRender) renderer.render(scene, camera);
   if (!manual) requestAnimationFrame(step);
 }
 requestAnimationFrame(step);
