@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { cloud } from './cloud.js';
 
 // Keep r128-era colour handling so the hand-tuned palette and fur shader look the same.
@@ -163,10 +164,35 @@ function starShape(r1, r2, n=5){ const sh = new THREE.Shape(); for (let i=0;i<n*
 const extrude = (sh, d) => { const g = new THREE.ExtrudeGeometry(sh, {depth:d, bevelEnabled:false}); g.center(); return g; };
 
 // ---------- ground ----------
+// Lawn: a tiling texture of short grass blades in several greens, so the ground reads as turf instead of one flat colour.
+const GRASS_COLS = ['#86ad62','#9cc177','#76a055','#aecd8c','#6c9650','#b9d698'];
+const grassTex = canvasTex(256,256,(x,w,h)=>{
+  x.fillStyle = '#93b86f'; x.fillRect(0,0,w,h);
+  const wrap = (px, py, f) => { for (const ox of [-w,0,w]) for (const oy of [-h,0,h]) f(px+ox, py+oy); };
+  for (let i=0;i<70;i++){ const px = Math.random()*w, py = Math.random()*h, r = rnd(14,40), c = Math.random() < 0.5 ? 'rgba(120,160,85,' : 'rgba(170,205,135,';
+    wrap(px, py, (a, b) => { const g = x.createRadialGradient(a,b,0,a,b,r); g.addColorStop(0, c+'0.35)'); g.addColorStop(1, c+'0)'); x.fillStyle = g; x.fillRect(a-r,b-r,r*2,r*2); }); }
+  x.lineCap = 'round';
+  for (let i=0;i<3200;i++){ const px = Math.random()*w, py = Math.random()*h, len = rnd(3,8), a = -Math.PI/2 + rnd(-0.6,0.6);
+    x.strokeStyle = GRASS_COLS[i % GRASS_COLS.length]; x.lineWidth = rnd(0.8,1.6);
+    wrap(px, py, (a0, b0) => { if (a0 < -10 || b0 < -10 || a0 > w+10 || b0 > h+10) return; x.beginPath(); x.moveTo(a0,b0); x.lineTo(a0 + Math.cos(a)*len, b0 + Math.sin(a)*len); x.stroke(); }); }
+});
+grassTex.wrapS = grassTex.wrapT = THREE.RepeatWrapping; grassTex.repeat.set(9, 9); grassTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
 const groundTex = canvasTex(256,256,(x)=>{ const g = x.createRadialGradient(128,128,0,128,128,128);
   g.addColorStop(0,'rgba(255,255,255,1)'); g.addColorStop(0.78,'rgba(255,255,255,1)'); g.addColorStop(1,'rgba(255,255,255,0)'); x.fillStyle = g; x.fillRect(0,0,256,256); });
-const ground = new THREE.Mesh(new THREE.CircleGeometry(10, 72), new THREE.MeshBasicMaterial({color:'#c8d4ba', map:groundTex, transparent:true, depthWrite:false}));
+const ground = new THREE.Mesh(new THREE.CircleGeometry(10, 72), new THREE.MeshBasicMaterial({color:'#ffffff', map:grassTex, alphaMap:groundTex, transparent:true, depthWrite:false}));
 ground.rotation.x = -Math.PI/2; ground.position.y = 0.002; ground.renderOrder = -2; scene.add(ground);
+const snowGround = new THREE.Mesh(ground.geometry, new THREE.MeshBasicMaterial({color:'#f3f6f7', alphaMap:groundTex, transparent:true, opacity:0, depthWrite:false}));
+snowGround.rotation.x = -Math.PI/2; snowGround.position.y = 0.004; snowGround.renderOrder = -2; snowGround.visible = false; scene.add(snowGround);
+// Little tufts of grass standing up out of the lawn.
+const tufts = (() => {
+  const blade = (a, tilt, h) => { const g = new THREE.ConeGeometry(0.028, h, 3); g.translate(0, h/2, 0); g.rotateZ(tilt); g.rotateY(a); return g; };
+  const geo = mergeGeometries([blade(0, 0.25, 0.3), blade(2.1, 0.3, 0.24), blade(4.2, 0.2, 0.34), blade(1.0, -0.15, 0.22)]);
+  const N = mobile ? 700 : 1300, m = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({roughness:1}), N);
+  const M = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color();
+  for (let i=0;i<N;i++){ const a = Math.random()*Math.PI*2, r = Math.sqrt(Math.random())*9.4, s = rnd(0.7, 1.3);
+    M.compose(V3(Math.sin(a)*r, 0, Math.cos(a)*r), q.setFromAxisAngle(UP, Math.random()*6.28), V3(s, s*rnd(0.8,1.2), s)); m.setMatrixAt(i, M);
+    m.setColorAt(i, col.set(GRASS_COLS[i % GRASS_COLS.length]).multiplyScalar(rnd(0.85, 1.0))); }
+  scene.add(m); return m; })();
 
 // ---------- wombat (Blender model: assets/models/wombat.glb, built by blender/wombat_build.py) ----------
 const root = new THREE.Group(); scene.add(root);
@@ -763,7 +789,7 @@ function legacyPlace(id){   // buildings from before the grid keep (roughly) the
 function applyPlace(id){
   const b = bdef(id), g = BG[id]; if (!b || !b.size || !g) return;
   S.place = S.place || {}; if (!S.place[id]) S.place[id] = legacyPlace(id);
-  const c = placeCenter(b, S.place[id]); g.position.copy(c); g.rotation.y = S.place[id].rot*Math.PI/2; SPOTS[id] = c.clone();
+  const c = placeCenter(b, S.place[id]); g.position.copy(c); g.rotation.y = S.place[id].rot*Math.PI/2; SPOTS[id] = c.clone(); NAV.dirty = true;
   if (!g.userData.hb){ const hb = new THREE.Mesh(new THREE.BoxGeometry(b.size[0], 1.6, b.size[1]), hbMat); hb.position.y = 0.8; hb.userData.kind = id === 'house' ? 'house' : 'build'; hb.userData.ref = id; g.add(hb); g.userData.hb = hb; }
 }
 function buildMenu(id){
@@ -815,7 +841,7 @@ function placePointer(e){
 function endPlace(){
   const P = placing; placing = null;
   gridMesh.visible = foot.visible = doorArrow.visible = false; document.body.classList.remove('placing'); $('#placeBar').hidden = true;
-  yaw = P.cam.yaw; pitch = P.cam.pitch; zoom = P.cam.zoom; save(); hudDirty = true;
+  yaw = P.cam.yaw; pitch = P.cam.pitch; zoom = P.cam.zoom; panTarget.set(P.mesh.position.x, 0, P.mesh.position.z); save(); hudDirty = true;
 }
 function commitPlace(){
   const P = placing; if (!P || !P.ok) return;
@@ -1060,6 +1086,7 @@ function sfx(name){
                   o = tone('square', rnd(1100,1600), t, 0.035, 0.1, out); o.frequency.exponentialRampToValueAtTime(260, t+0.1); break;
     case 'buzz':  o = tone('sawtooth', 200, t, 0.018, 1.1, out, 0.15);
                   for (let i=1;i<=10;i++) o.frequency.linearRampToValueAtTime(i%2 ? 235 : 180, t+i*0.1); break;
+    case 'scratch': for (let i=0;i<3;i++) noiseHit(t+i*0.09, 0.07, 0.12, 'bandpass', 2400 + i*300, out, null, 2); break;
     case 'sneeze': o = tone('sine', 420, t, 0.09, 0.35, out, 0.12); o.frequency.exponentialRampToValueAtTime(820, t+0.3);
                   noiseHit(t+0.42, 0.22, 0.4, 'bandpass', 2600, out, null, 0.7); break;
     case 'evolve': {
@@ -1140,6 +1167,7 @@ if (boot0.user && boot0.checked){ lsSet(SYNC_UID, boot0.user.uid); lsSet(PREFER_
 $('#petSub').textContent = '';
 if (!S) S = freshSave();
 if (S.aff == null) S.aff = 60;   // saves from before affection existed
+if (S.camV !== 2){ S.camMode = 'iso'; S.camV = 2; }   // the fixed 45° view is the new default
 // ?preview=<form> shows that evolution form straight away; nothing is saved locally or to the cloud.
 const PREVIEW = FORMS[new URLSearchParams(location.search).get('preview')] ? new URLSearchParams(location.search).get('preview') : null;
 if (PREVIEW) S = Object.assign(freshSave(), {name:'預覽', form:PREVIEW, seenGuide:true, dayMode:'preview', coins:0, ageMs:3*86400000, growth:400,
@@ -1312,7 +1340,7 @@ function makeTree(d){
   g.position.set(d.x, 0, d.z); g.rotation.y = d.ry || 0; g.scale.setScalar(d.s); scene.add(g);
   const hb = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 2.6, 8), hbMat); hb.position.y = 1.3; hb.userData.kind = 'tree'; g.add(hb);
   const fade = []; g.traverse(o => { if (o.isMesh && o !== hb) { o.material = o.material.clone(); o.material.transparent = true; fade.push(o.material); } });
-  const tr = {d, g, hb, fade, alpha:1, shake:0, sh:makeShadow(2.6*d.s, 2.6*d.s)}; tr.sh.g.position.set(d.x, 0, d.z); hb.userData.ref = tr; trees.push(tr); return tr;
+  const tr = {d, g, hb, fade, alpha:1, shake:0, sh:makeShadow(2.6*d.s, 2.6*d.s)}; tr.sh.g.position.set(d.x, 0, d.z); hb.userData.ref = tr; trees.push(tr); NAV.dirty = true; return tr;
 }
 function plantTrees(){
   S.trees = []; const n = 3 + Math.floor(Math.random()*3);
@@ -1355,17 +1383,48 @@ function updateTrees(dt){
     const gap = Math.hypot(cp.x + seg.x*u - tr.d.x, cp.z + seg.z*u - tr.d.z), block = u < 0.97 && gap < 1.5*tr.d.s;
     tr.alpha += ((block ? 0.22 : 1) - tr.alpha)*Math.min(1, dt*6); tr.fade.forEach(m => { m.opacity = tr.alpha; m.depthWrite = tr.alpha > 0.95; });
     if (!petActive() || !root.visible || B.mode === 'inHouse') continue;
+    if (tr.cut) continue;
+    // Thrown or rolling into a tree is a crash (and a hive tree stings). Walking wombats steer around trees instead.
     const fast = Math.hypot(vel.x, vel.z) > 2.2 || (act && ['roll','ballroll'].includes(act.key));
-    const d = Math.hypot(pos.x - tr.d.x, pos.z - tr.d.z), reach = 0.45*tr.d.s + 0.9*Math.max(petS, 0.5);
-    if (d < reach && (fast || B.treeVisit === tr)){
-      if (tr.shake <= 0.2){ tr.shake = 1; sfx('thud');
-        for (let k=0;k<6;k++) floatSprite(leafTexs[k%3], tr.g.position.clone().add(V3(rnd(-1,1), rnd(1.6,2.4)*tr.d.s, rnd(-1,1))), {size:0.26, vy:-0.6, vx:rnd(-0.4,0.4), max:2.4, fade:0.6, grow:0, rot:rnd(0,6), spin:rnd(-3,3)});
-        if (tr.d.hive && (fast || Math.random() < 0.45)) sting(); else if (!fast){ showEmote('🌳', 1.4); cry('chirp'); } }
-      B.treeVisit = null;
+    const d = Math.hypot(pos.x - tr.d.x, pos.z - tr.d.z), reach = treeReach(tr);
+    if (d < reach && fast){
+      if (tr.shake <= 0.2){ tr.shake = 1; sfx('thud'); leafFall(tr, 6); if (tr.d.hive) sting(); }
       const nx = (pos.x - tr.d.x)/(d || 1), nz = (pos.z - tr.d.z)/(d || 1); pos.x = tr.d.x + nx*reach; pos.z = tr.d.z + nz*reach;
-      if (fast){ vel.x = nx*2; vel.z = nz*2; }
+      vel.x = nx*2; vel.z = nz*2;
     }
   }
+}
+const treeReach = tr => 0.45*tr.d.s + 0.9*Math.max(petS, 0.5);
+const leafFall = (tr, n) => { for (let k=0;k<n;k++) floatSprite(leafTexs[k%3], tr.g.position.clone().add(V3(rnd(-1,1), rnd(1.6,2.4)*tr.d.s, rnd(-1,1))), {size:0.26, vy:-0.6, vx:rnd(-0.4,0.4), max:2.4, fade:0.6, grow:0, rot:rnd(0,6), spin:rnd(-3,3)}); };
+// Tapping a tree: give it a shake, pay to take the beehive down, or pay to cut the tree.
+const HIVE_PRICE = 30, TREE_PRICE = 40;
+function treeMenu(tr){
+  if (tr.cut) return;
+  const nm = S.name || '袋熊', acts = [{label:'關閉', ghost:true, onClick:()=>{}}, {label:'搖一搖', ghost:true, onClick:() => { tr.shake = 1; sfx('whoosh'); leafFall(tr, 4); }}];
+  if (tr.d.hive) acts.push({label:`清除蜂窩（${HIVE_PRICE}）`, onClick:() => removeHive(tr)});
+  acts.push({label:`砍掉（${TREE_PRICE}）`, onClick:() => cutTree(tr)});
+  showModal(tr.d.hive ? '掛著蜂窩的樹' : '一棵樹', `<div class="bigicon">${tr.d.hive ? '🐝' : '🌳'}</div>`
+    + `<p>${tr.d.hive ? `${nm}跑去抓樹的時候可能會被蜜蜂叮。花 ${HIVE_PRICE} 代幣請人把蜂窩拿掉，樹會留著。` : `${nm}有時候會跑來抓抓樹、磨磨爪子。`}</p><p>想空出位置蓋東西，可以花 ${TREE_PRICE} 代幣把樹砍掉。</p>`, acts);
+}
+function pay(n){ if (S.coins < n){ toast('代幣不夠。清大便、拔雜草可以賺代幣。'); return false; } S.coins -= n; sfx('coin'); hudDirty = true; return true; }
+function removeHive(tr){
+  if (!tr.d.hive || !pay(HIVE_PRICE)) return;
+  tr.d.hive = false; const h = tr.g.userData.hive, at = h.getWorldPosition(V3(0,0,0));
+  for (let i=0;i<6;i++) floatSprite(emojiTex('🐝'), at.clone().add(V3(rnd(-0.3,0.3), rnd(0,0.3), rnd(-0.3,0.3))), {size:0.3, vy:rnd(1,2), vx:rnd(-1.5,1.5), vz:rnd(-1.5,1.5), max:1.6, grow:0});
+  tools.push({t:0, dur:1.0, update(t){ h.position.y = 1.3 - t*t*1.3; h.rotation.z = t*3; h.scale.setScalar(Math.max(0.01, 1 - t)); }, done(){ h.parent && h.parent.remove(h); }});
+  sfx('buzz'); toast('蜂窩清掉了，蜜蜂都飛走了。'); save();
+}
+function cutTree(tr){
+  if (!pay(TREE_PRICE)) return;
+  tr.cut = true; tr.hb.userData.kind = null; S.trees = S.trees.filter(d => d !== tr.d); trees.splice(trees.indexOf(tr), 1); NAV.dirty = true;
+  if (B.treeVisit === tr){ B.treeVisit = null; if (B.mode === 'scratch'){ B.mode = 'idle'; B.timer = 1; } }
+  const dir = Math.random() < 0.5 ? 1 : -1; sfx('whoosh');
+  tools.push({t:0, dur:2.0, update(t){
+    tr.g.rotation.z = dir*ease(Math.min(1, t/1.1))*1.45;
+    if (t > 1.1 && !this.thud){ this.thud = true; sfx('thud'); leafFall(tr, 10); sqv += 0.6; }
+    if (t > 1.4){ const k = Math.max(0.01, 1 - (t - 1.4)/0.6); tr.g.scale.setScalar(tr.d.s*k); tr.sh.g.scale.setScalar(k); }
+  }, done(){ scene.remove(tr.g, tr.sh.g); }});
+  toast('樹砍掉了。'); save();
 }
 
 // ---------- butterflies on sunny days (the wombat sometimes chases them) ----------
@@ -1756,7 +1815,7 @@ function updateAct(dt){
   const inBelly = act && act.key === 'belly' && act.t/ACTS.belly.dur > 0.2 && act.t/ACTS.belly.dur < 0.8;
   wiggleW += ((inBelly?1:0) - wiggleW) * Math.min(1, dt*8);
   danceW += ((act && act.key === 'dance' ? 1 : 0) - danceW) * Math.min(1, dt*8);
-  sitW += ((act && (act.key === 'fireflies' || act.key === 'sit')) || (B.mode === 'beg' && B.begSit) ? 1 - sitW : -sitW) * Math.min(1, dt*3);
+  sitW += ((act && (act.key === 'fireflies' || act.key === 'sit')) || (B.mode === 'beg' && B.begSit) || B.mode === 'scratch' ? 1 - sitW : -sitW) * Math.min(1, dt*3);
   if (!act){ return {shake:0, walk:false}; }
   act.t += dt;
   const A = ACTS[act.key], p = Math.min(act.t/A.dur, 1), s = petS; let shakeF = 0, walk = false;
@@ -2033,10 +2092,83 @@ function resetAll(){
   snowmen.forEach(o => scene.remove(o.g, o.sh.g)); snowmen.length = 0;
   unbuildAll();
   trees.forEach(tr => scene.remove(tr.g, tr.sh.g)); trees.length = 0;
-  S = freshSave(); previewHoliday = null; plantTrees(); S.trees.forEach(makeTree); applyBumps();
+  S = freshSave(); S.camV = 2; previewHoliday = null; plantTrees(); S.trees.forEach(makeTree); applyBumps(); refreshViewBtn();
   try { localStorage.removeItem(KEY); } catch(e){}
   applyForm(); save(); hudDirty = true; closeSheet();
   toast('全部重新開始了。點一點蛋，幫牠保暖。');
+}
+
+// ---------- navigation: a 0.5-unit grid over the ground; A* routes the wombat around trees, buildings and anything else in the way ----------
+// block: 0 free, 1 near an obstacle (passable at a high cost, so a wombat standing there can still walk out), 2 not ground at all.
+const NAV = {cell:0.5, half:28, n:112, block:null, dirty:true, petS:0};
+const navIdx = (x, z) => { const i = Math.floor((x + NAV.half)/NAV.cell), j = Math.floor((z + NAV.half)/NAV.cell); return i < 0 || j < 0 || i >= NAV.n || j >= NAV.n ? -1 : j*NAV.n + i; };
+const navX = k => (k % NAV.n + 0.5)*NAV.cell - NAV.half, navZ = k => (Math.floor(k/NAV.n) + 0.5)*NAV.cell - NAV.half;
+const groundOK = (x, z) => Math.hypot(x, z) < BOUND;
+function navEnsure(){
+  if (!NAV.dirty && NAV.block && Math.abs(NAV.petS - petS) < 0.08) return;
+  const n = NAV.n, b = new Uint8Array(n*n), pr = 0.8*Math.max(petS, 0.5), obs = obstacles();
+  for (let k=0;k<n*n;k++){ const x = navX(k), z = navZ(k);
+    if (!groundOK(x, z)){ b[k] = 2; continue; }
+    for (const o of obs) if (Math.hypot(x - o.c.x, z - o.c.z) < o.r + pr){ b[k] = 1; break; } }
+  NAV.block = b; NAV.dirty = false; NAV.petS = petS;
+}
+function navClear(ax, az, bx, bz){   // straight walk from a to b without touching a blocked cell (cells right next to the start don't count)
+  const L = Math.hypot(bx - ax, bz - az), steps = Math.ceil(L/0.25);
+  for (let s=1;s<=steps;s++){ const u = s/steps, x = ax + (bx - ax)*u, z = az + (bz - az)*u;
+    if (u*L < 0.6) continue; const k = navIdx(x, z); if (k < 0 || NAV.block[k]) return false; }
+  return true;
+}
+function nearestFree(k0){
+  const n = NAV.n, seen = new Uint8Array(n*n), q = [k0]; seen[k0] = 1;
+  for (let h=0; h<q.length && h<4000; h++){ const k = q[h]; if (!NAV.block[k]) return k;
+    const i = k % n, j = Math.floor(k/n);
+    for (const [di, dj] of [[1,0],[-1,0],[0,1],[0,-1]]){ const a = i+di, c = j+dj; if (a < 0 || c < 0 || a >= n || c >= n) continue; const kk = c*n + a; if (!seen[kk]){ seen[kk] = 1; q.push(kk); } } }
+  return -1;
+}
+function findPath(ax, az, bx, bz){
+  navEnsure();
+  const n = NAV.n, blk = NAV.block, s = navIdx(ax, az); let g = navIdx(bx, bz);
+  if (s < 0 || g < 0) return [];
+  const exact = !blk[g]; if (!exact){ g = nearestFree(g); if (g < 0) return []; }
+  const G = new Float32Array(n*n).fill(1e9), from = new Int32Array(n*n).fill(-1), shut = new Uint8Array(n*n), heap = [];
+  const gi = g % n, gj = Math.floor(g/n);
+  const hf = k => { const di = Math.abs(k % n - gi), dj = Math.abs(Math.floor(k/n) - gj); return Math.max(di, dj) + 0.414*Math.min(di, dj); };
+  const push = (k, f) => { heap.push([f, k]); let i = heap.length - 1; while (i > 0){ const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
+  const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length){ heap[0] = last; let i = 0;
+    for (;;){ const l = 2*i + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
+  G[s] = 0; push(hf(s), s); let found = false, iter = 0;
+  while (heap.length && iter++ < 9000){
+    const [, k] = pop(); if (shut[k]) continue; shut[k] = 1; if (k === g){ found = true; break; }
+    const i = k % n, j = Math.floor(k/n);
+    for (let di=-1; di<=1; di++) for (let dj=-1; dj<=1; dj++){
+      if (!di && !dj) continue; const a = i+di, c = j+dj; if (a < 0 || c < 0 || a >= n || c >= n) continue;
+      const kk = c*n + a; if (blk[kk] === 2 || shut[kk]) continue;
+      if (di && dj && (blk[j*n + a] === 2 || blk[c*n + i] === 2 || blk[j*n + a] && blk[c*n + i])) continue;   // no cutting corners
+      const cost = (di && dj ? 1.414 : 1)*(blk[kk] ? 6 : 1), ng = G[k] + cost;
+      if (ng < G[kk]){ G[kk] = ng; from[kk] = k; push(ng + hf(kk), kk); } }
+  }
+  if (!found) return [];
+  const cells = []; for (let k = g; k !== -1 && k !== s; k = from[k]) cells.unshift(k);
+  const raw = cells.map(k => ({x:navX(k), z:navZ(k)})); if (exact && raw.length) raw[raw.length-1] = {x:bx, z:bz};
+  const out = []; let px = ax, pz = az, i = 0;   // keep only the corners: skip every point we can already walk straight to
+  while (i < raw.length){ let j = raw.length - 1; while (j > i && !navClear(px, pz, raw[j].x, raw[j].z)) j--; out.push(raw[j]); px = raw[j].x; pz = raw[j].z; i = j + 1; }
+  return out;
+}
+// Walk toward (x, z): straight when nothing is in the way, otherwise along an A* route that is refreshed now and then.
+function walkTo(x, z, dt, speed, stopDist){
+  navEnsure();
+  let wx = x, wz = z, sd = stopDist;
+  if (!navClear(pos.x, pos.z, x, z)){
+    let P = B.path;
+    if (!P || Math.hypot(P.tx - x, P.tz - z) > 0.5 || P.age > 3) P = B.path = {tx:x, tz:z, age:0, pts:findPath(pos.x, pos.z, x, z)};
+    P.age += dt;
+    const pts = P.pts;
+    while (pts.length > 1 && (Math.hypot(pts[0].x - pos.x, pts[0].z - pos.z) < 0.4 || navClear(pos.x, pos.z, pts[1].x, pts[1].z))) pts.shift();
+    if (pts.length){ wx = pts[0].x; wz = pts[0].z; sd = pts.length === 1 ? Math.min(stopDist, 0.15) : 0; }
+  } else B.path = null;
+  const r = walkTowards(wx, wz, dt, speed, sd);
+  r.dist = Math.hypot(x - pos.x, z - pos.z); r.diff = wrapA(Math.atan2(x - pos.x, z - pos.z) - root.rotation.y);
+  return r;
 }
 
 // ---------- brain ----------
@@ -2047,8 +2179,8 @@ function waterSpot(){ if (bowl && bowl.kind !== 'water') return {p:bowl.g.positi
 function pickWander(){
   const obs = obstacles();
   if (trees.length && Math.random() < 0.12){   // go sniff around a tree (hives make this risky)
-    const tr = trees[Math.floor(Math.random()*trees.length)], d = V3(pos.x - tr.d.x, 0, pos.z - tr.d.z).normalize();
-    B.target.set(tr.d.x + d.x*0.3, 0, tr.d.z + d.z*0.3); B.treeVisit = tr; return; }
+    const tr = trees[Math.floor(Math.random()*trees.length)];
+    B.target.set(tr.d.x, 0, tr.d.z); B.treeVisit = tr; return; }
   B.treeVisit = null;
   for (let i=0;i<14;i++){
     const a = Math.random()*Math.PI*2, r = Math.sqrt(Math.random())*WANDER, x = Math.sin(a)*r, z = Math.cos(a)*r;
@@ -2114,8 +2246,26 @@ function think(dt){
       if (B.timer <= 0){ if (Math.random() < (st.health < 35 ? 0.3 : 0.72)){ pickWander(); B.mode = 'walk'; B.timer = 14; } else B.timer = rnd(2,4); }
       break; }
     case 'walk': case 'goto': {
-      const r = walkTowards(B.target.x, B.target.z, dt, sp, 0.25); moving = r.moving;
-      if (r.dist < 0.3 || B.timer <= 0){ B.mode = 'idle'; B.timer = rnd(2,5); B.lookT = 0; }
+      const tv = B.mode === 'walk' && B.treeVisit && trees.includes(B.treeVisit) ? B.treeVisit : null;
+      if (tv){   // walk up to the tree, then stop and scratch it
+        const r = walkTo(tv.d.x, tv.d.z, dt, sp, treeReach(tv) + 0.05); moving = r.moving;
+        if (r.dist < treeReach(tv) + 0.35){ B.mode = 'scratch'; B.timer = 2.8; B.scrT = 0; B.scr = tv; B.path = null; }
+        else if (B.timer <= 0){ B.mode = 'idle'; B.timer = 2; B.treeVisit = null; }
+        break; }
+      const r = walkTo(B.target.x, B.target.z, dt, sp, 0.25); moving = r.moving;
+      if (r.dist < 0.3 || B.timer <= 0){ B.mode = 'idle'; B.timer = rnd(2,5); B.lookT = 0; B.path = null; }
+      break; }
+    case 'scratch': {   // up on the hind legs, scratching the bark with the front paws
+      const tv = B.scr;
+      if (!tv || !trees.includes(tv)){ B.mode = 'idle'; B.timer = 1; break; }
+      root.rotation.y += clamp(wrapA(Math.atan2(tv.d.x - pos.x, tv.d.z - pos.z) - root.rotation.y), -3*dt, 3*dt);
+      B.lookPitch = -0.3; B.lookYaw = 0; B.scrT -= dt;
+      if (B.scrT <= 0){ B.scrT = 0.6; tv.shake = Math.max(tv.shake, 0.45); sfx('scratch'); if (Math.random() < 0.6) leafFall(tv, 2); }
+      if (B.timer <= 0){
+        B.mode = 'idle'; B.timer = rnd(2,4); B.treeVisit = null; B.scr = null; B.lookPitch = 0;
+        if (tv.d.hive && Math.random() < 0.35) sting();
+        else { st.happy = clamp(st.happy + 4, 0, 100); showEmote(tv.d.hive ? '😅' : '😌', 1.4); cry('purr'); }
+      }
       break; }
     case 'chase': {   // bound after a butterfly, with little hops
       const bf = B.chase;
@@ -2126,7 +2276,7 @@ function think(dt){
       if (pos.y <= 0.001 && Math.random() < dt*1.2){ vel.y = 2.4*petS + 0.6; sqv += 1; }
       break; }
     case 'beg': {
-      if (!B.begSit){ const r = walkTowards(B.target.x, B.target.z, dt, sp*1.2, 0.3); moving = r.moving; if (r.dist < 0.45 || B.timer < 8) B.begSit = true; }
+      if (!B.begSit){ const r = walkTo(B.target.x, B.target.z, dt, sp*1.2, 0.3); moving = r.moving; if (r.dist < 0.45 || B.timer < 8) B.begSit = true; }
       else {   // sit facing you, puppy eyes, little whines
         root.rotation.y += clamp(wrapA(Math.atan2(camera.position.x - pos.x, camera.position.z - pos.z) - root.rotation.y), -3*dt, 3*dt);
         B.lookYaw = 0; B.lookPitch = -0.2; B.begE -= dt;
@@ -2142,7 +2292,7 @@ function think(dt){
         root.rotation.y += clamp(wrapA(Math.atan2(fx_-pos.x, fz_-pos.z) - root.rotation.y), -2.6*dt, 2.6*dt);
         const back = V3(-Math.sin(root.rotation.y),0,-Math.cos(root.rotation.y)); pos.addScaledVector(back, 0.6*dt); walkVel.copy(back).multiplyScalar(0.6); moving = true;
       } else {
-        const r = walkTowards(fx_, fz_, dt, sp*1.3, mouth); moving = r.moving;
+        const r = walkTo(fx_, fz_, dt, sp*1.3, mouth); moving = r.moving;
         if (r.dist < mouth + 0.1 && Math.abs(r.diff) < 0.25){ B.mode = 'eat'; B.timer = 2.6; B.nomT = 0; B.before = st.hunger; }
       }
       break; }
@@ -2168,7 +2318,7 @@ function think(dt){
       break; }
     case 'seekWater': {
       const w = waterSpot(); if (!w){ B.mode = 'idle'; B.water = null; break; }
-      const r = walkTowards(w.p.x, w.p.z, dt, sp*1.2, mouth + w.r); moving = r.moving;
+      const r = walkTo(w.p.x, w.p.z, dt, sp*1.2, mouth + w.r); moving = r.moving;
       if (r.dist < mouth + w.r + 0.12 && Math.abs(r.diff) < 0.25){ B.mode = 'drink'; B.timer = 2.4; B.nomT = 0; B.before = st.thirst; }
       break; }
     case 'drink': {
@@ -2186,7 +2336,7 @@ function think(dt){
       break; }
     case 'goHouse': {
       if (!BG.house){ B.mode = 'idle'; break; }
-      const d = houseDoor(), r = walkTowards(d.x, d.z, dt, sp*1.1, 0.2); moving = r.moving;
+      const d = houseDoor(), r = walkTo(d.x, d.z, dt, sp*1.1, 0.2); moving = r.moving;
       if (r.dist < 0.35){
         const diff = wrapA(Math.atan2(SPOTS.house.x-pos.x, SPOTS.house.z-pos.z) - root.rotation.y);
         root.rotation.y += clamp(diff, -2.6*dt, 2.6*dt); moving = true;
@@ -2229,6 +2379,7 @@ function statusText(){
   if (B.mode === 'bloated') return '吃太撐，躺著動不了';
   if (B.mode === 'beg') return '在裝可憐，想要你摸摸牠';
   if (B.mode === 'chase') return '在追蝴蝶！';
+  if (B.mode === 'scratch') return '在抓樹';
   if (dragging) return '被抓起來了！';
   if (act) return ACTS[act.key].name;
   if (B.mode === 'inHouse') return B.sleeping ? '在小窩裡睡覺' : '躲在小窩裡';
@@ -2285,8 +2436,9 @@ function updateWorld(dt, t){
   document.documentElement.style.setProperty('--bg', sky);
   const theme = di.n > 0.5 ? 'dark' : 'light'; if (theme !== lastTheme){ lastTheme = theme; document.documentElement.dataset.theme = theme; }
   snowCover = clamp(snowCover + (w === 'snow' ? 0.015 : -0.006)*dt, 0, 0.75);
-  let gc = mixHex('#c8d4ba', '#202b26', di.n); gc = mixHex(gc, di.n > 0.5 ? '#5f6a72' : '#eef1f2', snowCover);
-  ground.material.color.set(gc);
+  ground.material.color.set(mixHex('#ffffff', '#2c3a3c', di.n));
+  snowGround.material.opacity = snowCover*0.92; snowGround.visible = snowCover > 0.01; snowGround.material.color.set(mixHex('#f3f6f7', '#5f6a72', di.n));
+  tufts.material.color.set(mixHex('#ffffff', '#f6f8f8', snowCover)); tufts.visible = snowCover < 0.6;
   flashV *= Math.exp(-5*dt); $('#flash').style.opacity = (flashV*0.8).toFixed(3);
   const dim = W.dim*(1 - fxoV*0.45);
   hemi.intensity = (lerp(0.8, 0.32, di.n)*dim + flashV*1.2)*LI;
@@ -2412,7 +2564,9 @@ function showMemorial(){
   showModal(`${nm}離開了`, `<p>${msg}</p><p>牠的魂魄還在墳墓上飄著。準備好了，就<b>點一下墳墓</b>送牠去天堂，之後會出現新的蛋。代幣、衣服、道具和建設都會留給下一隻。</p>`, [{label:'好', onClick:()=>{}}]);
 }
 const sheet = $('#sheet'), sheetBody = $('#sheetBody'); let sheetKind = null;
-function openSheet(kind){ sheetKind = kind; sheet.hidden = false; renderSheet(); $('#sheetClose').focus(); }
+function openSheet(kind){
+  if (kind === 'feed') feedTab = 'food'; else if (kind === 'water') feedTab = 'drink';   // start on the matching tab; every tab stays clickable
+  sheetKind = kind; sheet.hidden = false; sheet.scrollTop = 0; renderSheet(); $('#sheetClose').focus(); }
 function closeSheet(){ sheet.hidden = true; sheetKind = null; }
 $('#sheetClose').onclick = closeSheet;
 function md(d){ return `${d.getMonth()+1}/${d.getDate()}`; }
@@ -2496,8 +2650,6 @@ function renderSheet(){
   $('#sheetTitle').textContent = {play:'玩耍', shop:'商店', wardrobe:'衣櫥', settings:'設定', feed:'餵食', water:'喝水'}[sheetKind];
   let h = '';
   if (sheetKind === 'feed' || sheetKind === 'water'){
-    if (sheetKind === 'water' && feedTab === 'food') feedTab = 'drink';
-    if (sheetKind === 'feed' && feedTab === 'drink') feedTab = 'food';
     const list = feedTab === 'food' ? FOODS : feedTab === 'drink' ? DRINKS : [...CARE, ...MEDS];
     tiles = list.filter(f => !f.price || inv(f.id) || feedTab !== 'care').map(f => consumableEntry(f, 'use'));
     h = tabsHTML([['food','食物'],['drink','飲料'],['care','保健・藥品']], feedTab, 'ftab')
@@ -2530,8 +2682,6 @@ function renderSheet(){
       + `<p class="sec">天氣</p><div class="opts">` + wx.map(([k,l]) => `<button class="icon" data-wx="${k}" aria-pressed="${(S.weather.forced||'auto')===k}">${l}</button>`).join('') + `</div>`
       + `<p class="sec">節日預覽（看背景和音樂，限定商品只能在真正的節日當天買）</p><div class="opts"><button class="icon" data-hol="" aria-pressed="${!previewHoliday}">關閉</button>` + HOLIDAYS.map(x => `<button class="icon" data-hol="${x.id}" aria-pressed="${previewHoliday===x.id}">${x.name}</button>`).join('') + `</div>`
       + `<p class="sec">介面</p><div class="opts"><button class="icon" data-hideui>隱藏全部介面</button><button class="icon" data-guide>打開說明書</button></div>`
-      + `<p class="sec">視角</p><div class="opts">` + [['follow','跟著袋熊（可旋轉）'],['iso','固定 45 度'],['top','正上方俯視']].map(([k,l]) => `<button class="icon" data-cam="${k}" aria-pressed="${(S.camMode || 'follow') === k}">${l}</button>`).join('') + `</div>`
-      + `<p class="sec">蓋建築、移動建築時的視角</p><div class="opts">` + [['top','正上方俯視'],['iso','45 度']].map(([k,l]) => `<button class="icon" data-bview="${k}" aria-pressed="${(S.buildView || 'top') === k}">${l}</button>`).join('') + `</div>`
       + `<p class="sec">進化型態預覽（看看長什麼樣子，不會存檔，也不會影響你的袋熊）</p><div class="opts">` + (PREVIEW ? `<button class="btn" data-exitpreview>回到我的袋熊</button>` : '')
       + Object.keys(FORMS).filter(k => k !== 'normal').map(k => `<button class="icon" data-preview="${k}" aria-pressed="${PREVIEW===k}">${FORMS[k].name}</button>`).join('') + `</div>`
       + installPanel()
@@ -2599,8 +2749,6 @@ sheetBody.addEventListener('click', e => {
   if ('naked' in d){ CLOTHES.forEach(c => S.worn[c.id] = false); applyClothes(); toast('脫光光了。'); }
   if (d.wear){ wear(d.wear, !S.worn[d.wear]); }
   if (d.col){ const [id, col] = d.col.split('|'); S.colors[id] = col; applyClothes(); }
-  if (d.cam){ S.camMode = d.cam; }
-  if (d.bview){ S.buildView = d.bview; }
   if (d.speed){ S.speed = +d.speed; }
   if (d.day){ S.dayMode = d.day; lastPhase = null; }
   if (d.wx){ S.weather.forced = d.wx === 'auto' ? null : d.wx; }
@@ -2790,6 +2938,26 @@ addEventListener('pointerdown', unlockAudio); addEventListener('keydown', unlock
 $('#btnSfx').onclick = () => { S.sfx = !SND.fx; SND.fx = S.sfx; if (SND.fx) unlockAudio(); $('#btnSfx').setAttribute('aria-pressed', SND.fx ? 'true' : 'false'); save(); toast(SND.fx ? '音效和叫聲打開了。' : '音效和叫聲關掉了。'); };
 $('#btnSettings').onclick = () => sheetKind === 'settings' ? closeSheet() : openSheet('settings');
 $('#btnShow').onclick = () => { S.uiHidden = false; hudDirty = true; save(); };
+// Quick view switch (top right): fixed 45° (drag to pan) → straight down (drag to pan) → follow the wombat (drag to orbit).
+const camMode = () => S.camMode || 'iso';
+const panTarget = V3(0, 0, 0);
+const CAM_LABEL = {iso:'視角：45°', top:'視角：俯視', follow:'視角：跟隨'};
+function refreshViewBtn(){ $('#btnView').textContent = CAM_LABEL[camMode()]; $('#btnFind').hidden = camMode() === 'follow'; }
+$('#btnView').onclick = () => {
+  const next = {iso:'top', top:'follow', follow:'iso'}[camMode()];
+  if (next !== 'follow') panTarget.set(camTarget.x, 0, camTarget.z);
+  S.camMode = next; refreshViewBtn(); save();
+  toast({iso:'45 度固定視角：拖曳畫面可以移動鏡頭。', top:'俯視：拖曳畫面可以移動鏡頭。', follow:'跟隨袋熊：拖曳畫面可以旋轉鏡頭。'}[next]);
+};
+$('#btnFind').onclick = () => { const f = S.stage === 'egg' ? V3(0,0,0) : S.dead && tomb ? tomb.position : pos; panTarget.set(f.x, 0, f.z); };
+// Drag in the fixed views slides the camera over the ground (the spot under your finger follows it).
+function panBy(dx, dy){
+  const k = 2*baseDist*zoom*Math.tan(THREE.MathUtils.degToRad(camera.fov/2))/innerHeight;
+  const right = camRight(), fwd = V3(-Math.sin(yaw), 0, -Math.cos(yaw));
+  panTarget.addScaledVector(right, -dx*k).addScaledVector(fwd, dy*k/Math.max(0.5, Math.sin(pitch)));
+  clampPan();
+}
+function clampPan(){ const r = Math.hypot(panTarget.x, panTarget.z), R = 9; if (r > R) panTarget.multiplyScalar(R/r); }
 
 // ---------- input ----------
 const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.014,0.014,1,8), new THREE.MeshBasicMaterial({color:'#3f6b55'}));
@@ -2874,10 +3042,12 @@ canvas.addEventListener('pointermove', e => {
   if (!pts.has(e.pointerId)){ if (e.pointerType === 'mouse' && !locked()){ const h = pickAt(e); canvas.style.cursor = h ? (h.object.userData.kind === 'pet' ? 'grab' : 'pointer') : 'default'; } return; }
   pts.set(e.pointerId, {x:e.clientX, y:e.clientY});
   const moved = Math.hypot(e.clientX-downX, e.clientY-downY);
-  if (mode === 'pinch' && pts.size === 2){ const a = [...pts.values()]; zoom = clamp(pinchZ*pinchD/(Math.hypot(a[0].x-a[1].x, a[0].y-a[1].y)||1), 0.5, 1.7); }
+  if (mode === 'pinch' && pts.size === 2){ const a = [...pts.values()]; zoom = clamp(pinchZ*pinchD/(Math.hypot(a[0].x-a[1].x, a[0].y-a[1].y)||1), 0.5, maxZoom()); }
   else if (mode === 'place') placePointer(e);
   else if (mode === 'tap' && moved > 6) mode = 'orbit';
-  else if (mode === 'orbit'){ if (S.camMode !== 'iso') yaw -= (e.clientX-lastX)*0.008; if (!S.camMode || S.camMode === 'follow') pitch = clamp(pitch + (e.clientY-lastY)*0.006, 0.06, 1.3); }
+  else if (mode === 'orbit'){
+    if (camMode() === 'follow' || locked()){ yaw -= (e.clientX-lastX)*0.008; pitch = clamp(pitch + (e.clientY-lastY)*0.006, 0.06, 1.3); }
+    else panBy(e.clientX-lastX, e.clientY-lastY); }
   else if (mode === 'pending' && moved > 6){ if (['inHouse','enter','exit','dying','evolve'].includes(B.mode)) mode = 'orbit'; else startGrab(e); }
   else if (mode === 'grab') updatePointerWorld(e);
   lastX = e.clientX; lastY = e.clientY;
@@ -2893,22 +3063,25 @@ function up(e){
     else if (k === 'poop') cleanPoop(tapObj.userData.ref);
     else if (k === 'weed') pullWeed(tapObj.userData.ref);
     else if (k === 'tomb') releaseSpirit();
-    else if (k === 'tree'){ const tr = tapObj.userData.ref; tr.shake = 1; sfx('whoosh'); for (let i=0;i<4;i++) floatSprite(leafTexs[i%3], tr.g.position.clone().add(V3(rnd(-1,1), rnd(1.6,2.4)*tr.d.s, rnd(-1,1))), {size:0.26, vy:-0.6, vx:rnd(-0.4,0.4), max:2.4, fade:0.6, grow:0, rot:rnd(0,6), spin:rnd(-3,3)}); if (tr.d.hive) toast('樹上有蜂窩，別讓袋熊撞到喔！'); }
+    else if (k === 'tree') treeMenu(tapObj.userData.ref);
     else if (k === 'house'){ if (B.mode === 'inHouse'){ if (B.sleeping) wake(true); exitHouse(); } else buildMenu('house'); }
     else if (k === 'build') buildMenu(tapObj.userData.ref);
     hudDirty = true;
   } else if (quick && mode === 'orbit' && !locked() && petActive() && !asleep() && !act && !['inHouse','enter','exit','eat','drink','evolve'].includes(B.mode)){
     setNdc(e); ray.setFromCamera(ndc, camera); const p = V3(0,0,0);
-    if (ray.ray.intersectPlane(groundPlane, p) && Math.hypot(p.x,p.z) < BOUND){ B.target.copy(p); B.mode = 'goto'; B.timer = 12; showEmote('❗',0.9); }
+    if (ray.ray.intersectPlane(groundPlane, p) && Math.hypot(p.x,p.z) < BOUND){ B.target.copy(p); B.mode = 'goto'; B.timer = 12; B.treeVisit = null; B.path = null; showEmote('❗',0.9); }
   }
   if (mode === 'grab') endGrab();
   if (pts.size === 0){ mode = null; canvas.style.cursor = 'default'; } else if (mode === 'pinch') mode = 'orbit';
 }
 canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
 canvas.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse' && !pts.size) hasHover = false; });
-canvas.addEventListener('wheel', e => { e.preventDefault(); zoom = clamp(zoom*Math.exp(e.deltaY*0.001), 0.5, 1.7); }, {passive:false});
+const maxZoom = () => camMode() === 'follow' ? 1.7 : 2.4;
+canvas.addEventListener('wheel', e => { e.preventDefault(); zoom = clamp(zoom*Math.exp(e.deltaY*0.001), 0.5, maxZoom()); }, {passive:false});
 canvas.addEventListener('keydown', e => {
+  const fixed = camMode() !== 'follow', arrow = {ArrowLeft:[40,0], ArrowRight:[-40,0], ArrowUp:[0,40], ArrowDown:[0,-40]}[e.key];
   if (e.key === ' ' || e.key === 'Enter'){ e.preventDefault(); S.stage === 'egg' ? warmEgg() : petTap(); }
+  else if (arrow && fixed){ e.preventDefault(); panBy(arrow[0], arrow[1]); }
   else if (e.key === 'ArrowLeft'){ e.preventDefault(); yaw += 0.15; }
   else if (e.key === 'ArrowRight'){ e.preventDefault(); yaw -= 0.15; }
   else if (e.key === 'ArrowUp'){ e.preventDefault(); pitch = Math.min(1.3, pitch+0.08); }
@@ -3011,6 +3184,8 @@ S.trees.forEach(makeTree); applyBumps();
 if (S.petPos){ pos.set(S.petPos[0], 0, S.petPos[1]); root.rotation.y = S.petPos[2]; }
 applyForm();
 petS = stageScale();
+refreshViewBtn();
+if (camMode() === 'iso'){ yaw = 0.785; pitch = 0.79; } else if (camMode() === 'top'){ yaw = 0; pitch = 1.42; }
 if (S.stage === 'egg'){ root.visible = false; shadow.g.visible = false; }
 else { eggG.visible = false; eggShadow.g.visible = false; }
 if (S.dead){ root.visible = false; shadow.g.visible = false; B.mode = 'dead'; tomb = makeTomb(V3(S.dead.x||0,0,S.dead.z||0)); }
@@ -3057,14 +3232,19 @@ function step(manual){
     eggWob.rotation.z = Math.sin(t*(2+S.warm*0.05))*(0.03 + S.warm*0.0012) + Math.sin(t*30)*0.12*k;
   }
 
-  // camera: follow the wombat (orbit freely), a fixed 45° view, or straight down; building placement locks its own view
-  const focus = placing ? placing.mesh.position : S.stage === 'egg' || hatching ? V3(0,0,0) : (S.dead && tomb ? tomb.position : pos);
-  const follow = evo || placing ? 1 : S.camMode === 'free' ? 0.6 : 1, ck = Math.min(1, dt*4);
+  // camera: a fixed 45° view or straight down (both panned by dragging, not tracking the wombat), or following the wombat;
+  // building placement, hatching and evolving take over the view while they run
+  const cm = camMode(), tracking = placing || evo || hatching || cm === 'follow';
+  const focus = placing ? placing.mesh.position : !tracking ? panTarget : S.stage === 'egg' || hatching ? V3(0,0,0) : (S.dead && tomb ? tomb.position : pos);
+  const ck = Math.min(1, dt*4);
   if (placing){ const top = S.buildView !== 'iso'; pitch += ((top ? 1.42 : 0.79) - pitch)*ck; yaw += ((top ? 0 : 0.785) - yaw)*ck; zoom += (1.2 - zoom)*ck; }
-  else if (S.camMode === 'iso'){ pitch += (0.79 - pitch)*ck; yaw += (0.785 - yaw)*ck; }
-  else if (S.camMode === 'top'){ pitch += (1.42 - pitch)*ck; }
-  camTarget.x += (focus.x*follow - camTarget.x)*Math.min(1, dt*1.5);
-  camTarget.z += (focus.z*follow - camTarget.z)*Math.min(1, dt*1.5);
+  else if (evo || hatching){}
+  else if (cm === 'iso'){ pitch += (0.79 - pitch)*ck; yaw += (wrapA(0.785 - yaw))*ck; }
+  else if (cm === 'top'){ pitch += (1.42 - pitch)*ck; yaw += (wrapA(0 - yaw))*ck; }
+  if (zoom > maxZoom()) zoom += (maxZoom() - zoom)*ck;
+  const camK = Math.min(1, dt*(tracking ? 1.5 : 6));
+  camTarget.x += (focus.x - camTarget.x)*camK;
+  camTarget.z += (focus.z - camTarget.z)*camK;
   const ty = S.stage === 'egg' || hatching ? 0.8 : evo ? 1.2*petS + 0.4 : camY;
   camTarget.y += (ty - camTarget.y)*Math.min(1, dt*3);
   zoomFx += ((evo ? 0.78 : hatching ? 0.62 : 1) - zoomFx)*Math.min(1, dt*2);
@@ -3123,7 +3303,7 @@ function step(manual){
     CLIP.idle.setEffectiveWeight(Math.max(0, 1 - sum));
     CLIP.walk.timeScale = 0.6 + gaitW*0.9*clamp(petSpeed()/0.9, 0.6, 1.6);
     mixer.update(dt);
-    legs.forEach(l => turnBone(l.bone, -(liftW*(0.3 + Math.sin(t*9+l.phase)*0.4) + bloatW*Math.sin(t*3+l.phase)*0.35 + wiggleW*Math.sin(t*16+l.phase)*0.6 + danceW*Math.sin(t*11+l.phase)*0.3), 0, 0));
+    legs.forEach(l => turnBone(l.bone, -(liftW*(0.3 + Math.sin(t*9+l.phase)*0.4) + bloatW*Math.sin(t*3+l.phase)*0.35 + wiggleW*Math.sin(t*16+l.phase)*0.6 + danceW*Math.sin(t*11+l.phase)*0.3 + (B.mode === 'scratch' && l.front > 0 ? 0.5 + Math.sin(t*14 + l.phase*2)*0.55 : 0)), 0, 0));
     const fv = V3(-(vel.x+walkVel.x), -vel.y, -(vel.z+walkVel.z)).multiplyScalar(0.012); fv.y -= 0.012;
     if (ar.shake) fv.add(V3(1,0,0).applyQuaternion(tmpQ).multiplyScalar(ar.shake*0.07));
     if (fv.length() > 0.08) fv.setLength(0.08);
