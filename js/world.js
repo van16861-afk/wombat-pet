@@ -6,7 +6,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
-export const PLOT = 18, HALF = 27, WATER_Y = -0.32;
+// 4 × 4 plots: plot columns/rows -2..1 → x and z run from -45 to 27. Home is plot 0,0 (one of the four middle plots).
+export const PLOT = 18, HALF = 27, WATER_Y = -0.32, X0 = -45, X1 = 27, Z0 = -45, Z1 = 27;
 const MARGIN = 15;   // wild land drawn past the edge of the world
 const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -16,8 +17,8 @@ const bump = u => u >= 1 ? 0 : (1 - u*u)*(1 - u*u);
 const mixc = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
 export function rng(seed){ let a = seed >>> 0; return () => { a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0)/4294967296; }; }
 const hashKey = k => [...k].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619), 2166136261) >>> 0;
-export const PLOT_KEYS = ['-1,-1', '0,-1', '1,-1', '-1,0', '0,0', '1,0', '-1,1', '0,1', '1,1'];
-export const plotKey = (x, z) => Math.abs(x) >= HALF || Math.abs(z) >= HALF ? null : `${Math.floor((x + HALF)/PLOT) - 1},${Math.floor((z + HALF)/PLOT) - 1}`;
+export const PLOT_KEYS = [-2, -1, 0, 1].flatMap(b => [-2, -1, 0, 1].map(a => `${a},${b}`));
+export const plotKey = (x, z) => x < X0 || x >= X1 || z < Z0 || z >= Z1 ? null : `${Math.floor((x + HALF)/PLOT) - 1},${Math.floor((z + HALF)/PLOT) - 1}`;
 const plotCenter = k => { const [a, b] = k.split(',').map(Number); return [a*PLOT, b*PLOT]; };
 
 // ---------- see-through: anything between the camera and the wombat is drawn with a dotted cut-out ----------
@@ -57,7 +58,7 @@ export function newWorld(seed){
   const hills = [], pits = [], muds = [];
   const spot = (cx, cz, sp) => [f(cx + r(-sp, sp), 1), f(cz + r(-sp, sp), 1)];
   // hills: the plot opposite the plateau gets two, the corners and side plots one or two each
-  for (const k of PLOT_KEYS){ if (k === '0,0') continue; const [cx, cz] = plotCenter(k);
+  for (const k of ['-1,-1', '0,-1', '1,-1', '-1,0', '1,0', '-1,1', '0,1', '1,1']){ const [cx, cz] = plotCenter(k);   // the original 3 × 3 (upgradeWorld adds the rest)
     if (k === `0,${pz}`) continue;
     const n = k === `0,${-pz}` ? 1 : 1 + (R() < 0.5 ? 1 : 0);
     for (let i=0;i<n;i++){ const [x, z] = spot(cx, cz, 5); hills.push([x, z, f(r(3.2, 5.5), 1), f(r(0.5, 1.4))]); } }
@@ -66,7 +67,22 @@ export function newWorld(seed){
   { const k = ['-1,-1', '-1,1', '1,-1', '1,1'][Math.floor(R()*4)], [cx, cz] = plotCenter(k), [x, z] = spot(cx + (cx > 0 ? -3 : 3), cz, 3); pits.push([x, z, f(r(2.6, 3.4), 1), f(r(0.3, 0.5))]); }
   // mud flats along the river
   for (let i=0;i<3;i++){ const z = r(-24, 24), x = -18 + Math.sin(z*freq + ph)*amp + (R() < 0.5 ? -1 : 1)*r(3.2, 4.5); muds.push([f(x, 1), f(z, 1), f(r(1.4, 2.3), 1)]); }
-  return {v:1, seed, river, coast, plat, hills, pits, muds, open:['0,0'], bridges:[], feats:[], nid:1};
+  const D = {v:1, seed, river, coast, plat, hills, pits, muds, open:['0,0'], bridges:[], feats:[], nid:1};
+  return upgradeWorld(D);
+}
+// Special regions on the 4 × 4 map: a lily pond, a swamp, the Australian outback and a beaver stream on the river.
+export const BIO = {pond:'0,-2', swamp:'-2,-1', aus:'-2,1', beaver:'-1,-2'};
+// v1 worlds were 3 × 3: grow them to 4 × 4 (new plots to the west and north) without moving anything already there.
+export function upgradeWorld(D){
+  if (D.v >= 2) return D;
+  const R = rng(D.seed + 77), r = (a, b) => a + R()*(b - a), f = (v, d=1) => +v.toFixed(d);
+  if (D.river.z0 == null){ D.river.z0 = -52; while (D.river.z0 > Z0 - 20){ D.river.pts.unshift(f(D.river.pts[0] + r(-1.2, 1.2), 2)); D.river.z0 -= 4; } }
+  for (const k of ['-2,-2', '1,-2', '-2,0', BIO.aus]){ const [a, b] = k.split(',').map(Number), n = 1 + (R() < 0.5 ? 1 : 0);
+    for (let i=0;i<n;i++) D.hills.push([f(a*PLOT + r(-5, 5)), f(b*PLOT + r(-5, 5)), f(r(3.2, 5.5)), f(r(0.4, k === BIO.aus ? 0.7 : 1.3), 2)]); }
+  const [sx, sz] = BIO.swamp.split(',').map(Number), pools = [];
+  for (let i=0, n = 6 + Math.floor(R()*3); i<n; i++) pools.push([f(sx*PLOT + r(-6, 6)), f(sz*PLOT + r(-6, 6)), f(r(1.8, 3.4))]);
+  D.bio = {pond:{x:f(r(-3, 3)), z:f(-36 + r(-2, 2)), r:f(r(4.4, 5.4))}, pools, beaverZ:f(-36 + r(-3, 3))};
+  D.v = 2; return D;
 }
 
 // ---------- the world: terrain shape, looks, water, nature ----------
@@ -76,7 +92,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFe
   const group = new THREE.Group(); scene.add(group);
 
   // --- shape ---
-  const riverX = z => { const P = D.river.pts, u = clamp((z + 52)/4, 1, P.length - 2.001), i = Math.floor(u), t = u - i;
+  const riverX = z => { const P = D.river.pts, u = clamp((z - (D.river.z0 ?? -52))/4, 1, P.length - 2.001), i = Math.floor(u), t = u - i;
     const p0 = P[i-1], p1 = P[i], p2 = P[i+1], p3 = P[Math.min(i+2, P.length-1)];
     return 0.5*(2*p1 + (-p0 + p2)*t + (2*p0 - 5*p1 + 4*p2 - p3)*t*t + (-p0 + 3*p1 - 3*p2 + p3)*t*t*t); };
   const riverDist = (x, z) => { const s = riverX(z + 0.5) - riverX(z - 0.5); return Math.abs(x - riverX(z))/Math.sqrt(1 + s*s); };
@@ -95,28 +111,42 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFe
     let h = 0;
     for (const [hx, hz, r, hh] of D.hills) h += hh*bump(Math.hypot(x - hx, z - hz)/r);
     for (const [px, pz, r, d] of D.pits) h -= d*bump(Math.hypot(x - px, z - pz)/r);
-    const out = Math.max(Math.abs(z), -x) - HALF;   // wild hills beyond the world edge (the sea side stays open)
+    const out = Math.max(Z0 - z, z - Z1, X0 - x);   // wild hills beyond the world edge (the sea side stays open)
     if (out > 0) h += (2.6 + 0.8*Math.sin(x*0.41 + z*0.33))*sstep(0, 10, out);
     h *= sstep(6.5, 10, Math.max(Math.abs(x), Math.abs(z)));   // home stays flat
     h = Math.max(h, platH(x, z));
+    if (D.bio){
+      const P = D.bio.pond, pd = Math.hypot(x - P.x, z - P.z);   // a round lily pond with a gently sloping shore
+      if (pd < P.r + 4){ h *= sstep(P.r, P.r + 3.5, pd); h -= 1.0*(1 - sstep(P.r*0.55, P.r + 0.9, pd)); }
+      const sw = swampW(x, z);   // the swamp: low, nearly flat and soggy, with dark pools
+      if (sw > 0){ h = lerp(h, -0.14 + 0.06*Math.sin(x*0.9)*Math.sin(z*0.8), sw);
+        for (const [px, pz, r] of D.bio.pools){ const d = Math.hypot(x - px, z - pz); if (d < r + 1) h = Math.min(h, lerp(-0.75, -0.14, sstep(r*0.35, r + 0.6, d))); } }
+    }
     const rd = riverDist(x, z), bk = D.river.w/2;
     if (rd < bk + 4){ const bed = -1.05 + 1.05*sstep(bk*0.2, bk + 1.1, rd); h = lerp(bed, h, sstep(bk + 0.3, bk + 3.2, rd)); }
     const sx = shoreX(z);
     if (x > sx - 11){ const beach = 0.2*(1 - sstep(sx - 6, sx + 0.5, x)) - 1.9*sstep(sx - 0.5, sx + 8, x); h = lerp(h, beach, sstep(sx - 11, sx - 6, x)); }
     return h;
   }
+  const plotW = (k, x, z, inner = 7, outer = 9.4) => { const [cx, cz] = plotCenter(k); return 1 - sstep(inner, outer, Math.max(Math.abs(x - cx), Math.abs(z - cz))); };
+  const swampW = (x, z) => plotW(BIO.swamp, x, z);
+  W.plotW = plotW; W.swampW = swampW;
   const slope = (x, z) => Math.hypot(H(x + 0.3, z) - H(x - 0.3, z), H(x, z + 0.3) - H(x, z - 0.3))/0.6;
-  const inWorld = (x, z) => Math.abs(x) < HALF - 0.25 && Math.abs(z) < HALF - 0.25;
+  const inWorld = (x, z) => x > X0 + 0.25 && x < X1 - 0.25 && z > Z0 + 0.25 && z < Z1 - 0.25;
   W.H = H; W.riverX = riverX; W.riverDist = riverDist; W.shoreX = shoreX; W.slope = slope; W.inWorld = inWorld;
   W.isRiver = (x, z) => riverDist(x, z) < D.river.w/2 + 0.25;
   W.isSea = (x, z) => x > shoreX(z) + 0.8 && H(x, z) < WATER_Y + 0.03;
-  W.isWater = (x, z) => W.isRiver(x, z) || W.isSea(x, z);
+  W.isPond = (x, z) => !!D.bio && Math.hypot(x - D.bio.pond.x, z - D.bio.pond.z) < D.bio.pond.r + 1 && H(x, z) < WATER_Y - 0.02;
+  W.isSwampWater = (x, z) => !!D.bio && swampW(x, z) > 0.5 && H(x, z) < WATER_Y - 0.02;
+  W.isWater = (x, z) => W.isRiver(x, z) || W.isSea(x, z) || W.isPond(x, z) || W.isSwampWater(x, z);
+  W.inBio = (k, x, z) => plotKey(x, z) === BIO[k];
   W.isOpenKey = k => !!k && D.open.includes(k);
   W.isOpen = (x, z) => W.isOpenKey(plotKey(x, z));
   W.isBeach = (x, z) => x > shoreX(z) - 5.5;
   W.isMud = (x, z) => D.muds.some(([mx, mz, r]) => Math.hypot(x - mx, z - mz) < r*0.8) || D.pits.some(([px, pz, r]) => Math.hypot(x - px, z - pz) < r*0.45);
   // ground under a point, including bridge decks
   W.gy = (x, z) => { const b = bridgeAt(x, z); return b != null ? Math.max(b, H(x, z)) : H(x, z); };
+  W.swimmable = (x, z) => inWorld(x, z) && W.isOpen(x, z) && W.isWater(x, z) && !(W.isSea(x, z) && x > shoreX(z) + 6);
   W.walkable = (x, z) => inWorld(x, z) && W.isOpen(x, z) && (bridgeAt(x, z) != null || (!W.isWater(x, z) && slope(x, z) < 0.85));
   W.buildable = (x, z) => inWorld(x, z) && W.isOpen(x, z) && !W.isWater(x, z) && bridgeAt(x, z) == null && slope(x, z) < 0.5 && riverDist(x, z) > D.river.w/2 + 1;
   W.normal = (x, z) => V3(H(x - 0.3, z) - H(x + 0.3, z), 0.6, H(x, z - 0.3) - H(x, z + 0.3)).normalize();
@@ -134,6 +164,11 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFe
     for (const [mx, mz, r] of D.muds) mud = Math.max(mud, 1 - sstep(r*0.5, r, Math.hypot(x - mx, z - mz) + (nz - 0.5)*1.2));
     for (const [px, pz, r] of D.pits) mud = Math.max(mud, 1 - sstep(r*0.22, r*0.55, Math.hypot(x - px, z - pz) + (nz - 0.5)*0.9));
     if (mud > 0){ col = mixc(col, [0.47, 0.36, 0.26], mud); g *= 1 - mud; }
+    if (D.bio){
+      const sw = swampW(x, z); if (sw > 0){ col = mixc(col, mixc([0.5, 0.5, 0.32], [0.4, 0.36, 0.26], nz), sw*0.85); g *= 1 - sw*0.7; }
+      const au = plotW(BIO.aus, x, z, 6.5, 9.8); if (au > 0){ col = mixc(col, mixc([0.93, 0.6, 0.38], [0.84, 0.5, 0.32], nz), au*0.9); g *= 1 - au*0.75; }
+      const pd = Math.hypot(x - D.bio.pond.x, z - D.bio.pond.z) - D.bio.pond.r; if (pd < 1.6){ const w = 1 - sstep(-0.2, 1.6, pd + (nz - 0.5)*0.6); col = mixc(col, pd < 0 ? [0.55, 0.52, 0.42] : [0.5, 0.42, 0.3], w); g *= 1 - w; }
+    }
     const rock = sstep(0.8, 1.5, sl); if (rock > 0){ col = mixc(col, [0.66, 0.63, 0.58], rock); g *= 1 - rock; }
     if (!inWorld(x, z)) col = col.map(c => c*0.8);
     else if (!W.isOpen(x, z)){ const l = (col[0] + col[1] + col[2])/3; col = col.map(c => lerp(c, l, 0.25)*0.8); }
@@ -141,10 +176,10 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFe
   }
 
   // --- terrain mesh ---
-  const SIZE = 2*(HALF + MARGIN), SEG = mobile ? 126 : 168;
+  const SIZE = (X1 - X0) + 2*MARGIN, SEG = mobile ? 140 : 190, CX = (X0 + X1)/2, CZ = (Z0 + Z1)/2;
   let terrain = null;
   function buildTerrain(){
-    const geo = new THREE.PlaneGeometry(SIZE, SIZE, SEG, SEG); geo.rotateX(-Math.PI/2);
+    const geo = new THREE.PlaneGeometry(SIZE, SIZE, SEG, SEG); geo.rotateX(-Math.PI/2); geo.translate(CX, 0, CZ);
     const p = geo.attributes.position, n = p.count, cols = new Float32Array(n*3), gr = new Float32Array(n);
     for (let i=0;i<n;i++){ const x = p.getX(i), z = p.getZ(i); p.setY(i, H(x, z)); }
     geo.setAttribute('color', new THREE.BufferAttribute(cols, 3)); geo.setAttribute('aGrass', new THREE.BufferAttribute(gr, 1));
@@ -172,9 +207,9 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFe
   function buildTufts(R){
     const blade = (a, tilt, h) => { const g = new THREE.ConeGeometry(0.028, h, 3); g.translate(0, h/2, 0); g.rotateZ(tilt); g.rotateY(a); return g; };
     const geo = mergeGeometries([blade(0, 0.25, 0.3), blade(2.1, 0.3, 0.24), blade(4.2, 0.2, 0.34), blade(1.0, -0.15, 0.22)]);
-    const N = mobile ? 3000 : 7000, M = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color(), list = [];
+    const N = mobile ? 4000 : 9500, M = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color(), list = [];
     for (let k=0; k<N*3 && list.length < N; k++){
-      const x = (R()*2 - 1)*(HALF + 3), z = (R()*2 - 1)*(HALF + 3);
+      const x = lerp(X0 - 3, X1 + 3, R()), z = lerp(Z0 - 3, Z1 + 3, R());
       if (W.isWater(x, z) || surf(x, z)[1] < 0.75) continue; list.push([x, z]); }
     const m = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial(), list.length);
     list.forEach(([x, z], i) => { const s = 0.7 + R()*0.6; M.compose(V3(x, H(x, z) - 0.02, z), q.setFromAxisAngle(V3(0, 1, 0), R()*6.28), V3(s, s*(0.8 + R()*0.4), s)); m.setMatrixAt(i, M);
@@ -280,12 +315,12 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFe
   // Generate rocks, bushes and trees for a plot. Trees are returned for game.js (which owns them); `avoid` keeps spots clear.
   W.genFeats = (k, avoid) => {
     const R = rng(D.seed*7 + hashKey(k)), [cx, cz] = plotCenter(k), h = PLOT/2 - 1, home = k === '0,0', trees = [];
-    const ok = (x, z, r) => !W.isWater(x, z) && slope(x, z) < 0.55 && riverDist(x, z) > D.river.w/2 + 1.2 && Math.abs(x) < HALF - 1 && Math.abs(z) < HALF - 1
+    const ok = (x, z, r) => !W.isWater(x, z) && slope(x, z) < 0.55 && riverDist(x, z) > D.river.w/2 + 1.2 && x > X0 + 1 && x < X1 - 1 && z > Z0 + 1 && z < Z1 - 1
       && !(avoid && avoid(x, z, r)) && !D.feats.some(o => Math.hypot(o.x - x, o.z - z) < W.featR(o) + r + 0.8) && !trees.some(o => Math.hypot(o.x - x, o.z - z) < r + 1.8);
     const put = (n, fn) => { for (let t=0, c=0; t<n*12 && c<n; t++){ const x = cx + (R()*2 - 1)*h, z = cz + (R()*2 - 1)*h; if (home && Math.max(Math.abs(x), Math.abs(z)) < 3.5) continue; if (fn(x, z)) c++; } };
     const rock = (s) => (x, z) => { if (!ok(x, z, 0.85*s)) return false; D.feats.push({id:D.nid++, k:'rock', x:+x.toFixed(2), z:+z.toFixed(2), s:+s.toFixed(2), ry:+(R()*6.28).toFixed(2), v:Math.floor(R()*12), p:k}); return true; };
     const bush = (x, z) => { const s = 0.8 + R()*0.5; if (!ok(x, z, 0.6*s) || W.isBeach(x, z)) return false; D.feats.push({id:D.nid++, k:'bush', x:+x.toFixed(2), z:+z.toFixed(2), s:+s.toFixed(2), ry:+(R()*6.28).toFixed(2), v:Math.floor(R()*12), p:k}); return true; };
-    const tree = (x, z) => { const s = 0.85 + R()*0.3; if (!ok(x, z, 0.9*s) || W.isBeach(x, z)) return false; trees.push({x:+x.toFixed(2), z:+z.toFixed(2), s:+s.toFixed(2), ry:+(R()*6.28).toFixed(2), hive: R() < 0.25, p:k}); return true; };
+    const tree = (x, z) => { const s = 0.85 + R()*0.3; if (!ok(x, z, 0.9*s) || W.isBeach(x, z)) return false; trees.push({x:+x.toFixed(2), z:+z.toFixed(2), s:+s.toFixed(2), ry:+(R()*6.28).toFixed(2), hive: k !== BIO.aus && R() < 0.25, p:k, ...(k === BIO.aus ? {euc:1} : k === BIO.swamp ? {swamp:1} : {})}); return true; };
     if (home){ put(1, rock(1.3 + R()*0.3)); put(2, rock(0.4 + R()*0.3)); put(2, bush); }
     else { put(1 + Math.floor(R()*2), rock(1.35 + R()*0.35)); put(2, rock(0.75 + R()*0.4)); put(3, rock(0.35 + R()*0.3)); put(4 + Math.floor(R()*3), bush); put(4 + Math.floor(R()*3), tree); }
     return trees;
@@ -297,7 +332,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFe
   function buildRiver(R){
     const bk = D.river.w/2 + 0.65, pos = [], uv = [], idx = [];
     let L = 0, prev = null;
-    for (let z = -HALF - MARGIN, i = 0; z <= HALF + MARGIN + 0.01; z += 0.5, i++){
+    for (let z = Z0 - MARGIN, i = 0; z <= Z1 + MARGIN + 0.01; z += 0.5, i++){
       const x = riverX(z), s = riverX(z + 0.25) - riverX(z - 0.25), n = V3(1, 0, -s*2).normalize();
       if (prev) L += Math.hypot(x - prev[0], z - prev[1]); prev = [x, z];
       pos.push(x - n.x*bk, WATER_Y, z - n.z*bk, x + n.x*bk, WATER_Y, z + n.z*bk); uv.push(0, L, 1, L);
@@ -325,7 +360,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFe
     riverMesh = new THREE.Mesh(geo, riverMat); riverMesh.renderOrder = 3; riverMesh.userData.kind = 'river'; group.add(riverMesh); W.pick.push(riverMesh);
     // pebbles on the bed
     const pebbles = [], N = mobile ? 260 : 420;
-    for (let k=0; k<N*3 && pebbles.length < N; k++){ const z = (R()*2 - 1)*(HALF + 6), x = riverX(z) + (R()*2 - 1)*(D.river.w/2 + 0.3); if (riverDist(x, z) > D.river.w/2 + 0.3) continue; pebbles.push([x, z]); }
+    for (let k=0; k<N*3 && pebbles.length < N; k++){ const z = lerp(Z0 - 6, Z1 + 6, R()), x = riverX(z) + (R()*2 - 1)*(D.river.w/2 + 0.3); if (riverDist(x, z) > D.river.w/2 + 0.3) continue; pebbles.push([x, z]); }
     const pm = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0), new THREE.MeshLambertMaterial({flatShading:true}), pebbles.length);
     const M = new THREE.Matrix4(), q = new THREE.Quaternion(), c = new THREE.Color(), PC = ['#9a958b', '#b7ae9c', '#7f7a72', '#c4b49a', '#8c8f94', '#a8806a', '#d6cfc0'];
     pebbles.forEach(([x, z], i) => { const s = 0.06 + R()*R()*0.2; M.compose(V3(x, H(x, z) + s*0.2, z), q.setFromEuler(new THREE.Euler(R()*3, R()*3, R()*3)), V3(s*1.3, s*0.6, s)); pm.setMatrixAt(i, M); pm.setColorAt(i, c.set(PC[i % PC.length])); });
@@ -339,7 +374,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFe
       if (i % FISH.length === 1){ const spot = new THREE.Mesh(bodyGeo, mat('#e0483a', 0.4)); spot.scale.set(0.06, 0.035, 0.09); spot.position.set(0, 0.05, 0.05); g.add(spot); }
       const tail = new THREE.Group(); tail.position.z = -0.22; const tf = new THREE.Mesh(finGeo, body.material); tf.scale.set(1.1, 1.4, 1); tail.add(tf); g.add(tail);
       const s = 0.8 + R()*0.7; g.scale.setScalar(s); group.add(g);
-      fish.push({g, tail, z:(R()*2 - 1)*(HALF - 3), off:(R()*2 - 1)*0.6, tOff:0, sp:(R() < 0.5 ? -1 : 1)*(0.35 + R()*0.5), depth:0.18 + R()*0.22, ph:R()*9, turnT:3 + R()*6, darting:0});
+      fish.push({g, tail, z:lerp(Z0 + 3, Z1 - 3, R()), off:(R()*2 - 1)*0.6, tOff:0, sp:(R() < 0.5 ? -1 : 1)*(0.35 + R()*0.5), depth:0.18 + R()*0.22, ph:R()*9, turnT:3 + R()*6, darting:0});
     }
   }
   function updateFish(dt, t, pet){
@@ -349,7 +384,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFe
       if (f.turnT <= 0){ f.turnT = 3 + Math.random()*7; if (Math.random() < 0.35) f.sp = -f.sp; f.tOff = (Math.random()*2 - 1)*0.65; f.depth = 0.15 + Math.random()*0.25; }
       if (pet && riverDist(pet.x, pet.z) < bk + 1.4 && Math.hypot(pet.x - riverX(f.z), pet.z - f.z) < 2.2 && f.darting <= 0){ f.darting = 1.2; f.sp = Math.sign(f.z - pet.z || 1)*1.6; }
       f.darting -= dt; const sp = f.darting > 0 ? f.sp : Math.sign(f.sp)*Math.min(Math.abs(f.sp), 0.85);
-      f.z += sp*dt; if (Math.abs(f.z) > HALF - 1.5){ f.z = Math.sign(f.z)*(HALF - 1.5); f.sp = -f.sp; }
+      f.z += sp*dt; if (f.z < Z0 + 1.5 || f.z > Z1 - 1.5){ f.z = clamp(f.z, Z0 + 1.5, Z1 - 1.5); f.sp = -f.sp; }
       f.off += (f.tOff - f.off)*Math.min(1, dt*0.6);
       const x0 = riverX(f.z), s = riverX(f.z + 0.3) - riverX(f.z - 0.3), n = V3(1, 0, -s/0.6).normalize();
       const w = Math.sin(t*(6 + Math.abs(sp)*6) + f.ph);
@@ -390,6 +425,35 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFe
     const sea = new THREE.Mesh(geo, seaMat); sea.renderOrder = 3; sea.userData.kind = 'sea'; group.add(sea); W.sea = sea;
   }
 
+  // --- still water: the lily pond (clear, greenish) and the swamp pools (murky, with duckweed) ---
+  const stillMats = [];
+  function stillWater(geo, deep, shallow, alpha, weed){
+    const m = new THREE.ShaderMaterial({transparent:true, depthWrite:false, side:THREE.DoubleSide, uniforms:{uTime:{value:0}, uNight:{value:0}, uSun:{value:1}},
+      vertexShader:`varying vec3 vWP; void main(){ vec4 w = modelMatrix*vec4(position,1.0); vWP = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }`,
+      fragmentShader:`uniform float uTime, uNight, uSun; varying vec3 vWP;
+        float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7)))*43758.5453); }
+        float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0 - 2.0*f); return mix(mix(hash(i), hash(i + vec2(1,0)), f.x), mix(hash(i + vec2(0,1)), hash(i + vec2(1,1)), f.x), f.y); }
+        void main(){
+          vec2 p = vWP.xz;
+          float n = noise(p*0.8 + vec2(uTime*0.05, uTime*0.03))*0.6 + noise(p*2.1 - vec2(uTime*0.07, 0.0))*0.4;
+          float ripple = smoothstep(0.82, 0.97, noise(p*3.0 + vec2(sin(uTime*0.4), cos(uTime*0.3))*0.6));
+          vec3 col = mix(vec3(${deep}), vec3(${shallow}), n);
+          float weed = ${weed ? 'smoothstep(0.55, 0.75, noise(p*1.4 + 11.0))*0.85' : '0.0'};
+          col = mix(col, vec3(0.42, 0.55, 0.2), weed);
+          col += ripple*0.25*uSun;
+          col *= mix(1.0, 0.32, uNight);
+          gl_FragColor = vec4(col, ${alpha} + weed*0.3 + ripple*0.15);
+        }`});
+    stillMats.push(m); const mesh = new THREE.Mesh(geo, m); mesh.renderOrder = 3; group.add(mesh); return mesh;
+  }
+  function buildStill(){
+    if (!D.bio) return;
+    const P = D.bio.pond, pg = new THREE.CircleGeometry(P.r + 1.4, 48); pg.rotateX(-Math.PI/2); pg.translate(P.x, WATER_Y, P.z);
+    stillWater(pg, '0.22, 0.48, 0.45', '0.42, 0.68, 0.58', 0.5, false).userData.kind = 'pond';
+    const [cx, cz] = plotCenter(BIO.swamp), sg = new THREE.PlaneGeometry(19, 19); sg.rotateX(-Math.PI/2); sg.translate(cx, WATER_Y - 0.01, cz);
+    stillWater(sg, '0.2, 0.26, 0.16', '0.32, 0.38, 0.22', 0.78, true).userData.kind = 'swamp';
+  }
+
   // --- bridges across the river ---
   W.BRIDGE_W = 1.9;
   function bridgeAt(x, z){
@@ -414,7 +478,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFe
     g.position.set(x, 0, bd.z); g.rotation.y = Math.atan2(-az, ax); group.add(g); b.g = g; W.bridges.push(b); return b;
   }
   W.addBridge = z => { const bd = {z:+z.toFixed(2)}; D.bridges.push(bd); return makeBridge(bd); };
-  W.canBridge = z => !W.bridges.some(b => Math.abs(b.z - z) < 3.2) && W.isOpen(riverX(z) - D.river.w, z) && W.isOpen(riverX(z) + D.river.w, z) && Math.abs(z) < HALF - 2;
+  W.canBridge = z => !W.bridges.some(b => Math.abs(b.z - z) < 3.2) && W.isOpen(riverX(z) - D.river.w, z) && W.isOpen(riverX(z) + D.river.w, z) && z > Z0 + 2 && z < Z1 - 2;
 
   // --- opening a plot ---
   W.price = () => 120 + 60*(D.open.length - 1);
@@ -423,7 +487,8 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFe
   W.plotName = k => {
     const [a, b] = k.split(',').map(Number), dir = (b < 0 ? '北' : b > 0 ? '南' : '') + (a < 0 ? '西' : a > 0 ? '東' : '');
     const [cx, cz] = plotCenter(k), P = D.plat;
-    const what = a < 0 ? '河畔' : a > 0 ? '海岸' : Math.abs(P.z - cz) < 6 ? '高台' : D.pits.some(([x, z]) => Math.abs(x - cx) < 9 && Math.abs(z - cz) < 9) ? '窪地' : '山丘';
+    const special = {[BIO.pond]:'荷花池塘', [BIO.swamp]:'沼澤', [BIO.aus]:'澳洲草原', [BIO.beaver]:'河狸溪'}[k]; if (special) return special;
+    const what = a === -2 ? '森林' : a === -1 ? '河畔' : a > 0 ? '海岸' : Math.abs(P.z - cz) < 6 ? '高台' : D.pits.some(([x, z]) => Math.abs(x - cx) < 9 && Math.abs(z - cz) < 9) ? '窪地' : '山丘';
     return `${dir}邊的${what}`;
   };
   W.openPlot = (k) => {
@@ -467,6 +532,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFe
     if (riverMat){ riverMat.uniforms.uTime.value = t; riverMat.uniforms.uNight.value = o.night; riverMat.uniforms.uSun.value = 1 - o.night*0.8; }
     if (seaMat){ const u = seaMat.uniforms; u.uTime.value = t; u.uNight.value = o.night; u.uSun.value = 1 - o.night*0.8; u.uFog.value.copy(o.fog.color); u.uFogN.value = o.fog.near; u.uFogF.value = o.fog.far; }
     updateFish(dt, t, o.pet);
+    for (const m of stillMats){ m.uniforms.uTime.value = t; m.uniforms.uNight.value = o.night; m.uniforms.uSun.value = 1 - o.night*0.8; }
     for (let i=fading.length - 1; i>=0; i--){ const f = fading[i]; f.t += dt;
       if (f.grow){ const k = Math.min(1, f.t/0.5); f.g.scale.setScalar(Math.max(0.01, k < 1 ? k*1.15 : 1)); if (f.t > 0.5){ f.g.scale.setScalar(1); fading.splice(i, 1); } continue; }
       if (f.plot){ f.g.position.y = -f.t*f.t*3;   // the overgrowth sinks away while dust puffs up (game.js)
@@ -476,12 +542,12 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFe
   };
 
   W.load = (data) => {
-    D = data; W.data = D;
+    D = upgradeWorld(data); W.data = D;
     const R = rng(D.seed);
-    buildTerrain(); buildTufts(rng(D.seed + 1)); buildRiver(rng(D.seed + 2)); buildSea();
+    buildTerrain(); buildTufts(rng(D.seed + 1)); buildRiver(rng(D.seed + 2)); buildSea(); buildStill();
     // wild forest beyond the world edge (west, north and south; the east is sea)
-    const out = (x, z) => (Math.abs(x) > HALF + 0.8 || Math.abs(z) > HALF + 0.8) && !W.isBeach(x, z);
-    wilds(scatter(rng(D.seed + 3), -HALF - MARGIN, HALF + MARGIN, -HALF - MARGIN, HALF + MARGIN, mobile ? 260 : 420, ['tree', 'pine', 'pine', 'bush', 'rock'], out));
+    const out = (x, z) => !(x > X0 - 0.8 && x < X1 + 0.8 && z > Z0 - 0.8 && z < Z1 + 0.8) && !W.isBeach(x, z);
+    wilds(scatter(rng(D.seed + 3), X0 - MARGIN, X1 + MARGIN, Z0 - MARGIN, Z1 + MARGIN, mobile ? 360 : 600, ['tree', 'pine', 'pine', 'bush', 'rock'], out));
     for (const k of PLOT_KEYS) if (!W.isOpenKey(k)) buildLocked(k);
     D.bridges.forEach(makeBridge);
     buildBorder();
