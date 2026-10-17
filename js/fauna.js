@@ -13,7 +13,8 @@ const plotC = k => k.split(',').map(Number).map(v => v*PLOT);
 
 export const SPECIES = {frog:'青蛙', dragonfly:'蜻蜓', turtle:'烏龜', croc:'鱷魚', heron:'蒼鷺', beaver:'河狸', kangaroo:'袋鼠', quokka:'短尾矮袋鼠（微笑袋鼠）', emu:'鴯鶓', koala:'無尾熊'};
 
-export function createFauna({scene, world, mat, hbMat, onSound}){
+export function createFauna({scene, world, mat, hbMat, onSound, clone, lod}){
+  const model = (name, fn) => { const m = clone && clone(name); return m ? (fn && fn(m)) || m : null; };   // the Blender model when there is one
   const F = {list:[], pick:[]}, group = new THREE.Group(); scene.add(group);
   const D = world.data, gy = world.gy, H = world.H;
   const sound = n => onSound && onSound(n);
@@ -57,6 +58,7 @@ export function createFauna({scene, world, mat, hbMat, onSound}){
 
   // ---------- models ----------
   function frog(){
+    const fm = model('frog', m => { m.userData.sac = m.getObjectByName('frog_sac'); }); if (fm) return fm;
     const g = new THREE.Group(), body = mat(['#5aa04a', '#6fae3c', '#4f8f52'][Math.floor(Math.random()*3)], 0.4), belly = mat('#e3e6b0', 0.5);
     const b = ball(0.16, body, 1, 0.7, 1.15); b.position.y = 0.11; g.add(b);
     const bl = ball(0.13, belly, 0.95, 0.5, 1); bl.position.set(0, 0.07, 0.04); g.add(bl);
@@ -75,6 +77,7 @@ export function createFauna({scene, world, mat, hbMat, onSound}){
     g.userData.wings = wings; return g;
   }
   function turtle(){
+    const tm = model('turtle'); if (tm) return tm;
     const g = new THREE.Group(), shell = mat('#5b6b3a', 0.5), skin = mat('#7c9a52', 0.6);
     const s = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 8, 0, Math.PI*2, 0, Math.PI/2), shell); s.scale.set(1, 0.6, 1.2); g.add(s);
     const rim = cyl(0.31, 0.31, 0.04, mat('#c9b77a', 0.6), 16); rim.scale.z = 1.2; g.add(rim);
@@ -83,6 +86,7 @@ export function createFauna({scene, world, mat, hbMat, onSound}){
     return g;
   }
   function croc(){
+    const cm = model('croc', m => { m.userData.jaw = m.getObjectByName('croc_jaw'); m.userData.jawSign = 1; }); if (cm) return cm;
     const g = new THREE.Group(), skin = mat('#4f5f34', 0.6), belly = mat('#a7a46a', 0.6);
     const b = ball(0.4, skin, 0.9, 0.45, 2.2); b.position.y = 0.16; g.add(b);
     const tail = new THREE.Mesh(new THREE.ConeGeometry(0.28, 1.6, 8), skin); tail.rotation.x = -Math.PI/2; tail.scale.y = 1; tail.position.set(0, 0.14, -1.6); tail.scale.set(1, 1, 0.5); g.add(tail);
@@ -95,6 +99,7 @@ export function createFauna({scene, world, mat, hbMat, onSound}){
     g.userData.jaw = jaw; return g;
   }
   function heron(){
+    const hm = model('heron', m => { m.userData.neck = m.getObjectByName('heron_neck'); }); if (hm) return hm;
     const g = new THREE.Group(), grey = mat('#a7adb4', 0.7), white = mat('#eef0f0', 0.7), yel = mat('#e0b23c', 0.5);
     const b = ball(0.22, grey, 0.8, 0.8, 1.5); b.position.y = 1.0; g.add(b);
     const neck = cyl(0.04, 0.05, 0.6, white); neck.position.set(0, 1.35, 0.22); neck.rotation.x = 0.35; g.add(neck);
@@ -105,6 +110,7 @@ export function createFauna({scene, world, mat, hbMat, onSound}){
     g.userData.head = hd; g.userData.beak = beak; return g;
   }
   function beaver(){
+    const bm = model('beaver', m => { m.userData.tail = m.getObjectByName('beaver_tail'); }); if (bm) return bm;
     const g = new THREE.Group(), fur = mat('#7a5233', 0.8), dark = mat('#4a3324', 0.7);
     const b = ball(0.3, fur, 1, 0.8, 1.35); b.position.y = 0.26; g.add(b);
     const hd = ball(0.18, fur, 1, 0.9, 1.1); hd.position.set(0, 0.36, 0.38); g.add(hd);
@@ -115,6 +121,7 @@ export function createFauna({scene, world, mat, hbMat, onSound}){
     return g;
   }
   function kangaroo(joey){
+    const km = clone && clone('kangaroo'); if (km){ const w = new THREE.Group(); w.add(km); w.userData.body = km; const j = km.getObjectByName('kangaroo_joey'); if (j) j.visible = !!joey; return w; }
     const g = new THREE.Group(), fur = mat('#b77a4e', 0.8), light = mat('#e6c9a8', 0.8);
     const body = new THREE.Group(); g.add(body); g.userData.body = body;
     const b = ball(0.36, fur, 0.85, 1.2, 1); b.position.set(0, 0.85, 0); b.rotation.x = -0.35; body.add(b);
@@ -131,6 +138,7 @@ export function createFauna({scene, world, mat, hbMat, onSound}){
     return g;
   }
   function quokka(){
+    const qm = model('quokka'); if (qm) return qm;
     const g = new THREE.Group(), fur = mat('#8c6a4c', 0.85), face = mat('#a7876a', 0.8);
     const b = ball(0.2, fur, 0.9, 1.05, 1.1); b.position.y = 0.24; g.add(b);
     const hd = ball(0.14, face, 1, 0.95, 1); hd.position.set(0, 0.44, 0.1); g.add(hd);
@@ -141,6 +149,7 @@ export function createFauna({scene, world, mat, hbMat, onSound}){
     return g;
   }
   function emu(){
+    const em = model('emu', m => { m.userData.neck = m.getObjectByName('emu_neck'); }); if (em) return em;
     const g = new THREE.Group(), fe = mat('#5b4d40', 0.95), neckM = mat('#5d6b86', 0.7), leg = mat('#6b6158', 0.8);
     const b = ball(0.42, fe, 0.85, 0.75, 1.15); b.position.y = 1.05; g.add(b);
     const neck = new THREE.Group(); neck.position.set(0, 1.25, 0.3); g.add(neck); g.userData.neck = neck;
@@ -151,6 +160,7 @@ export function createFauna({scene, world, mat, hbMat, onSound}){
     return g;
   }
   function koala(){
+    const ko = model('koala', m => { m.userData.head = new THREE.Object3D(); }); if (ko) return ko;
     const g = new THREE.Group(), fur = mat('#9aa0a6', 0.95), light = mat('#e6e3dc', 0.95), dark = mat('#2c2a2a', 0.4);
     const b = ball(0.24, fur, 1, 1.15, 0.95); b.position.y = 0.3; g.add(b);
     const hd = ball(0.2, fur, 1.15, 1, 0.95); hd.position.set(0, 0.62, 0.05); g.add(hd);
@@ -198,7 +208,8 @@ export function createFauna({scene, world, mat, hbMat, onSound}){
   F.update = (dt, t, o) => {
     const cam = o.cam, pet = o.pet;
     for (const a of F.list){
-      const p = a.g.position, far = Math.hypot(p.x - cam.x, p.z - cam.z) > 60; a.g.visible = !far; if (far) continue;
+      const p = a.g.position, camD = Math.hypot(p.x - cam.x, p.z - cam.z), far = camD > 60; a.g.visible = !far; if (far) continue;
+      lod && lod(a.g, camD < 24);
       a.t += dt; a.timer -= dt;
       const petD = pet ? Math.hypot(p.x - pet.x, p.z - pet.z) : 99;
       switch (a.kind){
@@ -226,7 +237,7 @@ export function createFauna({scene, world, mat, hbMat, onSound}){
           break; }
         case 'croc': {
           const [px, pz, r] = D.bio.pools[a.pool], jaw = a.g.userData.jaw;
-          jaw.rotation.x = a.snap > 0 ? -Math.abs(Math.sin(a.snap*10))*0.6 : jaw.rotation.x*0.9; a.snap = (a.snap || 0) - dt;
+          jaw.rotation.x = a.snap > 0 ? Math.abs(Math.sin(a.snap*10))*0.6*(a.g.userData.jawSign || -1) : jaw.rotation.x*0.9; a.snap = (a.snap || 0) - dt;
           if (a.state === 'bask'){ p.y = gy(p.x, p.z) + 0.02; if (a.timer <= 0 || petD < 2.5){ a.state = 'idle'; a.timer = rnd(6, 12); if (petD < 2.5){ a.snap = 0.6; sound('snap'); o.onScare && o.onScare('croc'); } } break; }
           if (pet && petD < 4 && a.snap <= 0 && Math.random() < dt*0.8){ a.snap = 0.6; sound('snap'); o.onScare && o.onScare('croc'); }
           if (a.timer <= 0 || !a.dest){ a.timer = rnd(4, 9);
@@ -238,7 +249,8 @@ export function createFauna({scene, world, mat, hbMat, onSound}){
           break; }
         case 'heron': {
           const hd = a.g.userData.head, bk = a.g.userData.beak;
-          if (a.stab > 0){ a.stab -= dt; const k = Math.sin((1 - a.stab/0.6)*Math.PI); hd.position.y = 1.64 - k*0.9; bk.position.y = 1.64 - k*0.9; hd.position.z = 0.32 + k*0.2; bk.position.z = 0.5 + k*0.2; }
+          const neck = a.g.userData.neck; if (neck && a.stab > 0){ a.stab -= dt; neck.rotation.x = Math.sin((1 - a.stab/0.6)*Math.PI)*1.2; } else if (neck) neck.rotation.x *= 0.9;
+          if (!neck && a.stab > 0){ a.stab -= dt; const k = Math.sin((1 - a.stab/0.6)*Math.PI); hd.position.y = 1.64 - k*0.9; bk.position.y = 1.64 - k*0.9; hd.position.z = 0.32 + k*0.2; bk.position.z = 0.5 + k*0.2; }
           if (petD < 3 && a.state !== 'walk'){ a.state = 'walk'; a.dest = p.clone().add(V3(p.x - pet.x, 0, p.z - pet.z).setLength(4)); }
           if (a.state === 'walk'){ const d = V3(a.dest.x - p.x, 0, a.dest.z - p.z), L = d.length(); if (L > 0.1 && world.swampW(p.x + d.x/L, p.z + d.z/L) > 0.3){ p.addScaledVector(d.normalize(), dt*0.9); face(a, d.x, d.z, dt, 3); p.y = Math.max(gy(p.x, p.z), WATER_Y - 0.25); } else { a.state = 'idle'; a.timer = rnd(2, 5); } }
           else if (a.timer <= 0){ a.timer = rnd(3, 8); a.stab = 0.6; }

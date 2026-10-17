@@ -133,7 +133,7 @@ export function upgradeWorld(D){
 }
 
 // ---------- the world: terrain shape, looks, water, nature ----------
-export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fishModel, onFeatGone}){
+export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fishModel, treeModels, onFeatGone}){
   const W = {feats:[], pick:[], bridges:[], plots:{}};
   let D = null;
   const group = new THREE.Group(); scene.add(group);
@@ -271,6 +271,9 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
   // canopy = a darker solid core (so you cannot see through it) wrapped in painted leaf cards
   const canopyGeo = mergeGeometries(CANOPY_BLOBS.map(([x, y, z, r]) => { const g = new THREE.IcosahedronGeometry(r*0.72, 1); g.translate(x, y, z); return g; }));
   const cardGeo = leafCards(CANOPY_BLOBS, mobile ? 10 : 15), leafCardM = leafMaterial();
+  const TRUNK_M = seeThrough(new THREE.MeshLambertMaterial({vertexColors:true})), CANOPY_M = swaying(new THREE.MeshLambertMaterial({vertexColors:true, color:'#e8eede'}), 3.6);
+  const TREE_TINTS = ['#ffffff', '#f0f6e6', '#f6f2e0', '#e8f0e0', '#fbf8ee'];
+  W.TRUNK_M = TRUNK_M; W.CANOPY_M = CANOPY_M;
   const pineCards = leafCards([[0, 1.2, 0, 0.95], [0, 1.9, 0, 0.75], [0, 2.55, 0, 0.55], [0, 3.05, 0, 0.32]], mobile ? 9 : 13, 11), bushCards = leafCards([[0, 0.45, 0, 0.62], [0.35, 0.38, 0.2, 0.42], [-0.3, 0.4, -0.15, 0.45]], mobile ? 9 : 13, 13);
   const pineGeo = mergeGeometries([[0, 1.4, 1.0, 1.4], [0, 2.2, 0.8, 1.2], [0, 2.9, 0.55, 1.0]].map(([x, y, r, h]) => { const g = new THREE.ConeGeometry(r, h, 7); g.translate(x, y, 0); return g; }));
   const bushGeos = [0, 1, 2].map(v => { const R = rng(99 + v), parts = [];
@@ -289,10 +292,16 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
     const make = (geo, material, list, colors) => { if (!list.length) return null; const m = new THREE.InstancedMesh(geo, material, list.length);
       list.forEach((o, i) => { M.compose(V3(o.x, o.y, o.z), q.setFromAxisAngle(Y, o.ry), V3(o.s, o.s*(o.sy || 1), o.s)); m.setMatrixAt(i, M); if (colors) m.setColorAt(i, col.set(colors[i % colors.length]).multiplyScalar(o.dim || 1)); });
       g.add(m); return m; };
-    const trees = items.filter(o => o.k === 'tree'), pines = items.filter(o => o.k === 'pine');
-    make(trunkGeo, bark, [...trees, ...pines], null);
-    make(canopyGeo, leafM, trees.map(o => ({...o, dim:0.72})), LEAF_COLS); make(cardGeo, leafCardM, trees, LEAF_COLS); make(pineGeo, leafM, pines.map(o => ({...o, dim:0.8})), ['#3f6f45', '#4a7b4c', '#36633e']); make(pineCards, leafCardM, pines, ['#3f6f45', '#4a7b4c', '#36633e']);
-    { const bushes = items.filter(o => o.k === 'bush'); make(bushGeos[0], bushM, bushes.map(o => ({...o, dim:0.75})), BUSH_COLS); make(bushCards, leafCardM, bushes, BUSH_COLS); }
+    const trees = items.filter(o => o.k === 'tree'), pines = items.filter(o => o.k === 'pine'), eucs = items.filter(o => o.k === 'euc'), bushes = items.filter(o => o.k === 'bush');
+    if (treeModels){   // Blender trees: one instanced trunk + canopy per variant, each tree tinted a little differently
+      const byVariant = (list, set) => set.forEach((m, v) => { const sub = list.filter((o, i) => i % set.length === v); if (!sub.length) return;
+        if (m.trunk) make(m.trunk, TRUNK_M, sub, ['#ffffff', '#f2ece4', '#e8e0d4']); if (m.canopy) make(m.canopy, CANOPY_M, sub, TREE_TINTS); });
+      byVariant(trees, treeModels.oak); byVariant(pines, treeModels.pine); byVariant(eucs, treeModels.euc); byVariant(bushes, treeModels.bush);
+    } else {
+      make(trunkGeo, bark, [...trees, ...pines, ...eucs], null);
+      make(canopyGeo, leafM, [...trees, ...eucs], LEAF_COLS); make(pineGeo, leafM, pines, ['#3f6f45', '#4a7b4c', '#36633e']);
+      make(bushGeos[0], bushM, bushes, BUSH_COLS);
+    }
     make(rockGeos[1], rockM, items.filter(o => o.k === 'rock'), ROCK_COLS);
     group.add(g); return g;
   }
@@ -309,7 +318,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
   // overgrowth + a sign for each locked plot
   function buildLocked(k){
     const R = rng(D.seed + hashKey(k)), [cx, cz] = plotCenter(k), h = PLOT/2 - 0.4;
-    const items = scatter(R, cx - h, cx + h, cz - h, cz + h, 95, ['tree', 'tree', 'pine', 'bush', 'bush', 'bush', 'rock'], (x, z) => !W.isBeach(x, z) || x < shoreX(z) - 2)
+    const items = scatter(R, cx - h, cx + h, cz - h, cz + h, 95, k === BIO.aus ? ['euc', 'euc', 'bush', 'bush', 'rock'] : ['tree', 'tree', 'pine', 'bush', 'bush', 'bush', 'rock'], (x, z) => !W.isBeach(x, z) || x < shoreX(z) - 2)
       .concat(scatter(R, cx - h, cx + h, cz - h, cz + h, 14, ['bush', 'rock'], (x, z) => W.isBeach(x, z) && x < shoreX(z) + 0.5));
     const g = wilds(items); g.traverse(o => { if (o.isMesh){ o.userData.kind = 'locked'; o.userData.ref = k; W.pick.push(o); } });
     const sign = new THREE.Sprite(new THREE.SpriteMaterial({map:signTex(), transparent:true, depthWrite:false}));
@@ -346,7 +355,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
   function makeFeat(d){
     const g = new THREE.Group(); let m;
     if (d.k === 'rock'){ m = new THREE.Mesh(rockGeos[d.v % 4], rockMat(d.v)); m.scale.set(d.s, d.s*(0.8 + (d.v % 3)*0.12), d.s*0.9); }
-    else { m = new THREE.Mesh(bushGeos[d.v % 3], bushMat(d.v)); m.scale.setScalar(d.s); m.add(new THREE.Mesh(bushCards, bushLeaf(d.v)));
+    else { m = new THREE.Mesh(bushGeos[d.v % 3], bushMat(d.v)); m.scale.setScalar(d.s); if (treeModels && treeModels.bush.length){ m = new THREE.Mesh(treeModels.bush[d.v % treeModels.bush.length].canopy, CANOPY_M); m.scale.setScalar(d.s); }
       if (d.v % 2){ for (let i=0;i<5;i++){ const b = new THREE.Mesh(berryGeo, berryM[(d.v >> 1) % 2]); const a = i*1.3 + d.v; b.position.set(Math.cos(a)*0.42, 0.5 + (i % 2)*0.18, Math.sin(a)*0.42); m.add(b); } } }
     g.add(m); g.position.set(d.x, H(d.x, d.z) - (d.k === 'rock' ? 0.12*d.s : 0.02), d.z); g.rotation.y = d.ry; group.add(g);
     const r = W.featR(d), hb = new THREE.Mesh(new THREE.CylinderGeometry(r, r, d.k === 'rock' ? 1.4*d.s + 0.4 : 1.2*d.s, 8), hbMat); hb.position.y = 0.5*d.s; hb.userData.kind = d.k; g.add(hb);
@@ -358,7 +367,10 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
   const bushMat = v => bushMats[v % 3] || (bushMats[v % 3] = seeThrough(new THREE.MeshLambertMaterial({color:BUSH_COLS[v % 3], flatShading:true})));
   const berryGeo = new THREE.SphereGeometry(0.06, 8, 6), berryM = [mat('#d8423c', 0.4), mat('#f2f0ea', 0.6)];
   W.featR = d => d.k === 'rock' ? 0.85*d.s : 0.6*d.s;
-  W.rockSize = d => d.s > 1.3 ? 'big' : d.s > 0.7 ? 'mid' : 'small';
+  W.rockSize = d => d.s > 0.95 ? 'big' : d.s > 0.5 ? 'mid' : 'small';
+  // bushes slowly grow back on open land (rocks and trees never come back by themselves)
+  W.addBush = (x, z, k) => { const d = {id:D.nid++, k:'bush', x:+x.toFixed(2), z:+z.toFixed(2), s:+(0.7 + Math.random()*0.4).toFixed(2), ry:+(Math.random()*6.28).toFixed(2), v:Math.floor(Math.random()*12), p:k};
+    D.feats.push(d); const f = makeFeat(d); f.g.scale.setScalar(0.01); fading.push({g:f.g, t:0, grow:true}); return f; };
   W.removeFeat = f => {
     D.feats = D.feats.filter(x => x !== f.d); W.feats.splice(W.feats.indexOf(f), 1); W.pick.splice(W.pick.indexOf(f.hb), 1); f.hb.userData.kind = null;
     fading.push({g:f.g, t:0, s:f.g.scale.x});
@@ -373,8 +385,8 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
     const rock = (s) => (x, z) => { if (!ok(x, z, 0.85*s)) return false; D.feats.push({id:D.nid++, k:'rock', x:+x.toFixed(2), z:+z.toFixed(2), s:+s.toFixed(2), ry:+(R()*6.28).toFixed(2), v:Math.floor(R()*12), p:k}); return true; };
     const bush = (x, z) => { const s = 0.8 + R()*0.5; if (!ok(x, z, 0.6*s) || W.isBeach(x, z)) return false; D.feats.push({id:D.nid++, k:'bush', x:+x.toFixed(2), z:+z.toFixed(2), s:+s.toFixed(2), ry:+(R()*6.28).toFixed(2), v:Math.floor(R()*12), p:k}); return true; };
     const tree = (x, z) => { const s = 0.85 + R()*0.3; if (!ok(x, z, 0.9*s) || W.isBeach(x, z)) return false; trees.push({x:+x.toFixed(2), z:+z.toFixed(2), s:+s.toFixed(2), ry:+(R()*6.28).toFixed(2), hive: k !== BIO.aus && R() < 0.25, p:k, ...(k === BIO.aus ? {euc:1} : k === BIO.swamp ? {swamp:1} : {})}); return true; };
-    if (home){ put(1, rock(1.3 + R()*0.3)); put(2, rock(0.4 + R()*0.3)); put(2, bush); }
-    else { put(1 + Math.floor(R()*2), rock(1.35 + R()*0.35)); put(2, rock(0.75 + R()*0.4)); put(3, rock(0.35 + R()*0.3)); put(4 + Math.floor(R()*3), bush); put(4 + Math.floor(R()*3), tree); }
+    if (home){ put(1, rock(0.6 + R()*0.2)); put(1, rock(0.3 + R()*0.15)); put(1, bush); }
+    else { put(R() < 0.5 ? 1 : 0, rock(1.0 + R()*0.25)); put(1, rock(0.55 + R()*0.25)); put(2, rock(0.3 + R()*0.2)); put(2 + Math.floor(R()*2), bush); put(3 + Math.floor(R()*2), tree); }   // fewer and smaller than before
     return trees;
   };
 
@@ -431,7 +443,10 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
       fish.push({g, tail, z:lerp(Z0 + 3, Z1 - 3, R()), off:(R()*2 - 1)*0.6, tOff:0, sp:(R() < 0.5 ? -1 : 1)*(0.35 + R()*0.5), depth:0.18 + R()*0.22, ph:R()*9, turnT:3 + R()*6, darting:0});
     }
   }
+  // tap a fish and it leaps out of the water
+  W.jumpFish = f => { if (f.jump > 0) return false; f.jump = 0.9; return true; };
   function updateFish(dt, t, pet){
+    if (!fish.hbDone){ fish.hbDone = true; fish.forEach(f => { f.hb = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), hbMat); f.hb.userData.kind = 'fish'; f.hb.userData.ref = f; group.add(f.hb); W.pick.unshift(f.hb); }); }
     const bk = D.river.w/2;
     for (const f of fish){
       f.turnT -= dt;
@@ -445,6 +460,8 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
       f.g.position.set(x0 + n.x*f.off*bk, WATER_Y - f.depth + Math.sin(t*1.3 + f.ph)*0.03, f.z + n.z*f.off*bk);
       f.g.rotation.y = Math.atan2(s/0.6*Math.sign(sp), Math.sign(sp)) + w*0.12;
       f.tail.rotation.y = w*0.6;
+      if (f.jump > 0){ f.jump -= dt; const u = 1 - f.jump/0.9; f.g.position.y = WATER_Y - 0.1 + Math.sin(u*Math.PI)*1.1; f.g.rotation.x = -Math.cos(u*Math.PI)*0.9; } else f.g.rotation.x = 0;
+      if (f.hb) f.hb.position.set(f.g.position.x, WATER_Y + 0.05, f.g.position.z);
     }
   }
 

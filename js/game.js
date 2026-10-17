@@ -4,7 +4,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { cloud } from './cloud.js';
 import { createFauna, SPECIES } from './fauna.js';
 import { createWildlife, WILD_NAMES } from './wildlife.js';
-import { createWorld, newWorld, HALF, WATER_Y, X0, X1, Z0, Z1, BIO, plotKey, PLOT_KEYS, SEE, seeThrough, leafMaterial, CANOPY_BLOBS } from './world.js';
+import { createWorld, newWorld, HALF, WATER_Y, X0, X1, Z0, Z1, BIO, plotKey, PLOT_KEYS, SEE, seeThrough, leafMaterial, swaying, CANOPY_BLOBS } from './world.js';
 
 // Keep r128-era colour handling so the hand-tuned palette and fur shader look the same.
 THREE.ColorManagement.enabled = false;
@@ -246,11 +246,56 @@ const propClone = name => PROP[name] ? PROP[name].clone(true) : null;
 // Wild animals modelled in Blender (blender/animals_build.py): gull, dolphin, whale, owl, eagle, lizard, fish.
 // Animated parts are children named "<animal>_<part>". Optional: without the file the procedural stand-ins are used.
 const ANIM = {};
+// Fur / feathers for the animals: the same shell technique as the wombat, but colours come from the model's painted
+// vertex colours (alpha = how long the fur is there) and nothing is skinned. Meshes named "*_fur" get shells.
+const VS2 = `uniform float uLayer; uniform float uLen;
+varying vec3 vN; varying vec3 vWP; varying vec3 vP; varying vec4 vMask;
+void main(){ vMask = color; vP = position;
+  vec3 p = position + normal*(uLen*uLayer*color.a);
+  vec4 wp = modelMatrix*vec4(p, 1.0); vN = normalize(mat3(modelMatrix)*normal); vWP = wp.xyz;
+  gl_Position = projectionMatrix*viewMatrix*wp; }`;
+const FS2 = `uniform float uLayer; uniform float uDens; uniform vec3 uLight; uniform vec3 uSky; uniform vec3 uGround; uniform float uSun;
+varying vec3 vN; varying vec3 vWP; varying vec3 vP; varying vec4 vMask;
+float h3(vec3 p){ p = fract(p*0.3183099 + 0.1); p *= 17.0; return fract(p.x*p.y*p.z*(p.x + p.y + p.z)); }
+void main(){
+  float n = h3(floor(vP*uDens)), c = h3(floor(vP*uDens*0.12) + 7.0);
+  if (uLayer > 0.001 && n*0.82 + c*0.18 < uLayer) discard;
+  vec3 N = normalize(vN), col = vMask.rgb*(0.9 + 0.2*c)*mix(0.62, 1.06, uLayer);
+  float d = max(0.0, (dot(N, uLight) + 0.35)/1.35); vec3 hemi = mix(uGround, uSky, N.y*0.5 + 0.5);
+  vec3 V = normalize(cameraPosition - vWP); float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0)*0.4*uLayer;
+  gl_FragColor = vec4(col*(hemi*0.5 + d*0.72*uSun) + rim*uSky*0.3, 1.0); }`;
+const FUR_SHELLS = mobile ? 4 : 7;
+const FUR_OF = {gull:[0.012, 120], eagle:[0.016, 110], owl:[0.022, 120], heron:[0.012, 120], beaver:[0.026, 170], kangaroo:[0.03, 150], quokka:[0.022, 190], emu:[0.045, 70], koala:[0.038, 150], deer:[0.014, 170], wolf:[0.036, 130]};
+function furify(mesh, len, dens){
+  const mk = i => new THREE.ShaderMaterial({vertexShader:VS2, fragmentShader:FS2, vertexColors:true,
+    uniforms:{uLayer:{value:i/(FUR_SHELLS - 1)}, uLen:{value:len}, uDens:{value:dens}, uLight:U.uLight, uSky:U.uSky, uGround:U.uGround, uSun:U.uSun}});
+  mesh.material = mk(0);
+  for (let i=1;i<FUR_SHELLS;i++){ const s = new THREE.Mesh(mesh.geometry, mk(i)); s.userData.shell = true; s.raycast = () => {}; mesh.add(s); }
+}
 try {
   const ag = await new GLTFLoader().loadAsync('assets/models/animals.glb');
   ag.scene.children.forEach(o => ANIM[o.name] = o);
-  ag.scene.traverse(o => { if (!o.isMesh) return; const m = o.material; if (m.userData.srgb) return; m.userData.srgb = true; m.color.convertLinearToSRGB(); m.metalness = 0; });
+  ag.scene.traverse(o => { if (!o.isMesh || o.userData.shell) return;
+    const ca = o.geometry.attributes.color;   // painted colours arrive linear: turn them into display values once
+    if (ca && !o.geometry.userData.srgb){ o.geometry.userData.srgb = true; for (let i=0;i<ca.count;i++) for (let k=0;k<3;k++){ const v = ca.getComponent(i, k); ca.setComponent(i, k, v <= 0.0031308 ? v*12.92 : 1.055*Math.pow(v, 1/2.4) - 0.055); } }
+    const m = o.material; if (m.color && !m.userData.srgb){ m.userData.srgb = true; m.color.convertLinearToSRGB(); m.metalness = 0; }
+    const kind = o.name.split('_')[0];
+    if (/_fur$/.test(o.name) && ca) furify(o, ...(FUR_OF[kind] || [0.02, 140]));
+    else if (ca){ o.material = new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.55}); }   // reptiles, dolphins, whales: smooth painted skin
+  });
 } catch(e){ console.warn('animals.glb not loaded', e); }
+// Trees and bushes modelled in Blender (blender/trees_build.py): soft leaf masses painted light-to-dark with vertex colours.
+const TREES = {};
+try {
+  const tg = await new GLTFLoader().loadAsync('assets/models/trees.glb');
+  tg.scene.traverse(o => { if (!o.isMesh) return; const ca = o.geometry.attributes.color; if (ca && !o.geometry.userData.srgb){ o.geometry.userData.srgb = true;
+    for (let i=0;i<ca.count;i++) for (let k=0;k<3;k++){ const v = ca.getComponent(i, k); ca.setComponent(i, k, v <= 0.0031308 ? v*12.92 : 1.055*Math.pow(v, 1/2.4) - 0.055); } } });
+  tg.scene.children.forEach(o => { const t = o.getObjectByName(o.name + '_trunk'), c = o.getObjectByName(o.name + '_canopy'); TREES[o.name] = {trunk: t && t.geometry, canopy: c && c.geometry}; });
+} catch(e){ console.warn('trees.glb not loaded', e); }
+const treeSet = k => Object.keys(TREES).filter(n => n.startsWith('tree_' + k)).sort().map(n => TREES[n]);
+const TREE_MODELS = Object.keys(TREES).length ? {oak:treeSet('oak'), pine:treeSet('pine'), euc:treeSet('euc'), bush:treeSet('bush')} : null;
+// shells only near the camera, to keep phones fast
+const furLOD = (g, near) => { if (g.userData.near === near) return; g.userData.near = near; g.traverse(o => { if (o.userData.shell) o.visible = near; }); };
 // a copy of a Blender animal; `recolor` maps material names to new colours (each copy gets its own materials)
 function animalClone(name, recolor){
   if (!ANIM[name]) return null; const c = ANIM[name].clone(true);
@@ -1360,16 +1405,18 @@ function updatePests(dt){
   }
 }
 // ---------- trees: planted at random when a game starts; some carry a beehive ----------
+const SWAMP_CANOPY = swaying(new THREE.MeshLambertMaterial({vertexColors:true, color:'#97a284'}), 3.6);
 function makeTree(d){
-  // outback trees are tall pale-barked eucalyptus with grey-green leaves; swamp trees are dark and mossy
-  const euc = !!d.euc, lift = euc ? 1.0 : 0, g = new THREE.Group(), bark = mat(euc ? '#e6ddcc' : d.swamp ? '#5a4632' : '#7a5634', 0.95), greens = euc ? ['#8fa58a','#9db394','#7d9478'] : d.swamp ? ['#4b6236','#55703c','#3f5530'] : ['#5f8f3e','#6fa148','#4f7d34'];
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(euc ? 0.12 : 0.16, euc ? 0.22 : 0.27, 1.5 + lift, 9), bark); trunk.position.y = (1.5 + lift)/2; g.add(trunk);
-  for (const s of [-1, 1]){ const br = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 0.6, 6), bark); br.position.set(0.18*s, 1.3, 0.05); br.rotation.z = -0.7*s; g.add(br); }
-  // canopy: a darker solid core wrapped in painted leaf cards (shared with the wild trees in world.js); eucalyptus canopies are flatter and higher
-  const canopy = new THREE.Group(); if (euc){ canopy.position.y = 1.9; canopy.scale.set(1.2, 0.6, 1.2); } g.add(canopy);
-  CANOPY_BLOBS.forEach(([x,y,z,r],i) => { const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r*0.72, 1), new THREE.MeshStandardMaterial({color:new THREE.Color(greens[i%3]).multiplyScalar(0.72), roughness:0.9, flatShading:true, transparent:true}));
-    m.position.set(x, y, z); canopy.add(m); });
-  { const cards = new THREE.Mesh(world.geos.cardGeo, leafMaterial(greens[0])); cards.userData.noFade = true; canopy.add(cards); }   // the cards keep their own swaying, see-through material
+  // the Blender tree (outback trees are eucalyptus, swamp trees get a darker, mossier tint); simple shapes if the model is missing
+  const euc = !!d.euc, g = new THREE.Group(), set = TREE_MODELS && (euc ? TREE_MODELS.euc : TREE_MODELS.oak);
+  if (set && set.length){
+    const m = set[Math.abs(Math.round(d.x*7 + d.z*13)) % set.length];
+    const trunk = new THREE.Mesh(m.trunk, world.TRUNK_M), crown = new THREE.Mesh(m.canopy, d.swamp ? SWAMP_CANOPY : world.CANOPY_M);
+    trunk.userData.noFade = crown.userData.noFade = true; g.add(trunk, crown);
+  } else {
+    const bark = mat(euc ? '#e6ddcc' : '#7a5634', 0.95), trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.27, 1.5, 9), bark); trunk.position.y = 0.75; g.add(trunk);
+    CANOPY_BLOBS.forEach(([x,y,z,r],i) => { const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), new THREE.MeshStandardMaterial({color:['#5f8f3e','#6fa148','#4f7d34'][i%3], roughness:0.9, flatShading:true, transparent:true})); m.position.set(x, y, z); g.add(m); });
+  }
   if (d.hive){
     const h = new THREE.Group(), body = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), mat('#d9a23a', 0.6)); body.scale.set(0.22, 0.3, 0.22); h.add(body);
     for (let i=0;i<3;i++){ const ring = new THREE.Mesh(new THREE.TorusGeometry(0.21 - Math.abs(i-1)*0.05, 0.025, 6, 20), mat('#b07a22', 0.6)); ring.rotation.x = Math.PI/2; ring.position.y = (i-1)*0.12; h.add(ring); }
@@ -1572,7 +1619,7 @@ function pickShell(s){
   addCoins(1, at.add(V3(0, 0.5, 0))); S.shells = (S.shells || 0) + 1; track('shell');
   if (S.shells === 1 || S.shells % 10 === 0) toast(`撿到貝殼了！目前一共撿了 ${S.shells} 個。`);
 }
-const ANIMAL_ICON = {gull:'🐦', dolphin:'🐬', whale:'🐋', owl:'🦉', eagle:'🦅', lizard:'🦎', seafish:'🐠', frog:'🐸', dragonfly:'🪰', turtle:'🐢', croc:'🐊', heron:'🪿', beaver:'🦫', kangaroo:'🦘', quokka:'😊', emu:'🦤', koala:'🐨', crab:'🦀'};
+const ANIMAL_ICON = {fish:'🐟', deer:'🦌', wolf:'🐺', gull:'🐦', dolphin:'🐬', whale:'🐋', owl:'🦉', eagle:'🦅', lizard:'🦎', seafish:'🐠', frog:'🐸', dragonfly:'🪰', turtle:'🐢', croc:'🐊', heron:'🪿', beaver:'🦫', kangaroo:'🦘', quokka:'😊', emu:'🦤', koala:'🐨', crab:'🦀'};
 function pokeAnimal(a){
   const k = (a.kind in WILD_NAMES ? wild : fauna).poke(a), first = !stat('meet:' + k);
   track('meet:' + k); floatSprite(emojiTex(ANIMAL_ICON[k] || '❗'), a.g.position.clone().add(V3(0, 1.4, 0)), {size:0.55, vy:0.6, max:1.4});
@@ -1828,6 +1875,7 @@ function showEmote(ch, dur=2){ emote.material.map = emojiTex(ch); emote.material
 function spawnHearts(n){ const p = headTop(); for (let i=0;i<n;i++) floatSprite(heartTex, p.clone().add(V3(rnd(-0.4,0.4)*petS, rnd(0,0.3), rnd(-0.4,0.4)*petS)), {size:0.32, delay:i*0.15, vx:rnd(-0.2,0.2)}); }
 function sparkles(at, n, spread=1){ for (let i=0;i<n;i++) floatSprite(sparkTex, at.clone().add(V3(rnd(-spread,spread), rnd(0,spread), rnd(-spread,spread))), {size:rnd(0.2,0.45), vy:rnd(0.4,1.4), delay:Math.random()*0.4, add:true, max:1.2, depthTest:false}); }
 function addCoins(n, at){
+  if (n > 0 && typeof track === 'function') track('earned', n);
   S.coins += n; sfx('coin');
   floatSprite(textTex('+'+n, '#e2b53b', 'bold 76px sans-serif', '#5a4310'), at || headTop(), {size:0.6, vy:1.2, max:1.1, depthTest:false});
   hudDirty = true;
@@ -2169,6 +2217,28 @@ const ACH = [
   {id:'daily7', icon:'📅', name:'每天報到', desc:'完成 7 天的全部每日任務', test:() => stat('dailyAll') >= 7, coins:60},
   ...ALL_FORMS.map(f => ({id:'form_' + f, icon:'🧬', name:`圖鑑：${FORMS[f].name}`, desc:`養出${FORMS[f].name}`, test:() => !!(S.formsSeen && S.formsSeen[f]), coins: ['golden','forestx','thunder'].includes(f) ? 120 : ['royal','forest','wind'].includes(f) ? 60 : 25})),
   ...Object.entries({...SPECIES, ...WILD_NAMES}).map(([k, nm]) => ({id:'meet_' + k, icon:ANIMAL_ICON[k] || '🐾', name:`遇見${nm.replace(/（.*/, '')}`, desc:`在野外點一下${nm}`, test:() => stat('meet:' + k) >= 1, coins:15})),
+  {id:'feed100', icon:'🍽️', name:'大胃王的主人', desc:'餵牠吃 100 次東西', test:() => stat('feed') >= 100, coins:50},
+  {id:'drink50', icon:'💧', name:'多喝水', desc:'讓牠喝 50 次水', test:() => stat('drink') >= 50, coins:30},
+  {id:'play50', icon:'🎭', name:'表演家', desc:'表演 50 次招式', test:() => stat('play') >= 50, coins:50},
+  {id:'dig10', icon:'⛏️', name:'挖洞專家', desc:'挖 10 次洞', test:() => stat('dig') >= 10, coins:30},
+  {id:'scratch10', icon:'🌳', name:'磨爪子', desc:'看牠抓樹 10 次', test:() => stat('scratch') >= 10, coins:25},
+  {id:'shell50', icon:'🐚', name:'貝殼大亨', desc:'撿 50 個貝殼', test:() => stat('shell') >= 50, coins:80},
+  {id:'bottle10', icon:'📜', name:'收信人', desc:'打開 10 封瓶中信', test:() => stat('bottle') >= 10, coins:60},
+  {id:'bridge3', icon:'🌉', name:'造橋工程師', desc:'蓋 3 座橋', test:() => stat('bridge') >= 3, coins:50},
+  {id:'swim', icon:'🛟', name:'游泳初體驗', desc:'第一次套著游泳圈下水', test:() => stat('swim') >= 1, coins:20},
+  {id:'swim20', icon:'🏊', name:'游泳健將', desc:'下水游泳 20 次', test:() => stat('swim') >= 20, coins:50},
+  {id:'plot4', icon:'🧭', name:'小地主', desc:'擁有 4 塊領地', test:() => world.data.open.length >= 4, coins:60},
+  {id:'plot8', icon:'🏞️', name:'大地主', desc:'擁有 8 塊領地', test:() => world.data.open.length >= 8, coins:120},
+  {id:'rich', icon:'💰', name:'小富翁', desc:'累積賺到 1000 代幣', test:() => stat('earned') >= 1000, coins:100},
+  {id:'daily30', icon:'🗓️', name:'全勤獎', desc:'完成 30 天的全部每日任務', test:() => stat('dailyAll') >= 30, coins:200},
+  {id:'aff100', icon:'💞', name:'形影不離', desc:'親暱值達到 100', test:() => S.aff >= 99.5, coins:40},
+  {id:'old7', icon:'🎂', name:'一週年……的一週', desc:'陪牠超過 7 天', test:() => S.ageMs >= 7*86400000, coins:80},
+  {id:'gen2', icon:'🥚', name:'新的家人', desc:'養第二隻袋熊', test:() => S.gen >= 2, coins:30},
+  {id:'dye', icon:'🎨', name:'換個髮色', desc:'第一次幫牠染毛', test:() => S.dye != null, coins:15},
+  {id:'clothes5', icon:'👗', name:'衣櫃滿滿', desc:'收集 5 件衣服', test:() => Object.values(S.owned).filter(Boolean).length >= 5, coins:40},
+  {id:'builds10', icon:'🏙️', name:'城市規劃師', desc:'蓋 10 種建築', test:() => Object.values(S.builds).filter(Boolean).length >= 10, coins:100},
+  {id:'fish10', icon:'🎣', name:'看魚跳', desc:'讓魚跳出水面 10 次', test:() => stat('meet:fish') >= 10, coins:25},
+  {id:'meetAll', icon:'🦓', name:'動物博士', desc:'遇見所有的野生動物', test:() => Object.keys({...SPECIES, ...WILD_NAMES}).every(k => stat('meet:' + k) >= 1), coins:300},
   {id:'formsAll', icon:'📖', name:'袋熊圖鑑完成', desc:'養出所有型態的袋熊', test:() => ALL_FORMS.every(f => S.formsSeen && S.formsSeen[f]), coins:500}
 ];
 let achBusy = false;
@@ -2239,6 +2309,12 @@ function sim(m, offline){
   if (growthOK()) S.growth += 0.08*m;
   S.weedTimer -= m;
   if (S.weedTimer <= 0){ spawnWeed(); S.weedTimer = rnd(5,9)*(BG.fence ? 1.5 : 1)*(BG.scarecrow ? 1.3 : 1); }
+  S.bushT = (S.bushT ?? 10) - m;   // now and then a bush grows back somewhere on your land (never rocks or trees)
+  if (S.bushT <= 0 && !offline){ S.bushT = rnd(8, 16); const open = world.data.open;
+    if (world.feats.filter(f => f.d.k === 'bush').length < open.length*2){ const k = open[Math.floor(Math.random()*open.length)], [a, b] = k.split(',').map(Number);
+      for (let i=0;i<12;i++){ const x = a*18 + rnd(-8, 8), z = b*18 + rnd(-8, 8); if (!groundOK(x, z) || world.isBeach(x, z) || world.isMud(x, z) || obstacles().some(o => Math.hypot(o.c.x - x, o.c.z - z) < o.r + 1.2) || Math.hypot(x - pos.x, z - pos.z) < 2.5) continue;
+        if (Object.entries(S.place || {}).some(([id, p]) => { const bd = bdef(id); return bd && bd.size && S.builds[id] && cellsOf(bd, p).some(([cx, cz]) => Math.hypot(cx - x, cz - z) < 1.5); })) continue;
+        world.addBush(x, z, k); NAV.dirty = true; break; } } }
 }
 function decideForm(next){
   const c = S.care, st = S.st;
@@ -3496,6 +3572,8 @@ function up(e){
     else if (k === 'bottle') openBottle(tapObj.userData.ref);
     else if (k === 'crab') pokeCrab(tapObj.userData.ref);
     else if (k === 'animal') pokeAnimal(tapObj.userData.ref);
+    else if (k === 'fish'){ const f = tapObj.userData.ref; if (world.jumpFish(f)){ sfx('splash'); for (let i=0;i<8;i++){ const a = Math.random()*Math.PI*2; floatSprite(radialTex('rgba(225,240,248,1)','rgba(225,240,248,0)'), f.g.position.clone().setY(WATER_Y + 0.1), {size:0.25, vx:Math.cos(a)*1.4, vz:Math.sin(a)*1.4, vy:rnd(2,3), g:9, max:0.7, grow:0}); }
+      const first = !stat('meet:fish'); track('meet:fish'); if (first) toast('魚兒跳出水面了！'); } }
     hudDirty = true;
   } else if (quick && mode === 'orbit' && !locked()){
     const p = groundHit(e), key = p && plotKey(p.x, p.z);
@@ -3613,17 +3691,21 @@ function importSave(){
 [...FOODS, ...DRINKS].forEach(f => { if (f.price && inv(f.id) > 0){ S.food = S.food || {}; S.food[f.id] = true; S.inv[f.id] = 0; } });
 const worldIsNew = !S.world;
 if (worldIsNew) S.world = newWorld(Math.floor(Math.random()*2147483647));
-world = createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fishModel, onFeatGone:() => { NAV.dirty = true; }});
+world = createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fishModel, treeModels:TREE_MODELS, onFeatGone:() => { NAV.dirty = true; }});
 world.load(S.world);
 Object.keys(S.builds).forEach(id => S.builds[id] && build(id));
 if (!S.trees) plantTrees();
+// thin out the wild land once (fewer rocks, bushes and trees in plots not yet cleared; all rocks a bit smaller)
+if (!S.world.trim){ S.world.trim = 1; const keep = id => (id*2654435761 >>> 0) % 100 > 40;
+  S.world.feats = S.world.feats.filter(d => world.isOpenKey(d.p) || keep(d.id)); S.world.feats.forEach(d => { if (d.k === 'rock') d.s = +(d.s*0.72).toFixed(2); });
+  S.trees = S.trees.filter((t, i) => !t.p || world.isOpenKey(t.p) || i % 3 !== 0); }
 seedWorldNature();   // fills any plot that has no rocks, bushes or trees yet (new worlds, and the plots added when the world grew to 4 × 4)
 S.trees.filter(d => world.isOpenKey(d.p || '0,0')).forEach(makeTree); applyBumps();
 world.showFeats();
-const fauna = createFauna({scene, world, mat, hbMat, onSound: n => sfx(n)});
+const fauna = createFauna({scene, world, mat, hbMat, onSound: n => sfx(n), clone: n => animalClone(n), lod:furLOD});
 const koalaPerches = () => fauna.setPerches(trees.filter(tr => tr.d.euc && !tr.cut).map(tr => tr.d));
 koalaPerches();
-const wild = createWildlife({scene, world, clone:animalClone, hbMat, fx:{
+const wild = createWildlife({scene, world, clone:animalClone, hbMat, lod:furLOD, fx:{
   splash:(p, k) => { for (let i=0;i<10*k;i++){ const a = Math.random()*Math.PI*2; floatSprite(radialTex('rgba(225,240,248,1)','rgba(225,240,248,0)'), p.clone().setY(WATER_Y + 0.1), {size:0.35*k, vx:Math.cos(a)*rnd(1,2)*k, vz:Math.sin(a)*rnd(1,2)*k, vy:rnd(2,4)*k, g:9, max:0.9, grow:0}); } },
   spout:p => { for (let i=0;i<24;i++) floatSprite(radialTex('rgba(240,248,252,0.95)','rgba(240,248,252,0)'), p.clone(), {size:rnd(0.5,0.9), vx:rnd(-0.5,0.5), vz:rnd(-0.5,0.5), vy:rnd(5,8), g:6, max:1.6, grow:0.8, delay:i*0.02}); } }});
 const wildPlaces = () => wild.setPlaces(trees.filter(tr => !tr.cut).map(tr => tr.d), world.feats.filter(f => f.d.k === 'rock' && f.d.s > 0.5).map(f => ({x:f.d.x, z:f.d.z, y:f.g.position.y + 0.85*f.d.s})));
@@ -3740,6 +3822,7 @@ function step(manual){
     justLanded -= dt;
     // in the water (with the swim ring) the wombat floats, body half under the surface; the ring appears on its own
     swimming = petActive() && root.visible && pos.y < 0.4 && world.isWater(pos.x, pos.z) && world.bridgeAt(pos.x, pos.z) == null;
+    if (swimming && !swimRing.visible) track('swim');
     swimRing.visible = swimming; shadow.g.visible = root.visible && !swimming;
     if (swimming && Math.random() < dt*(gaitW > 0.3 ? 5 : 1)) floatSprite(radialTex('rgba(225,240,248,0.8)','rgba(225,240,248,0)'), V3(pos.x + rnd(-0.5,0.5)*petS, WATER_Y + 0.03, pos.z + rnd(-0.5,0.5)*petS), {size:0.4*Math.max(petS,0.6), vy:0, max:1.2, grow:1.5});
     petGY += ((swimming ? WATER_Y - 0.5*petS + Math.sin(t*2)*0.03 : gy(pos.x, pos.z)) - petGY)*Math.min(1, dt*(swimming ? 5 : 15));

@@ -9,9 +9,9 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const lerp = (a, b, t) => a + (b - a)*t;
 const rnd = (a, b) => a + Math.random()*(b - a);
 const wrapA = a => { while (a > Math.PI) a -= 2*Math.PI; while (a < -Math.PI) a += 2*Math.PI; return a; };
-export const WILD_NAMES = {gull:'海鷗', dolphin:'海豚', whale:'鯨魚', owl:'貓頭鷹', eagle:'老鷹', lizard:'蜥蜴', seafish:'熱帶魚'};
+export const WILD_NAMES = {fish:'河裡的魚', gull:'海鷗', dolphin:'海豚', whale:'鯨魚', owl:'貓頭鷹', eagle:'老鷹', lizard:'蜥蜴', seafish:'熱帶魚'};
 
-export function createWildlife({scene, world, clone, hbMat, fx}){
+export function createWildlife({scene, world, clone, hbMat, fx, lod}){
   const L = {list:[], pick:[]}, group = new THREE.Group(); scene.add(group);
   const gy = world.gy, shore = world.shoreX;
   const part = (g, n) => g.getObjectByName(n);
@@ -19,7 +19,10 @@ export function createWildlife({scene, world, clone, hbMat, fx}){
     group.add(g); const hb = new THREE.Mesh(new THREE.SphereGeometry(o.hit || 0.6, 8, 6), hbMat); hb.userData.kind = 'animal'; hb.position.y = o.hitY || 0; g.add(hb);
     const a = {kind, g, hb, t:Math.random()*10, timer:rnd(1, 5), state:'idle', ...o}; hb.userData.ref = a; L.list.push(a); L.pick.push(hb); return a;
   }
-  const flap = (a, speed, amp, glide = 0) => { const w = Math.sin(a.t*speed)*amp*(1 - glide) + glide*0.08, l = part(a.g, a.kind + '_wingL'), r = part(a.g, a.kind + '_wingR'); if (l) l.rotation.z = w; if (r) r.rotation.z = -w; };
+  // wings: flapping rotates them about the body axis; folding swings them back along the body (as birds do when they rest)
+  const flap = (a, speed, amp, glide = 0) => { const w = Math.sin(a.t*speed)*amp*(1 - glide) + glide*0.08, l = part(a.g, a.kind + '_wingL'), r = part(a.g, a.kind + '_wingR');
+    a.fold = Math.max(0, (a.fold || 0) - 0.08); if (l) l.rotation.set(0, 1.45*a.fold, w*(1 - a.fold)); if (r) r.rotation.set(0, -1.45*a.fold, -w*(1 - a.fold)); };
+  const fold = a => { a.fold = Math.min(1, (a.fold || 0) + 0.1); const l = part(a.g, a.kind + '_wingL'), r = part(a.g, a.kind + '_wingR'); if (l) l.rotation.set(0, 1.45*a.fold, -0.12*a.fold); if (r) r.rotation.set(0, -1.45*a.fold, 0.12*a.fold); };
   const faceDir = (a, dx, dz, dt, k = 3) => { a.g.rotation.y += clamp(wrapA(Math.atan2(dx, dz) - a.g.rotation.y), -k*dt, k*dt); };
 
   // seagulls circling over the beach, sometimes landing on the sand
@@ -70,12 +73,12 @@ export function createWildlife({scene, world, clone, hbMat, fx}){
     for (const a of L.list){
       const p = a.g.position; a.t += dt; a.timer -= dt;
       if (a.kind === 'dolphin' || a.kind === 'whale') continue;
-      const far = Math.hypot(p.x - cam.x, p.z - cam.z) > 70; if (far && a.kind !== 'eagle'){ if (a.kind !== 'owl' && a.kind !== 'lizard') a.g.visible = false; continue; }
+      const camD = Math.hypot(p.x - cam.x, p.z - cam.z), far = camD > 70; lod && lod(a.g, camD < 24); if (far && a.kind !== 'eagle'){ if (a.kind !== 'owl' && a.kind !== 'lizard') a.g.visible = false; continue; }
       const petD = pet ? Math.hypot(p.x - pet.x, p.z - pet.z) : 99;
       switch (a.kind){
         case 'gull': {
           a.g.visible = true;
-          if (a.state === 'land'){ flap(a, 0, 0, 1); part(a.g, 'gull_wingL').rotation.z = -0.9; part(a.g, 'gull_wingR').rotation.z = 0.9;
+          if (a.state === 'land'){ fold(a); a.g.rotation.z = 0;
             if (a.timer <= 0 || petD < 3){ a.state = 'idle'; a.timer = rnd(10, 25); if (petD < 3) o.onSound && o.onSound('gull'); }
             else if (Math.random() < dt*0.4){ a.g.rotation.y += rnd(-1, 1); } break; }
           a.ang += a.dir*dt*0.35; const x = shore(a.cz) + Math.cos(a.ang)*a.rad - 1, z = a.cz + Math.sin(a.ang)*a.rad*1.5;
@@ -92,6 +95,8 @@ export function createWildlife({scene, world, clone, hbMat, fx}){
           break; }
         case 'owl': {
           a.g.visible = night && !!a.perch;
+          if (!a.iris){ a.iris = []; a.g.traverse(m => { if (m.isMesh && /^Iris/.test(m.material.name || '')) a.iris.push(m.material); }); }
+          a.iris.forEach(m => { if (m.emissive){ m.emissive.set('#ffb020'); m.emissiveIntensity = night ? 1.5 : 0; } });   // eyes glow in the dark
           if (!a.g.visible) break;
           const tr = a.perch; p.set(tr.x + Math.sin(tr.ry || 0)*0.25*tr.s, gy(tr.x, tr.z) + (tr.euc ? 3.25 : 2.85)*tr.s, tr.z + Math.cos(tr.ry || 0)*0.25*tr.s);   // on the treetop
           a.g.rotation.y = Math.atan2(cam.x - p.x, cam.z - p.z);   // owls keep an eye on you
@@ -100,7 +105,7 @@ export function createWildlife({scene, world, clone, hbMat, fx}){
         case 'eagle': {
           a.g.visible = !night;
           if (a.state === 'perch'){ const tr = a.perch; if (!tr || !trees.includes(tr)){ a.state = 'idle'; break; }
-            p.set(tr.x, gy(tr.x, tr.z) + (tr.euc ? 3.4 : 2.9)*tr.s, tr.z); part(a.g, 'eagle_wingL').rotation.z = -1.2; part(a.g, 'eagle_wingR').rotation.z = 1.2; a.g.rotation.x = 0;
+            p.set(tr.x, gy(tr.x, tr.z) + (tr.euc ? 3.4 : 2.9)*tr.s + 0.45, tr.z); fold(a); a.g.rotation.x = 0; a.g.rotation.z = 0;
             if (a.timer <= 0 || petD < 4){ a.state = 'idle'; a.timer = rnd(20, 40); o.onSound && o.onSound('eagle'); } break; }
           if (a.state === 'toTree'){ const tr = a.perch, top = V3(tr.x, gy(tr.x, tr.z) + (tr.euc ? 3.4 : 2.9)*tr.s, tr.z), d = top.clone().sub(p);
             if (d.length() < 0.3){ a.state = 'perch'; a.timer = rnd(10, 22); break; } p.addScaledVector(d.normalize(), Math.min(d.length(), dt*4)); faceDir(a, d.x, d.z, dt, 3); flap(a, 5, 0.4); break; }
