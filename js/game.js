@@ -265,7 +265,7 @@ void main(){
   vec3 V = normalize(cameraPosition - vWP); float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0)*0.4*uLayer;
   gl_FragColor = vec4(col*(hemi*0.5 + d*0.72*uSun) + rim*uSky*0.3, 1.0); }`;
 const FUR_SHELLS = mobile ? 4 : 7;
-const FUR_OF = {beaver:[0.026, 170], kangaroo:[0.03, 150], quokka:[0.022, 190], emu:[0.045, 70], koala:[0.038, 150], deer:[0.014, 170], wolf:[0.036, 130]};
+const FUR_OF = {horse:[0.009, 280], tiger:[0.016, 170], capybara:[0.016, 110], beaver:[0.026, 170], kangaroo:[0.03, 150], quokka:[0.022, 190], emu:[0.045, 70], koala:[0.038, 150], deer:[0.014, 170], wolf:[0.036, 130]};
 function furify(mesh, len, dens){
   const mk = i => new THREE.ShaderMaterial({vertexShader:VS2, fragmentShader:FS2, vertexColors:true,
     uniforms:{uLayer:{value:i/(FUR_SHELLS - 1)}, uLen:{value:len}, uDens:{value:dens}, uLight:U.uLight, uSky:U.uSky, uGround:U.uGround, uSun:U.uSun}});
@@ -1797,7 +1797,7 @@ function pickShell(s){
   if (S.shells === 1 || S.shells % 10 === 0) toast(`撿到貝殼了！目前一共撿了 ${S.shells} 個。`);
 }
 let wetUntil = 0;
-const ANIMAL_ICON = {rabbit:'🐇', beetle:'🪲', worm:'🪱', fish:'🐟', deer:'🦌', wolf:'🐺', gull:'🐦', dolphin:'🐬', whale:'🐋', owl:'🦉', eagle:'🦅', lizard:'🦎', seafish:'🐠', frog:'🐸', dragonfly:'🪰', turtle:'🐢', croc:'🐊', heron:'🪿', beaver:'🦫', kangaroo:'🦘', quokka:'😊', emu:'🦤', koala:'🐨', crab:'🦀'};
+const ANIMAL_ICON = {horse:'🐎', tiger:'🐅', hippo:'🦛', capybara:'🐹', tortoise:'🐢', snake:'🐍', peacock:'🦚', rabbit:'🐇', beetle:'🪲', worm:'🪱', fish:'🐟', deer:'🦌', wolf:'🐺', gull:'🐦', dolphin:'🐬', whale:'🐋', owl:'🦉', eagle:'🦅', lizard:'🦎', seafish:'🐠', frog:'🐸', dragonfly:'🪰', turtle:'🐢', croc:'🐊', heron:'🪿', beaver:'🦫', kangaroo:'🦘', quokka:'😊', emu:'🦤', koala:'🐨', crab:'🦀'};
 function pokeAnimal(a){
   const k = (a.kind in WILD_NAMES ? wild : fauna).poke(a), first = !stat('meet:' + k);
   track('meet:' + k); floatSprite(emojiTex(ANIMAL_ICON[k] || '❗'), a.g.position.clone().add(V3(0, 1.4, 0)), {size:0.55, vy:0.6, max:1.4});
@@ -1807,7 +1807,8 @@ let scareCd = 0;
 function animalScare(kind){   // a crocodile snapping near the wombat makes it jump back
   if (!petActive() || scareCd > performance.now()) return; scareCd = performance.now() + 6000;
   showEmote('😱', 1.6); cry('sad'); vel.y = 2.6*petS + 1; sqv += 2;
-  if (!S.toldCroc){ S.toldCroc = true; toast(`鱷魚張大嘴巴！${S.name || '牠'}嚇了一大跳。`); }
+  const who = {croc:'鱷魚張大嘴巴', tiger:'老虎低吼了一聲', hippo:'河馬張開大嘴'}[kind] || '';
+  if (who && !(S.toldScare || {})[kind]){ S.toldScare = {...(S.toldScare || {}), [kind]:1}; toast(`${who}！${S.name || '牠'}嚇了一大跳。`); }
 }
 function pokeCrab(c){ c.hide = c.hermit ? 3 : 0; if (!c.hermit){ const a = Math.random()*6.28; c.tgt.set(c.g.position.x + Math.sin(a)*2.5, 0, c.g.position.z + Math.cos(a)*2.5); c.wait = 0; } sfx('pop'); }
 function updateBeach(dt, t){
@@ -3936,7 +3937,7 @@ seedWorldNature();   // fills any plot that has no rocks, bushes or trees yet (n
 S.trees.filter(d => world.isOpenKey(d.p || '0,0')).forEach(makeTree); applyBumps();
 world.showFeats();
 const fauna = createFauna({scene, world, mat, hbMat, onSound: (n, at) => sfx(n, at), clone: n => animalClone(n), lod:furLOD});
-const koalaPerches = () => fauna.setPerches(trees.filter(tr => tr.d.euc && !tr.cut).map(tr => tr.d));
+const koalaPerches = () => fauna.setPerches([...trees.filter(tr => tr.d.euc && !tr.cut).map(tr => tr.d), ...world.lockedEucs(BIO.aus)]);
 koalaPerches();
 const wild = createWildlife({scene, world, clone:animalClone, hbMat, mat, lod:furLOD, fx:{
   splash:(p, k) => { for (let i=0;i<10*k;i++){ const a = Math.random()*Math.PI*2; floatSprite(radialTex('rgba(225,240,248,1)','rgba(225,240,248,0)'), p.clone().setY(WATER_Y + 0.1), {size:0.35*k, vx:Math.cos(a)*rnd(1,2)*k, vz:Math.sin(a)*rnd(1,2)*k, vy:rnd(2,4)*k, g:9, max:0.9, grow:0}); } },

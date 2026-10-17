@@ -11,7 +11,7 @@ const rnd = (a, b) => a + Math.random()*(b - a);
 const wrapA = a => { while (a > Math.PI) a -= 2*Math.PI; while (a < -Math.PI) a += 2*Math.PI; return a; };
 const plotC = k => k.split(',').map(Number).map(v => v*PLOT);
 
-export const SPECIES = {deer:'梅花鹿', wolf:'狼', frog:'青蛙', dragonfly:'蜻蜓', turtle:'烏龜', croc:'鱷魚', heron:'蒼鷺', beaver:'河狸', kangaroo:'袋鼠', quokka:'短尾矮袋鼠（微笑袋鼠）', emu:'鴯鶓', koala:'無尾熊'};
+export const SPECIES = {horse:'馬', tiger:'老虎', hippo:'河馬', capybara:'水豚', tortoise:'陸龜', snake:'蛇', peacock:'孔雀', deer:'梅花鹿', wolf:'狼', frog:'青蛙', dragonfly:'蜻蜓', turtle:'烏龜', croc:'鱷魚', heron:'蒼鷺', beaver:'河狸', kangaroo:'袋鼠', quokka:'短尾矮袋鼠（微笑袋鼠）', emu:'鴯鶓', koala:'無尾熊'};
 
 export function createFauna({scene, world, mat, hbMat, onSound, clone, lod}){
   const model = (name, fn) => { const m = clone && clone(name); return m ? (fn && fn(m)) || m : null; };   // the Blender model when there is one
@@ -214,6 +214,35 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, lod}){
   const legSwing = (a, amp, speed) => { for (const n of ['FL', 'FR', 'BL', 'BR']){ const l = a.g.getObjectByName(a.kind + '_leg' + n); if (l) l.rotation.x = Math.sin(a.t*speed + (n[0] === 'F' ? 0 : Math.PI) + (n[1] === 'L' ? 0 : Math.PI*0.5))*amp; } };
   const onHigh = (x, z) => world.inBio('high', x, z) && gy(x, z) > D.bio.high.h - 0.6;
   const highSpot = () => { for (let i=0;i<40;i++){ const p = inPlot(BIO.high, 3); if (onHigh(p.x, p.z)) return p; } return inPlot(BIO.high, 4); };
+  // ---------- the grassland (大草原): horses, two tigers (never more), peacocks, tortoises; hippos and capybaras along its river; snakes ----------
+  const SV = BIO.savanna, [svx, svz] = plotC(SV), inSv = (x, z) => world.inBio('savanna', x, z);
+  const svLand = (m = 2) => { for (let i=0;i<60;i++){ const q = inPlot(SV, m); if (!world.isWater(q.x, q.z) && world.slope(q.x, q.z) < 0.6 && world.riverDist(q.x, q.z) > D.river.w/2 + 1.2) return q; } return inPlot(SV, m); };
+  const svRiver = () => { const z = svz + rnd(-PLOT/2 + 2, PLOT/2 - 2); return V3(world.riverX(z) + rnd(-0.4, 0.4), 0, z); };
+  const svBank = (side = Math.random() < 0.5 ? 1 : -1) => { const z = svz + rnd(-PLOT/2 + 2, PLOT/2 - 2); return V3(world.riverX(z) + side*(D.river.w/2 + rnd(0.8, 2.2)), 0, z); };
+  const put = (kind, n, at, o = {}, scale = 1) => { for (let i=0;i<n;i++){ const g = clone && clone(kind); if (!g) return; g.scale.setScalar(scale*(o.vary ? rnd(0.9, 1.08) : 1)); const q = at(i); g.position.set(q.x, gy(q.x, q.z), q.z); g.rotation.y = rnd(0, 6.28);
+    add(kind, g, {...o, home:q.clone()}); } };
+  put('horse', 3, () => svLand(), {hit:1.1, hitY:1.2, vary:true});
+  put('tiger', 2, () => svLand(3), {hit:0.9, hitY:0.6});
+  put('peacock', 2, () => svLand(), {hit:0.5, hitY:0.8});
+  put('tortoise', 2, () => svLand(), {hit:0.45, hitY:0.2});
+  put('capybara', 3, () => svBank(), {hit:0.55, hitY:0.35});
+  put('hippo', 2, () => svRiver(), {hit:1.6, hitY:0.6});
+  { const [swx_, swz_] = plotC(BIO.swamp); put('snake', 1, () => svLand(), {hit:0.5, hitY:0.05}); put('snake', 1, () => landIn(BIO.swamp), {hit:0.5, hitY:0.05}); }
+  F.list.forEach(a => { if (a.kind === 'hippo'){ a.g.position.y = WATER_Y - 0.95; } });
+  // snakes slither: a wave runs down the body in the vertex shader (the head stays steady)
+  F.list.filter(a => a.kind === 'snake').forEach(a => { const u = {value:0}; a.wave = u; a.g.traverse(o => { if (!o.isMesh || o.name !== 'snake_body') return;
+    const m = new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.45});
+    m.onBeforeCompile = sh => { sh.uniforms.uT = u; sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uT;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\ntransformed.x += sin(position.z*9.0 + uT)*0.085*smoothstep(0.72, 0.3, position.z);');
+      sh.fragmentShader = sh.fragmentShader.replace('#include <color_fragment>', '#ifdef USE_COLOR_ALPHA\n diffuseColor.rgb *= vColor.rgb;\n#endif')
+        .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n#ifdef USE_COLOR_ALPHA\n roughnessFactor = mix(roughnessFactor, 0.15, vColor.a);\n#endif'); };
+    m.customProgramCacheKey = () => 'snake'; o.material = m; }); a.tongue = a.g.getObjectByName('snake_tongue'); });
+  const pt = (g, n) => (g.userData.pt || (g.userData.pt = {}))[n] ?? (g.userData.pt[n] = g.getObjectByName(n));
+  const goTo = (a, dest, speed, dt, ok = () => true, turn = 3) => { const d = V3(dest.x - a.g.position.x, 0, dest.z - a.g.position.z), L_ = d.length();
+    if (L_ < 0.3) return true; d.normalize(); const nx = a.g.position.x + d.x*0.6, nz = a.g.position.z + d.z*0.6;
+    if (!ok(nx, nz)) return true; a.g.position.addScaledVector(d, Math.min(L_, dt*speed)); face(a, d.x, d.z, dt, turn); return false; };
+  const svOK = (x, z) => inSv(x, z) && !world.isWater(x, z);
+
   // koalas climb the outback's eucalyptus trees (game.js tells us where they are)
   F.setPerches = list => { let i = 0; for (const a of F.list) if (a.kind === 'koala'){ const t = list[i++]; a.perch = t || null; } };
 
@@ -347,6 +376,82 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, lod}){
           else legSwing(a, 0, 1);
           p.y = gy(p.x, p.z);
           break; }
+        case 'horse': {   // graze in a loose herd, wander, and gallop off when the wombat comes close
+          const neck = pt(a.g, 'horse_neck'), tail = pt(a.g, 'horse_tail');
+          if (petD < 4.5 && a.state !== 'run'){ a.state = 'run'; a.timer = rnd(2.5, 4); a.dest = p.clone().addScaledVector(V3(p.x - pet.x, 0, p.z - pet.z).normalize(), 9); }
+          if (a.timer <= 0){ if (a.state === 'graze' && Math.random() < 0.5){ a.state = 'walk'; a.timer = rnd(4, 8); a.dest = svLand(); } else { a.state = 'graze'; a.timer = rnd(5, 12); } }
+          let moving = false;
+          if ((a.state === 'walk' || a.state === 'run') && a.dest){ moving = !goTo(a, a.dest, a.state === 'run' ? 5 : 1.1, dt, svOK, 3); if (!moving){ a.state = 'graze'; a.timer = rnd(4, 9); } }
+          legSwing(a, a.state === 'run' && moving ? 0.8 : moving ? 0.35 : 0, a.state === 'run' ? 13 : 6);
+          if (neck) neck.rotation.x += ((a.state === 'graze' ? 1.0 + Math.sin(a.t*1.5)*0.05 : a.state === 'run' ? -0.15 : 0.1) - neck.rotation.x)*Math.min(1, dt*3);
+          if (tail) tail.rotation.y = Math.sin(a.t*(a.state === 'run' ? 8 : 2.2))*0.35;
+          p.y = gy(p.x, p.z) + (a.state === 'run' && moving ? Math.abs(Math.sin(a.t*6.5))*0.18 : 0);
+          break; }
+        case 'tiger': {   // prowls the grassland, lies down to rest, stares and growls at the wombat (but never chases it)
+          const head = pt(a.g, 'tiger_head'), tail = pt(a.g, 'tiger_tail');
+          if (tail) tail.rotation.y = Math.sin(a.t*(a.state === 'warn' ? 6 : 1.4))*0.35;
+          if (pet && petD < 4 && a.state !== 'leave'){ if (a.state !== 'warn'){ a.state = 'warn'; a.timer = 2.2; sound('growl', p); o.onScare && o.onScare('tiger'); } }
+          if (a.state === 'warn'){ face(a, pet ? pet.x - p.x : 0, pet ? pet.z - p.z : 1, dt, 4); legSwing(a, 0, 1); a.g.rotation.x = 0.08;
+            if (a.timer <= 0){ a.state = 'leave'; a.timer = 6; a.dest = pet ? p.clone().addScaledVector(V3(p.x - pet.x, 0, p.z - pet.z).normalize(), 8) : svLand(); a.g.rotation.x = 0; } break; }
+          if (a.timer <= 0){ const r_ = Math.random(); if (r_ < 0.35){ a.state = 'rest'; a.timer = rnd(8, 16); } else { a.state = 'prowl'; a.timer = rnd(6, 12); a.dest = svLand(3); } }
+          let moving = false;
+          if ((a.state === 'prowl' || a.state === 'leave') && a.dest){ moving = !goTo(a, a.dest, a.state === 'leave' ? 2.2 : 0.9, dt, svOK, 2.5); if (!moving){ a.state = 'rest'; a.timer = rnd(5, 10); } }
+          legSwing(a, moving ? 0.45 : 0, a.state === 'leave' ? 9 : 5);
+          const lie = a.state === 'rest' ? 1 : 0; a.lie = (a.lie || 0) + (lie - (a.lie || 0))*Math.min(1, dt*2);
+          for (const n of ['FL', 'FR', 'BL', 'BR']){ const l = pt(a.g, 'tiger_leg' + n); if (l && a.lie > 0.02) l.rotation.x = (n[0] === 'F' ? -1.25 : 1.3)*a.lie; }   // legs tucked forward/back when lying
+          if (head){ const look = pet && petD < 9 ? wrapA(Math.atan2(pet.x - p.x, pet.z - p.z) - a.g.rotation.y) : Math.sin(a.t*0.3)*0.5; head.rotation.y += (clamp(look, -1, 1) - head.rotation.y)*Math.min(1, dt*3); }
+          p.y = gy(p.x, p.z) - a.lie*0.4;
+          if (pet && petD < 9 && a.state === 'rest' && Math.random() < dt*0.05) sound('growl', p);
+          break; }
+        case 'hippo': {   // floats in the river with just eyes, ears and back showing; yawns hugely; ducks under now and then
+          const jaw = pt(a.g, 'hippo_jaw'), head = pt(a.g, 'hippo_head');
+          if (a.state === 'under'){ p.y += ((WATER_Y - 1.6) - p.y)*Math.min(1, dt*2); if (a.timer <= 0){ a.state = 'idle'; a.timer = rnd(6, 12); } break; }
+          if (pet && petD < 3.5 && a.state !== 'yawn' && !(a.cool > 0)){ a.state = 'yawn'; a.timer = 2.4; a.cool = 12; o.onScare && o.onScare('hippo'); }
+          a.cool = (a.cool || 0) - dt;
+          const open = a.state === 'yawn' ? Math.sin(Math.min(1, (2.4 - a.timer)/2.4)*Math.PI) : 0;
+          if (jaw) jaw.rotation.x = open*1.0; if (head) head.rotation.x = -open*0.45;
+          if (a.state === 'yawn'){ if (a.timer <= 0){ a.state = 'idle'; a.timer = rnd(5, 10); } p.y += ((WATER_Y - 0.7) - p.y)*Math.min(1, dt*3); break; }
+          if (a.timer <= 0){ const r_ = Math.random(); if (r_ < 0.3){ a.state = 'yawn'; a.timer = 2.4; } else if (r_ < 0.5){ a.state = 'under'; a.timer = rnd(4, 8); } else { a.dest = svRiver(); a.timer = rnd(8, 14); } }
+          if (a.dest) goTo(a, a.dest, 0.4, dt, (x, z) => world.isWater(x, z) && inSv(x, z), 1);
+          p.y += ((WATER_Y - 0.95 + Math.sin(a.t*0.8)*0.03) - p.y)*Math.min(1, dt*2);
+          break; }
+        case 'capybara': {   // calm: grazes on the bank, has a swim, and doesn't mind the wombat at all
+          const wet = world.isWater(p.x, p.z);
+          if (a.timer <= 0){ const r_ = Math.random(); a.timer = rnd(6, 12);
+            if (r_ < 0.25){ a.dest = svRiver(); a.state = 'swim'; } else if (r_ < 0.6){ a.dest = svBank(Math.sign(p.x - world.riverX(p.z)) || 1); a.state = 'walk'; } else { a.state = 'rest'; if (pet && petD < 5) o.onZzz && o.onZzz(p.clone().add(V3(0, 0.6, 0))); } }
+          if (a.dest && a.state !== 'rest'){ if (goTo(a, a.dest, 0.6, dt, (x, z) => inSv(x, z), 2)) a.dest = null; }
+          p.y = wet ? WATER_Y - 0.36 + Math.sin(a.t*1.2)*0.02 : gy(p.x, p.z);
+          break; }
+        case 'tortoise': {   // plods slowly, munches, pulls its head in when the wombat comes close
+          const head = pt(a.g, 'tortoise_head'), shy = petD < 2.2 || a.shy > 0; a.shy = (a.shy || 0) - dt;
+          if (head){ if (head.userData.z0 === undefined) head.userData.z0 = head.position.z; head.position.z += ((head.userData.z0 - (shy ? 0.12 : 0)) - head.position.z)*Math.min(1, dt*5); head.rotation.x = !shy && a.state === 'eat' ? 0.4 + Math.sin(a.t*6)*0.1 : 0; }
+          if (a.timer <= 0){ a.timer = rnd(6, 14); if (Math.random() < 0.5){ a.state = 'eat'; } else { a.state = 'walk'; a.dest = p.clone().add(V3(rnd(-3, 3), 0, rnd(-3, 3))); } }
+          let moving = false; if (!shy && a.state === 'walk' && a.dest){ moving = !goTo(a, a.dest, 0.12, dt, svOK, 0.6); }
+          for (const n of ['FL', 'FR', 'BL', 'BR']){ const l = pt(a.g, 'tortoise_leg' + n); if (l) l.rotation.x = moving ? Math.sin(a.t*2.4 + (n === 'FL' || n === 'BR' ? 0 : Math.PI))*0.3 : 0; }
+          p.y = gy(p.x, p.z);
+          break; }
+        case 'snake': {   // slithers through the grass flicking its tongue; slips away (hidden) when the wombat comes near
+          if (a.state === 'hide'){ a.g.visible = false; if (a.timer <= 0 && petD > 6){ a.state = 'idle'; a.timer = rnd(2, 4); } break; }
+          if (petD < 2.5){ a.state = 'flee'; a.timer = 1.4; a.dest = p.clone().addScaledVector(V3(p.x - pet.x, 0, p.z - pet.z).normalize(), 4); sound('scurry', p); }
+          if (a.tongue) a.tongue.scale.setScalar(Math.sin(a.t*7) > 0.6 ? 1 : 0.01);
+          if (a.state === 'flee'){ goTo(a, a.dest, 2.2, dt, () => true, 6); a.wave.value += dt*14; if (a.timer <= 0){ a.state = 'hide'; a.timer = rnd(10, 20); } p.y = gy(p.x, p.z); break; }
+          if (a.timer <= 0){ a.timer = rnd(4, 9); if (Math.random() < 0.6){ a.state = 'move'; a.dest = p.clone().add(V3(rnd(-4, 4), 0, rnd(-4, 4))); } else a.state = 'idle'; }
+          if (a.state === 'move' && a.dest){ const ok = (x, z) => !world.isWater(x, z) && world.slope(x, z) < 0.7; if (goTo(a, a.dest, 0.45, dt, ok, 1.5)) a.state = 'idle'; else a.wave.value += dt*4.5; }
+          p.y = gy(p.x, p.z);
+          break; }
+        case 'peacock': {   // pecks about; spreads its tail into a shimmering fan when the wombat comes close (or when you tap it)
+          const fan = pt(a.g, 'peacock_fan'), train = pt(a.g, 'peacock_train'), neck = pt(a.g, 'peacock_neck');
+          if (petD < 4.5 && !(a.show > 0) && !(a.cool > 0)){ a.show = 6; a.cool = 15; }
+          a.show = (a.show || 0) - dt; a.cool = (a.cool || 0) - dt;
+          const k = a.show > 0 ? Math.min(1, (6 - a.show)*2, a.show*2) : 0; a.fanK = (a.fanK || 0) + (k - (a.fanK || 0))*Math.min(1, dt*5);
+          if (fan){ fan.visible = a.fanK > 0.02; fan.scale.setScalar(Math.max(0.02, a.fanK)); fan.rotation.y = Math.sin(a.t*18)*0.02*a.fanK; }
+          if (train) train.visible = a.fanK < 0.5;
+          if (a.show > 0 && pet){ face(a, pet.x - p.x, pet.z - p.z, dt, 2); break; }
+          if (a.timer <= 0){ a.timer = rnd(3, 7); if (Math.random() < 0.5){ a.state = 'walk'; a.dest = svLand(); } else a.state = 'peck'; }
+          if (neck) neck.rotation.x = a.state === 'peck' ? Math.max(0, Math.sin(a.t*5))*1.1 : 0;
+          if (a.state === 'walk' && a.dest && goTo(a, a.dest, 0.6, dt, svOK, 3)) a.state = 'peck';
+          p.y = gy(p.x, p.z) + (a.state === 'walk' ? Math.abs(Math.sin(a.t*7))*0.02 : 0);
+          break; }
         case 'koala': {
           if (a.perch){ p.set(a.perch.x + 0.32*Math.sin(a.perch.ry || 0), gy(a.perch.x, a.perch.z) + 1.25*a.perch.s, a.perch.z + 0.32*Math.cos(a.perch.ry || 0)); a.g.rotation.y = (a.perch.ry || 0) + Math.PI; }
           a.g.userData.head.rotation.y = Math.sin(a.t*0.4)*0.4;
@@ -366,6 +471,13 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, lod}){
       case 'emu': a.peck = 0.8; break;
       case 'deer': a.state = 'run'; a.timer = 2.5; a.dest = p.clone().add(V3(rnd(-6, 6), 0, rnd(-6, 6))); break;
       case 'wolf': a.state = 'howl'; a.timer = 3; sound('howl', p); break;
+      case 'horse': a.state = 'run'; a.timer = 2.5; a.dest = p.clone().add(V3(rnd(-6, 6), 0, rnd(-6, 6))); break;
+      case 'tiger': a.state = 'warn'; a.timer = 2; sound('growl', p); break;
+      case 'hippo': a.state = 'yawn'; a.timer = 2.4; break;
+      case 'tortoise': a.shy = 3; break;
+      case 'snake': a.state = 'flee'; a.timer = 1.4; a.dest = p.clone().add(V3(rnd(-4, 4), 0, rnd(-4, 4))); break;
+      case 'peacock': a.show = 6; a.cool = 10; break;
+      case 'capybara': a.state = 'rest'; a.timer = 6; a.dest = null; break;
       case 'turtle': a.shy = 3; if (a.state === 'sun'){ a.state = 'idle'; a.timer = 10; } break;
     }
     return a.kind;

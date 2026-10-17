@@ -118,7 +118,7 @@ export function newWorld(seed){
   return upgradeWorld(D);
 }
 // Special regions on the 4 × 4 map: a lily pond, a swamp, the Australian outback and a beaver stream on the river.
-export const BIO = {pond:'0,-2', swamp:'-2,-1', aus:'-2,1', beaver:'-1,-2', forest:'-2,0', high:'-2,-2'};
+export const BIO = {pond:'0,-2', swamp:'-2,-1', aus:'-2,1', beaver:'-1,-2', forest:'-2,0', high:'-2,-2', savanna:'-1,1'};
 // v1 worlds were 3 × 3: grow them to 4 × 4 (new plots to the west and north) without moving anything already there.
 export function upgradeWorld(D){
   if (D.v < 2){
@@ -227,6 +227,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
       const au = plotW(BIO.aus, x, z, 6.5, 9.8); if (au > 0){ col = mixc(col, mixc([0.93, 0.6, 0.38], [0.84, 0.5, 0.32], nz), au*0.9); g *= 1 - au*0.75; }
       const hi = plotW(BIO.high, x, z, 6, 9); if (hi > 0){ col = mixc(col, mixc([0.74, 0.76, 0.62], [0.62, 0.66, 0.54], nz), hi*0.55); g *= 1 - hi*0.35; }
       const fo = plotW(BIO.forest, x, z, 6, 9.5); if (fo > 0){ col = mixc(col, [0.72, 0.82, 0.6], fo*0.4); }   // shady forest floor
+      const sv = plotW(BIO.savanna, x, z, 6.5, 9.8); if (sv > 0){ col = mixc(col, mixc([1.0, 0.9, 0.55], [0.9, 0.8, 0.46], nz), sv*0.7); }   // golden grassland
       const pd = Math.hypot(x - D.bio.pond.x, z - D.bio.pond.z) - D.bio.pond.r; if (pd < 1.6){ const w = 1 - sstep(-0.2, 1.6, pd + (nz - 0.5)*0.6); col = mixc(col, pd < 0 ? [0.55, 0.52, 0.42] : [0.5, 0.42, 0.3], w); g *= 1 - w; }
     }
     const rock = sstep(0.8, 1.5, sl); if (rock > 0){ col = mixc(col, [0.66, 0.63, 0.58], rock); g *= 1 - rock; }
@@ -271,10 +272,12 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
     for (let k=0; k<N*3 && list.length < N; k++){
       const x = lerp(X0 - 3, X1 + 3, R()), z = lerp(Z0 - 3, Z1 + 3, R());
       if (W.isWater(x, z) || surf(x, z)[1] < 0.75) continue; list.push([x, z]); }
+    { const [cx, cz] = plotCenter(BIO.savanna), n = mobile ? 1600 : 3400; let c = 0;   // the grassland: tall golden grass everywhere
+      for (let k=0; k<n*3 && c < n; k++){ const x = cx + (R() - 0.5)*PLOT, z = cz + (R() - 0.5)*PLOT; if (W.isWater(x, z) || surf(x, z)[1] < 0.6) continue; list.push([x, z, 1]); c++; } }
     { const p = geo.attributes.position, c = new Float32Array(p.count*3); for (let i=0;i<p.count;i++){ const k = 0.5 + 0.5*clamp(p.getY(i)/0.34, 0, 1); c[i*3] = k; c[i*3+1] = k; c[i*3+2] = k*0.92; } geo.setAttribute('color', new THREE.BufferAttribute(c, 3)); }   // darker at the root, light at the tip
     const m = new THREE.InstancedMesh(geo, swaying(new THREE.MeshLambertMaterial({vertexColors:true}), 0.34), list.length);
-    list.forEach(([x, z], i) => { const s = 0.7 + R()*0.6; M.compose(V3(x, H(x, z) - 0.02, z), q.setFromAxisAngle(V3(0, 1, 0), R()*6.28), V3(s, s*(0.8 + R()*0.4), s)); m.setMatrixAt(i, M);
-      m.setColorAt(i, col.set(GRASS_COLS[i % GRASS_COLS.length]).multiplyScalar((0.85 + R()*0.15)*(W.isOpen(x, z) || !inWorld(x, z) ? 1 : 0.8))); });
+    list.forEach(([x, z, tall], i) => { const s = 0.7 + R()*0.6, sy = tall ? 1.5 + R()*0.9 : 0.8 + R()*0.4; M.compose(V3(x, H(x, z) - 0.02, z), q.setFromAxisAngle(V3(0, 1, 0), R()*6.28), V3(s*(tall ? 1.3 : 1), s*sy, s*(tall ? 1.3 : 1))); m.setMatrixAt(i, M);
+      m.setColorAt(i, col.set(tall ? ['#e2cf86', '#d8c27a', '#e8d898', '#cdb56c'][i % 4] : GRASS_COLS[i % GRASS_COLS.length]).multiplyScalar((0.85 + R()*0.15)*(W.isOpen(x, z) || !inWorld(x, z) ? 1 : 0.8))); });
     group.add(m); tufts = m; W.tufts = m;
   }
 
@@ -331,13 +334,13 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
   // overgrowth + a sign for each locked plot
   function buildLocked(k){
     const R = rng(D.seed + hashKey(k)), [cx, cz] = plotCenter(k), h = PLOT/2 - 0.4;
-    const items = scatter(R, cx - h, cx + h, cz - h, cz + h, 95, k === BIO.aus ? ['euc', 'euc', 'bush', 'bush', 'rock'] : k === BIO.forest ? ['tree', 'pine', 'pine', 'tree', 'bush'] : ['tree', 'tree', 'pine', 'bush', 'bush', 'bush', 'rock'], (x, z) => !W.isBeach(x, z) || x < shoreX(z) - 2)
+    const items = scatter(R, cx - h, cx + h, cz - h, cz + h, k === BIO.savanna ? 22 : 95, k === BIO.savanna ? ['tree', 'bush', 'bush', 'rock'] : k === BIO.aus ? ['euc', 'euc', 'bush', 'bush', 'rock'] : k === BIO.forest ? ['tree', 'pine', 'pine', 'tree', 'bush'] : ['tree', 'tree', 'pine', 'bush', 'bush', 'bush', 'rock'], (x, z) => !W.isBeach(x, z) || x < shoreX(z) - 2)
       .concat(scatter(R, cx - h, cx + h, cz - h, cz + h, 14, ['bush', 'rock'], (x, z) => W.isBeach(x, z) && x < shoreX(z) + 0.5));
     const g = wilds(items); g.traverse(o => { if (o.isMesh){ o.userData.kind = 'locked'; o.userData.ref = k; W.pick.push(o); } });
     const sign = new THREE.Sprite(new THREE.SpriteMaterial({map:signTex(), transparent:true, depthWrite:false}));
     let sx = cx, sz = cz; for (let t=0; t<20 && (W.isWater(sx, sz) || slope(sx, sz) > 0.6); t++){ sx = cx + (R() - 0.5)*10; sz = cz + (R() - 0.5)*10; }
     sign.position.set(sx, H(sx, sz) + 3.2, sz); sign.scale.set(3.4, 1.7, 1); sign.userData.kind = 'locked'; sign.userData.ref = k; sign.renderOrder = 4; g.add(sign); W.pick.push(sign);
-    W.plots[k] = {g, sign};
+    W.plots[k] = {g, sign, eucs:items.filter(o => o.k === 'euc').map(o => ({x:o.x, z:o.z, s:o.s, ry:o.ry, euc:true, wild:true}))};
   }
   let signTexture = null;
   function signTex(){
@@ -405,6 +408,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
     const bush = (x, z) => { const s = 0.8 + R()*0.5; if (!ok(x, z, 0.6*s) || W.isBeach(x, z)) return false; D.feats.push({id:D.nid++, k:'bush', x:+x.toFixed(2), z:+z.toFixed(2), s:+s.toFixed(2), ry:+(R()*6.28).toFixed(2), v:Math.floor(R()*12), p:k}); return true; };
     const tree = (x, z) => { const s = 0.85 + R()*0.3; if (!ok(x, z, 0.9*s) || W.isBeach(x, z)) return false; trees.push({x:+x.toFixed(2), z:+z.toFixed(2), s:+s.toFixed(2), ry:+(R()*6.28).toFixed(2), hive: k !== BIO.aus && R() < 0.25, p:k, ...(k === BIO.aus ? {euc:1} : k === BIO.swamp ? {swamp:1} : {})}); return true; };
     if (home){ put(1, rock(0.6 + R()*0.2)); put(1, rock(0.3 + R()*0.15)); put(1, bush); }
+    else if (k === BIO.savanna){ put(1, rock(0.55 + R()*0.25)); put(2, bush); put(2, tree); }   // open grassland: just a couple of shade trees
     else { put(R() < 0.5 ? 1 : 0, rock(1.0 + R()*0.25)); put(1, rock(0.55 + R()*0.25)); put(2, rock(0.3 + R()*0.2)); put(2 + Math.floor(R()*2), bush); put(3 + Math.floor(R()*2), tree); }   // fewer and smaller than before
     return trees;
   };
@@ -560,8 +564,8 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
   }
 
   // --- bridges across the river ---
-  // a wide wooden arch bridge: deck 2.8 wide, reaching well up both banks, with railings and lanterns at the ends
-  W.BRIDGE_W = 2.8; const ARCH = 0.75;
+  // a wide wooden arch bridge: deck 3.8 wide, reaching well up both banks, with railings and lanterns at the ends
+  W.BRIDGE_W = 3.8; const ARCH = 0.75;
   function bridgeAt(x, z){
     for (const b of W.bridges){ const dx = x - b.x, dz = z - b.z, a = dx*b.ax + dz*b.az, s = -dx*b.az + dz*b.ax;
       if (Math.abs(a) < b.len/2 && Math.abs(s) < W.BRIDGE_W/2) return 0.05 + ARCH*Math.cos(Math.PI*a/b.len); }
@@ -587,6 +591,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
     g.position.set(x, 0, z); g.rotation.y = Math.atan2(-az, ax); b.g = g; return b;
   }
   function makeBridge(bd){ const b = bridgeMesh(bd.z); b.d = bd; group.add(b.g); W.bridges.push(b); return b; }
+  W.lockedEucs = k => (W.plots[k] && W.plots[k].eucs) || [];   // eucalyptus in the still-wild outback (koalas sit in them)
   W.bridgeGhost = z => bridgeMesh(z).g;   // a preview while choosing where to build
   W.addBridge = z => { const bd = {z:+z.toFixed(2)}; D.bridges.push(bd); return makeBridge(bd); };
   W.bridgeWhy = z => z <= Z0 + 2.5 || z >= Z1 - 2.5 ? '太靠近世界的邊緣了。' : W.bridges.some(b => Math.abs(b.z - z) < 4.5) ? '這附近已經有橋了。'
@@ -600,7 +605,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
   W.plotName = k => {
     const [a, b] = k.split(',').map(Number), dir = (b < 0 ? '北' : b > 0 ? '南' : '') + (a < 0 ? '西' : a > 0 ? '東' : '');
     const [cx, cz] = plotCenter(k), P = D.plat;
-    const special = {[BIO.pond]:'荷花池塘', [BIO.swamp]:'沼澤', [BIO.aus]:'澳洲草原', [BIO.beaver]:'河狸溪', [BIO.forest]:'鹿的森林', [BIO.high]:'狼的高地'}[k]; if (special) return special;
+    const special = {[BIO.pond]:'荷花池塘', [BIO.swamp]:'沼澤', [BIO.aus]:'澳洲草原', [BIO.beaver]:'河狸溪', [BIO.forest]:'鹿的森林', [BIO.high]:'狼的高地', [BIO.savanna]:'大草原'}[k]; if (special) return special;
     const what = a === -2 ? '森林' : a === -1 ? '河畔' : a > 0 ? '海岸' : Math.abs(P.z - cz) < 6 ? '高台' : D.pits.some(([x, z]) => Math.abs(x - cx) < 9 && Math.abs(z - cz) < 9) ? '窪地' : '山丘';
     return `${dir}邊的${what}`;
   };

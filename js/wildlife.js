@@ -34,7 +34,7 @@ export function createWildlife({scene, world, clone, hbMat, fx, lod, mat}){
       const k = 1 - 0.6*f; h.position.x = h.userData.x0*k; if (arm) arm.scale.x = arm.userData.sx*k;
       w.rotation.order = 'YXZ'; w.rotation.set(-Math.PI/2*f, sd*(0.25*f + sweep*(1 - f)), sd*flapZ*(1 - f));
       h.rotation.set(0, 0, sd*(1.75*f + flex*(1 - f) + sweep*0.6*(1 - f)));
-      const q = part(a.g, a.kind + '_quills' + n); if (q) q.scale.z = 1 - 0.7*f;   // the spread primaries close up as the wing folds
+      const q = part(a.g, a.kind + '_quills' + n); if (q){ if (q.userData.sz === undefined) q.userData.sz = q.scale.z; q.scale.z = q.userData.sz*(1 - 0.7*f); }   // the spread primaries close up as the wing folds
     }
   };
   const ease = (a, key, to, k, dt) => { a[key] = (a[key] ?? to) + (to - (a[key] ?? to))*Math.min(1, k*dt); return a[key]; };
@@ -87,13 +87,14 @@ export function createWildlife({scene, world, clone, hbMat, fx, lod, mat}){
       `#include <begin_vertex>\nfloat ww = sin(position.x*16.0 - uT*5.0); transformed.z += ww*0.035; transformed.y += max(0.0, cos(position.x*16.0 - uT*5.0))*0.008;
        if (abs(position.x + 0.09) < 0.025) transformed.yz *= 1.18;`);
     }; return m; };
-  for (let i=0;i<6;i++){ const m = wormMat(), w = new THREE.Mesh(wormGeo, m), g = new THREE.Group(); g.add(w); w.position.y = 0.02; g.visible = false;
+  for (let i=0;i<3;i++){ const m = wormMat(), w = new THREE.Mesh(wormGeo, m), g = new THREE.Group(); g.add(w); w.position.y = 0.02; g.visible = false;
     add('worm', g, {hit:0.3, hitY:0.05, mat:m, state:'off', timer:rnd(2, 10)}); }
 
   let trees = [], rocks = [];
   L.setPlaces = (treeList, rockList) => { trees = treeList; rocks = rockList;
     L.list.forEach(a => { if (a.kind === 'owl' && (!a.perch || !trees.includes(a.perch))) a.perch = trees[Math.floor(Math.random()*trees.length)] || null;
-      if (a.kind === 'lizard' && (!a.rock || !rocks.includes(a.rock))) a.rock = rocks.length ? rocks[Math.floor(Math.random()*rocks.length)] : null;
+      if (a.kind === 'lizard' && (!a.rock || !rocks.includes(a.rock))){   // one lizard per rock (they bask near each other in real life, but never inside each other)
+        const free = rocks.filter(r => !L.list.some(b => b !== a && b.kind === 'lizard' && b.rock === r)); a.rock = free.length ? free[Math.floor(Math.random()*free.length)] : null; }
       if (a.kind === 'beetle' && (!a.spot || !(a.onTree ? trees : rocks).includes(a.spot))) placeBeetle(a); }); };
   function placeBeetle(a){
     const list = a.onTree ? trees.filter(t => !t.swamp) : rocks; a.spot = list.length ? list[Math.floor(Math.random()*list.length)] : null;
