@@ -3,7 +3,8 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { cloud } from './cloud.js';
 import { createFauna, SPECIES } from './fauna.js';
-import { createWorld, newWorld, HALF, WATER_Y, X0, X1, Z0, Z1, BIO, plotKey, PLOT_KEYS, SEE, seeThrough } from './world.js';
+import { createWildlife, WILD_NAMES } from './wildlife.js';
+import { createWorld, newWorld, HALF, WATER_Y, X0, X1, Z0, Z1, BIO, plotKey, PLOT_KEYS, SEE, seeThrough, leafMaterial, CANOPY_BLOBS } from './world.js';
 
 // Keep r128-era colour handling so the hand-tuned palette and fur shader look the same.
 THREE.ColorManagement.enabled = false;
@@ -242,6 +243,22 @@ try {
   pg.scene.traverse(o => { if (!o.isMesh) return; [].concat(o.material).forEach(m => { if (m.userData.srgb) return; m.userData.srgb = true; m.color.convertLinearToSRGB(); m.metalness = 0; }); });
 } catch(e){ console.warn('props.glb not loaded', e); }
 const propClone = name => PROP[name] ? PROP[name].clone(true) : null;
+// Wild animals modelled in Blender (blender/animals_build.py): gull, dolphin, whale, owl, eagle, lizard, fish.
+// Animated parts are children named "<animal>_<part>". Optional: without the file the procedural stand-ins are used.
+const ANIM = {};
+try {
+  const ag = await new GLTFLoader().loadAsync('assets/models/animals.glb');
+  ag.scene.children.forEach(o => ANIM[o.name] = o);
+  ag.scene.traverse(o => { if (!o.isMesh) return; const m = o.material; if (m.userData.srgb) return; m.userData.srgb = true; m.color.convertLinearToSRGB(); m.metalness = 0; });
+} catch(e){ console.warn('animals.glb not loaded', e); }
+// a copy of a Blender animal; `recolor` maps material names to new colours (each copy gets its own materials)
+function animalClone(name, recolor){
+  if (!ANIM[name]) return null; const c = ANIM[name].clone(true);
+  if (recolor) c.traverse(o => { if (o.isMesh && recolor[o.material.name]){ o.material = o.material.clone(); o.material.color.set(recolor[o.material.name]); } });
+  return c;
+}
+const FISH_LOOKS = [['#f08a3c', '#ffffff', '#f6b26b'], ['#f2efe8', '#e0483a', '#f3c9b0'], ['#e0483a', '#f6d0c0', '#f08a6a'], ['#4f86c6', '#cfe6ff', '#7fb2e0'], ['#f3d250', '#fff6c8', '#f6e08a'], ['#7a8c5a', '#c8d49a', '#a0b07a'], ['#c3ccd6', '#ffffff', '#dfe6ee'], ['#2f3a40', '#e8a33c', '#5a6a70']];
+const fishModel = i => { const [b, s, f] = FISH_LOOKS[i % FISH_LOOKS.length], g = animalClone('fish', {FishBody:b, FishSpot:s, FishFin:f}); return g ? {g, tail:g.getObjectByName('fish_tail')} : null; };
 // swap a named material inside a cloned prop (e.g. the lamp bulb becomes a night-glow material)
 const swapMat = (obj, name, m) => obj.traverse(o => { if (!o.isMesh) return; if (Array.isArray(o.material)) o.material = o.material.map(x => x.name === name ? m : x); else if (o.material.name === name) o.material = m; });
 
@@ -1096,6 +1113,11 @@ function sfx(name){
     case 'buzz':  o = tone('sawtooth', 200, t, 0.018, 1.1, out, 0.15);
                   for (let i=1;i<=10;i++) o.frequency.linearRampToValueAtTime(i%2 ? 235 : 180, t+i*0.1); break;
     case 'croak': o = tone('sawtooth', 160, t, 0.05, 0.12, out); o.frequency.linearRampToValueAtTime(120, t+0.1); o = tone('sawtooth', 170, t+0.18, 0.05, 0.14, out); o.frequency.linearRampToValueAtTime(110, t+0.3); break;
+    case 'gull': for (const d of [0, 0.22, 0.4]){ o = tone('sine', 1400, t+d, 0.05, 0.16, out, 0.02); o.frequency.exponentialRampToValueAtTime(900, t+d+0.15); } break;
+    case 'hoot': for (const d of [0, 0.5]){ o = tone('sine', 380, t+d, 0.12, 0.35, out, 0.05); o.frequency.linearRampToValueAtTime(330, t+d+0.3); } break;
+    case 'eagle': o = tone('sine', 2200, t, 0.05, 0.6, out, 0.02); o.frequency.exponentialRampToValueAtTime(1300, t+0.55); break;
+    case 'spout': noiseHit(t, 1.0, 0.25, 'highpass', 1500, out, SND.noiseLong); break;
+    case 'scurry': for (let i=0;i<5;i++) noiseHit(t+i*0.04, 0.03, 0.08, 'highpass', 5000, out); break;
     case 'snap': noiseHit(t, 0.08, 0.5, 'bandpass', 900, out, null, 1.2); o = tone('square', 120, t, 0.08, 0.1, out); break;
     case 'scratch': for (let i=0;i<3;i++) noiseHit(t+i*0.09, 0.07, 0.12, 'bandpass', 2400 + i*300, out, null, 2); break;
     case 'sneeze': o = tone('sine', 420, t, 0.09, 0.35, out, 0.12); o.frequency.exponentialRampToValueAtTime(820, t+0.3);
@@ -1343,9 +1365,11 @@ function makeTree(d){
   const euc = !!d.euc, lift = euc ? 1.0 : 0, g = new THREE.Group(), bark = mat(euc ? '#e6ddcc' : d.swamp ? '#5a4632' : '#7a5634', 0.95), greens = euc ? ['#8fa58a','#9db394','#7d9478'] : d.swamp ? ['#4b6236','#55703c','#3f5530'] : ['#5f8f3e','#6fa148','#4f7d34'];
   const trunk = new THREE.Mesh(new THREE.CylinderGeometry(euc ? 0.12 : 0.16, euc ? 0.22 : 0.27, 1.5 + lift, 9), bark); trunk.position.y = (1.5 + lift)/2; g.add(trunk);
   for (const s of [-1, 1]){ const br = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 0.6, 6), bark); br.position.set(0.18*s, 1.3, 0.05); br.rotation.z = -0.7*s; g.add(br); }
-  [[0,2.0,0,0.95],[0.55,1.75,0.2,0.7],[-0.5,1.8,-0.15,0.72],[0.1,2.45,-0.1,0.6],[-0.15,1.7,0.5,0.6]].forEach(([x,y,z,r],i) => {
-    const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), new THREE.MeshStandardMaterial({color:greens[i%3], roughness:0.9, flatShading:true, transparent:true}));
-    m.position.set(x*(euc ? 1.2 : 1), y + lift, z*(euc ? 1.2 : 1)); if (euc) m.scale.set(1, 0.6, 1); g.add(m); });
+  // canopy: a darker solid core wrapped in painted leaf cards (shared with the wild trees in world.js); eucalyptus canopies are flatter and higher
+  const canopy = new THREE.Group(); if (euc){ canopy.position.y = 1.9; canopy.scale.set(1.2, 0.6, 1.2); } g.add(canopy);
+  CANOPY_BLOBS.forEach(([x,y,z,r],i) => { const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r*0.72, 1), new THREE.MeshStandardMaterial({color:new THREE.Color(greens[i%3]).multiplyScalar(0.72), roughness:0.9, flatShading:true, transparent:true}));
+    m.position.set(x, y, z); canopy.add(m); });
+  { const cards = new THREE.Mesh(world.geos.cardGeo, leafMaterial(greens[0])); cards.userData.noFade = true; canopy.add(cards); }   // the cards keep their own swaying, see-through material
   if (d.hive){
     const h = new THREE.Group(), body = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), mat('#d9a23a', 0.6)); body.scale.set(0.22, 0.3, 0.22); h.add(body);
     for (let i=0;i<3;i++){ const ring = new THREE.Mesh(new THREE.TorusGeometry(0.21 - Math.abs(i-1)*0.05, 0.025, 6, 20), mat('#b07a22', 0.6)); ring.rotation.x = Math.PI/2; ring.position.y = (i-1)*0.12; h.add(ring); }
@@ -1354,7 +1378,7 @@ function makeTree(d){
   }
   g.position.set(d.x, gy(d.x, d.z) - 0.05, d.z); g.rotation.y = d.ry || 0; g.scale.setScalar(d.s); scene.add(g);
   const hb = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 2.6, 8), hbMat); hb.position.y = 1.3; hb.userData.kind = 'tree'; g.add(hb);
-  const fade = []; g.traverse(o => { if (o.isMesh && o !== hb) { o.material = seeThrough(o.material.clone()); o.material.transparent = true; fade.push(o.material); } });
+  const fade = []; g.traverse(o => { if (o.isMesh && o !== hb && !o.userData.noFade) { o.material = seeThrough(o.material.clone()); o.material.transparent = true; fade.push(o.material); } });
   const tr = {d, g, hb, fade, alpha:1, shake:0, sh:makeShadow(2.6*d.s, 2.6*d.s)}; tr.sh.g.position.set(d.x, gy(d.x, d.z), d.z); hb.userData.ref = tr; trees.push(tr); NAV.dirty = true; return tr;
 }
 function plantTrees(){
@@ -1439,7 +1463,7 @@ function cutTree(tr){
     if (t > 1.1 && !this.thud){ this.thud = true; sfx('thud'); leafFall(tr, 10); sqv += 0.6; }
     if (t > 1.4){ const k = Math.max(0.01, 1 - (t - 1.4)/0.6); tr.g.scale.setScalar(tr.d.s*k); tr.sh.g.scale.setScalar(k); }
   }, done(){ scene.remove(tr.g, tr.sh.g); }});
-  toast('樹砍掉了。'); track('tree'); track('clear'); koalaPerches(); save();
+  toast('樹砍掉了。'); track('tree'); track('clear'); koalaPerches(); wildPlaces(); save();
 }
 
 // ---------- expanding the territory: clearing plots, rocks and bushes, building bridges ----------
@@ -1458,7 +1482,7 @@ function openPlot(k){
   const [a, b] = k.split(',').map(Number), cx = a*18, cz = b*18;
   world.openPlot(k);
   S.trees.filter(d => d.p === k).forEach(d => { const tr = makeTree(d); tr.g.scale.setScalar(0.01); tools.push({t:0, dur:0.8, update(t){ tr.g.scale.setScalar(Math.max(0.01, d.s*Math.min(1, t/0.6))); }, done(){ tr.g.scale.setScalar(d.s); }}); });
-  dust(cx, cz, 26, 8); sfx('whoosh'); setTimeout(() => sfx('grow'), 600); koalaPerches();
+  dust(cx, cz, 26, 8); sfx('whoosh'); setTimeout(() => sfx('grow'), 600); koalaPerches(); wildPlaces();
   NAV.dirty = true; panTarget.set(cx*0.6, 0, cz*0.6); clampPan(); setupBeach();
   toast(`${world.plotName(k)}整理好了！領地變大了。`); save(); hudDirty = true;
 }
@@ -1468,7 +1492,7 @@ function featMenu(f){
   showModal(name, `<div class="bigicon">${rock ? '🪨' : '🌳'}</div><p>${rock ? (size === 'big' ? `比${S.name || '袋熊'}還大的石頭，擋住了路。` : '路邊的石頭。') : '一叢矮矮的灌木。'}花 ${price} 代幣可以${rock ? '請人搬走' : '清掉'}，空出位置蓋東西。</p>`,
     [{label:'關閉', ghost:true, onClick:()=>{}}, {label:`${rock ? '搬走' : '清掉'}（${price}）`, onClick:() => {
       if (!world.feats.includes(f) || !pay(price)) return;
-      dust(d.x, d.z, rock ? 10 : 6, d.s*0.6); sfx(rock ? 'thud' : 'whoosh'); world.removeFeat(f); track(rock ? 'rock' : 'bush'); track('clear');
+      dust(d.x, d.z, rock ? 10 : 6, d.s*0.6); sfx(rock ? 'thud' : 'whoosh'); world.removeFeat(f); track(rock ? 'rock' : 'bush'); track('clear'); wildPlaces();
       if (!rock) leafFall({g:f.g, d:{s:1}}, 6);
       toast(`${name}清掉了。`); save(); }}]);
 }
@@ -1548,11 +1572,11 @@ function pickShell(s){
   addCoins(1, at.add(V3(0, 0.5, 0))); S.shells = (S.shells || 0) + 1; track('shell');
   if (S.shells === 1 || S.shells % 10 === 0) toast(`撿到貝殼了！目前一共撿了 ${S.shells} 個。`);
 }
-const ANIMAL_ICON = {frog:'🐸', dragonfly:'🪰', turtle:'🐢', croc:'🐊', heron:'🪿', beaver:'🦫', kangaroo:'🦘', quokka:'😊', emu:'🦤', koala:'🐨', crab:'🦀'};
+const ANIMAL_ICON = {gull:'🐦', dolphin:'🐬', whale:'🐋', owl:'🦉', eagle:'🦅', lizard:'🦎', seafish:'🐠', frog:'🐸', dragonfly:'🪰', turtle:'🐢', croc:'🐊', heron:'🪿', beaver:'🦫', kangaroo:'🦘', quokka:'😊', emu:'🦤', koala:'🐨', crab:'🦀'};
 function pokeAnimal(a){
-  const k = fauna.poke(a), first = !stat('meet:' + k);
+  const k = (a.kind in WILD_NAMES ? wild : fauna).poke(a), first = !stat('meet:' + k);
   track('meet:' + k); floatSprite(emojiTex(ANIMAL_ICON[k] || '❗'), a.g.position.clone().add(V3(0, 1.4, 0)), {size:0.55, vy:0.6, max:1.4});
-  if (first) toast(`遇見了${SPECIES[k]}！`);
+  if (first) toast(`遇見了${SPECIES[k] || WILD_NAMES[k]}！`);
 }
 let scareCd = 0;
 function animalScare(kind){   // a crocodile snapping near the wombat makes it jump back
@@ -2144,7 +2168,7 @@ const ACH = [
   {id:'builds5', icon:'🏘️', name:'小鎮規劃', desc:'蓋 5 種建築', test:() => Object.values(S.builds).filter(Boolean).length >= 5, coins:40},
   {id:'daily7', icon:'📅', name:'每天報到', desc:'完成 7 天的全部每日任務', test:() => stat('dailyAll') >= 7, coins:60},
   ...ALL_FORMS.map(f => ({id:'form_' + f, icon:'🧬', name:`圖鑑：${FORMS[f].name}`, desc:`養出${FORMS[f].name}`, test:() => !!(S.formsSeen && S.formsSeen[f]), coins: ['golden','forestx','thunder'].includes(f) ? 120 : ['royal','forest','wind'].includes(f) ? 60 : 25})),
-  ...Object.keys(SPECIES).map(k => ({id:'meet_' + k, icon:ANIMAL_ICON[k] || '🐾', name:`遇見${SPECIES[k].replace(/（.*/, '')}`, desc:`在野外點一下${SPECIES[k]}`, test:() => stat('meet:' + k) >= 1, coins:15})),
+  ...Object.entries({...SPECIES, ...WILD_NAMES}).map(([k, nm]) => ({id:'meet_' + k, icon:ANIMAL_ICON[k] || '🐾', name:`遇見${nm.replace(/（.*/, '')}`, desc:`在野外點一下${nm}`, test:() => stat('meet:' + k) >= 1, coins:15})),
   {id:'formsAll', icon:'📖', name:'袋熊圖鑑完成', desc:'養出所有型態的袋熊', test:() => ALL_FORMS.every(f => S.formsSeen && S.formsSeen[f]), coins:500}
 ];
 let achBusy = false;
@@ -2789,6 +2813,7 @@ function updateWorld(dt, t){
   updateSky(di);
   world.update(dt, t, {night:di.n, fog:scene.fog, pet: petActive() && root.visible ? pos : null});
   updateBeach(dt, t);
+  wild.update(dt, t, {cam:camTarget, pet: petActive() && root.visible ? pos : null, night:di.n, onSound: n => sfx(n)});
   fauna.update(dt, t, {cam:camTarget, pet: petActive() && root.visible ? pos : null, night:di.n, onScare:animalScare, onSmile: p => floatSprite(emojiTex('😊'), p.add(V3(0, 0.9, 0)), {size:0.5, vy:0.5, max:1.6}), onZzz: p => floatSprite(textTex('Z','#5d6e8f','bold 90px sans-serif','rgba(255,255,255,.85)'), p, {size:0.35, vy:0.5, vx:0.2, max:2}),
     chips: p => floatSprite(radialTex('rgba(201,160,110,1)','rgba(201,160,110,0)'), p, {size:0.12, vx:rnd(-1,1), vz:rnd(-1,1), vy:rnd(1,2), g:8, max:0.6, grow:0}), treeNear:(x, z, r) => { const tr = trees.find(t => Math.hypot(t.d.x - x, t.d.z - z) < r); return tr ? tr.d : null; }});
   flashV *= Math.exp(-5*dt); $('#flash').style.opacity = (flashV*0.8).toFixed(3);
@@ -3272,6 +3297,7 @@ const GUIDE = [
       <li><b>西邊有一條河</b>：看得到水在流、水底的石頭和魚。要過河就<b>點河面蓋橋</b>。把袋熊丟進河裡，牠會自己爬上岸。</li>
       <li><b>東邊是沙灘和海</b>：有螃蟹、寄居蟹，點<b>貝殼</b>可以撿（+1 代幣），偶爾會漂來<b>瓶中信</b>，打開可能有代幣。</li>
       <li><b>特別的區域</b>：北邊的<b>荷花池塘</b>（青蛙、蜻蜓、烏龜）、西邊的<b>沼澤</b>（鱷魚、蒼鷺）、河上游的<b>河狸溪</b>（河狸的水壩和小屋）、西南的<b>澳洲草原</b>（袋鼠、微笑袋鼠、鴯鶓、尤加利樹上的無尾熊）。點一下動物會有反應，第一次遇見每種動物都有成就。</li>
+      <li><b>海邊和天空</b>：海鷗在沙灘上空盤旋、偶爾停在沙灘上；海豚會成群游過、跳出水面翻轉；鯨魚不時浮上來噴水再潛下去；淺海有熱帶魚。白天有老鷹在高空盤旋、會停在樹頂；晚上樹頂有貓頭鷹盯著你看；石頭上常有蜥蜴曬太陽，靠近就溜走。</li>
       <li><b>游泳圈</b>（商店「道具」）：有了它袋熊就能下水，走進水裡自動套上、上岸就脫下。</li>
       <li>地形有小山丘、低窪的泥巴地、斜坡和大高台。右上角「視角」可以切換，拖曳畫面移動鏡頭，「🐾 找牠」把鏡頭移回袋熊身上。</li></ul>`},
   {title:'天氣、晝夜和特別活動', svg:svgWrap(`
@@ -3373,7 +3399,7 @@ function pickAt(e){
   if (BG.house) list.push(BG.house.userData.dome);
   Object.values(BG).forEach(g => g.userData.hb && list.push(g.userData.hb));
   trees.forEach(tr => list.push(tr.hb)); if (tomb && tomb.userData.hb) list.push(tomb.userData.hb);
-  list.push(...world.pick, ...beachPick(), ...fauna.pick);
+  list.push(...world.pick, ...beachPick(), ...fauna.pick, ...wild.pick);
   scene.updateMatrixWorld(true);
   return ray.intersectObjects(list, false).find(h => isShown(['poop','weed'].includes(h.object.userData.kind) ? h.object.parent : h.object)) || null;
 }
@@ -3587,7 +3613,7 @@ function importSave(){
 [...FOODS, ...DRINKS].forEach(f => { if (f.price && inv(f.id) > 0){ S.food = S.food || {}; S.food[f.id] = true; S.inv[f.id] = 0; } });
 const worldIsNew = !S.world;
 if (worldIsNew) S.world = newWorld(Math.floor(Math.random()*2147483647));
-world = createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFeatGone:() => { NAV.dirty = true; }});
+world = createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fishModel, onFeatGone:() => { NAV.dirty = true; }});
 world.load(S.world);
 Object.keys(S.builds).forEach(id => S.builds[id] && build(id));
 if (!S.trees) plantTrees();
@@ -3597,6 +3623,11 @@ world.showFeats();
 const fauna = createFauna({scene, world, mat, hbMat, onSound: n => sfx(n)});
 const koalaPerches = () => fauna.setPerches(trees.filter(tr => tr.d.euc && !tr.cut).map(tr => tr.d));
 koalaPerches();
+const wild = createWildlife({scene, world, clone:animalClone, hbMat, fx:{
+  splash:(p, k) => { for (let i=0;i<10*k;i++){ const a = Math.random()*Math.PI*2; floatSprite(radialTex('rgba(225,240,248,1)','rgba(225,240,248,0)'), p.clone().setY(WATER_Y + 0.1), {size:0.35*k, vx:Math.cos(a)*rnd(1,2)*k, vz:Math.sin(a)*rnd(1,2)*k, vy:rnd(2,4)*k, g:9, max:0.9, grow:0}); } },
+  spout:p => { for (let i=0;i<24;i++) floatSprite(radialTex('rgba(240,248,252,0.95)','rgba(240,248,252,0)'), p.clone(), {size:rnd(0.5,0.9), vx:rnd(-0.5,0.5), vz:rnd(-0.5,0.5), vy:rnd(5,8), g:6, max:1.6, grow:0.8, delay:i*0.02}); } }});
+const wildPlaces = () => wild.setPlaces(trees.filter(tr => !tr.cut).map(tr => tr.d), world.feats.filter(f => f.d.k === 'rock' && f.d.s > 0.5).map(f => ({x:f.d.x, z:f.d.z, y:f.g.position.y + 0.85*f.d.s})));
+wildPlaces();
 (S.weeds || []).forEach(([x,z,s]) => makeWeed(x,z,s));
 (S.poops || []).forEach(([x,z,ry,sc]) => { const c = makePoop(V3(x, gy(x, z) + 0.1*(sc||1), z), null, sc||1); c.m.rotation.y = ry; });
 setupBeach();
@@ -3616,7 +3647,7 @@ if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
 if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
-if (new URLSearchParams(location.search).has('debug')) window.W = {fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+if (new URLSearchParams(location.search).has('debug')) window.W = {wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   sim:(secs) => { skipRender = true; try { for (let i=0;i<secs*30;i++) step(true); } finally { skipRender = false; } clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};

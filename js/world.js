@@ -46,6 +46,53 @@ function seeCompile(sh){ {
       }`);
 } }
 seeCompile.see = true;
+// The same see-through, plus a gentle sway in the wind for leaves (the higher up the shape, the more it moves).
+SEE.time = {value:0};
+export function swaying(m, height = 2.5){
+  m.onBeforeCompile = sh => {
+    seeCompile(sh); sh.uniforms.uWind = SEE.time;
+    sh.vertexShader = 'uniform float uWind;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+      vec4 swayW = vec4(0.0, 0.0, 0.0, 1.0);
+      #ifdef USE_INSTANCING
+        swayW = instanceMatrix*swayW;
+      #endif
+      swayW = modelMatrix*swayW;
+      float swayH = clamp(position.y/${height.toFixed(2)}, 0.0, 1.0);
+      transformed.x += sin(uWind*1.6 + swayW.x*0.45 + swayW.z*0.3)*0.07*swayH*swayH;
+      transformed.z += cos(uWind*1.2 + swayW.x*0.3 - swayW.z*0.4)*0.05*swayH*swayH;`);
+  };
+  m.customProgramCacheKey = () => 'sway' + height;
+  return m;
+}
+// Painted leaf clusters (a soft alpha cut-out) used for every tree canopy, so trees look leafy instead of faceted.
+const leafTex = (() => { const cv = document.createElement('canvas'); cv.width = cv.height = 128; const x = cv.getContext('2d');
+  for (let i=0;i<26;i++){ const a = Math.random()*Math.PI*2, r = 10 + Math.random()*40, px = 64 + Math.cos(a)*r*0.9, py = 64 + Math.sin(a)*r*0.9, l = 220 + Math.floor(Math.random()*35);
+    x.save(); x.translate(px, py); x.rotate(a + Math.PI/2 + (Math.random() - 0.5)*0.8);
+    const g = x.createLinearGradient(0, -16, 0, 16); g.addColorStop(0, `rgb(${l},${l},${l})`); g.addColorStop(1, `rgb(${l - 70},${l - 60},${l - 70})`);
+    x.fillStyle = g; x.beginPath(); x.ellipse(0, 0, 7 + Math.random()*4, 15 + Math.random()*6, 0, 0, Math.PI*2); x.fill();
+    x.strokeStyle = 'rgba(80,90,70,0.35)'; x.lineWidth = 1.2; x.beginPath(); x.moveTo(0, -14); x.lineTo(0, 14); x.stroke(); x.restore(); }
+  const t = new THREE.CanvasTexture(cv); t.anisotropy = 4; return t; })();
+export function leafMaterial(color){ return swaying(new THREE.MeshLambertMaterial({color: color || '#ffffff', map:leafTex, alphaTest:0.45, side:THREE.DoubleSide}), 3.0); }
+// Leaf cards scattered over spherical blobs [x, y, z, r]; normals point out from each blob's centre for soft, rounded shading.
+export function leafCards(blobs, density = 15, seed = 5){
+  const R = rng(seed), pos = [], nor = [], uv = [], idx = [];
+  for (const [bx, by, bz, r] of blobs){
+    const n = Math.round(density*r*r + 6);
+    for (let i=0;i<n;i++){
+      const u = R()*2 - 1, th = R()*Math.PI*2, s = Math.sqrt(1 - u*u), d = new THREE.Vector3(s*Math.cos(th), u*0.85 + 0.15, s*Math.sin(th)).normalize(), rr = r*(0.5 + R()*0.55);
+      const c = new THREE.Vector3(bx, by, bz).addScaledVector(d, rr), size = r*(0.55 + R()*0.35);
+      const t1 = new THREE.Vector3().crossVectors(d, new THREE.Vector3(R() - 0.5, R() - 0.5, R() - 0.5)).normalize(), t2 = new THREE.Vector3().crossVectors(d, t1).normalize();
+      const base = pos.length/3;
+      for (const [a, b, ua, ub] of [[-1, -1, 0, 0], [1, -1, 1, 0], [1, 1, 1, 1], [-1, 1, 0, 1]]){
+        const p = c.clone().addScaledVector(t1, a*size/2).addScaledVector(t2, b*size/2); pos.push(p.x, p.y, p.z);
+        const nn = p.clone().sub(new THREE.Vector3(bx, by, bz)).normalize(); nor.push(nn.x, nn.y, nn.z); uv.push(ua, ub); }
+      idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    }
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx);
+  return g;
+}
+export const CANOPY_BLOBS = [[0, 2.0, 0, 0.95], [0.55, 1.75, 0.2, 0.7], [-0.5, 1.8, -0.15, 0.72], [0.1, 2.45, -0.1, 0.6], [-0.15, 1.7, 0.5, 0.6]];
 
 // ---------- world description (saved in S.world) ----------
 export function newWorld(seed){
@@ -86,7 +133,7 @@ export function upgradeWorld(D){
 }
 
 // ---------- the world: terrain shape, looks, water, nature ----------
-export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFeatGone}){
+export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fishModel, onFeatGone}){
   const W = {feats:[], pick:[], bridges:[], plots:{}};
   let D = null;
   const group = new THREE.Group(); scene.add(group);
@@ -211,7 +258,8 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFe
     for (let k=0; k<N*3 && list.length < N; k++){
       const x = lerp(X0 - 3, X1 + 3, R()), z = lerp(Z0 - 3, Z1 + 3, R());
       if (W.isWater(x, z) || surf(x, z)[1] < 0.75) continue; list.push([x, z]); }
-    const m = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial(), list.length);
+    { const p = geo.attributes.position, c = new Float32Array(p.count*3); for (let i=0;i<p.count;i++){ const k = 0.5 + 0.5*clamp(p.getY(i)/0.34, 0, 1); c[i*3] = k; c[i*3+1] = k; c[i*3+2] = k*0.92; } geo.setAttribute('color', new THREE.BufferAttribute(c, 3)); }   // darker at the root, light at the tip
+    const m = new THREE.InstancedMesh(geo, swaying(new THREE.MeshLambertMaterial({vertexColors:true}), 0.34), list.length);
     list.forEach(([x, z], i) => { const s = 0.7 + R()*0.6; M.compose(V3(x, H(x, z) - 0.02, z), q.setFromAxisAngle(V3(0, 1, 0), R()*6.28), V3(s, s*(0.8 + R()*0.4), s)); m.setMatrixAt(i, M);
       m.setColorAt(i, col.set(GRASS_COLS[i % GRASS_COLS.length]).multiplyScalar((0.85 + R()*0.15)*(W.isOpen(x, z) || !inWorld(x, z) ? 1 : 0.8))); });
     group.add(m); tufts = m; W.tufts = m;
@@ -220,7 +268,10 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFe
   // --- shared nature models ---
   const bark = seeThrough(mat('#7a5634', 0.95)), leafM = seeThrough(new THREE.MeshLambertMaterial({flatShading:true})), rockM = seeThrough(new THREE.MeshLambertMaterial({flatShading:true})), bushM = seeThrough(new THREE.MeshLambertMaterial({flatShading:true}));
   const trunkGeo = new THREE.CylinderGeometry(0.16, 0.27, 1.5, 7); trunkGeo.translate(0, 0.75, 0);
-  const canopyGeo = mergeGeometries([[0, 2.0, 0, 0.95], [0.55, 1.75, 0.2, 0.7], [-0.5, 1.8, -0.15, 0.72], [0.1, 2.45, -0.1, 0.6], [-0.15, 1.7, 0.5, 0.6]].map(([x, y, z, r]) => { const g = new THREE.IcosahedronGeometry(r, 1); g.translate(x, y, z); return g; }));
+  // canopy = a darker solid core (so you cannot see through it) wrapped in painted leaf cards
+  const canopyGeo = mergeGeometries(CANOPY_BLOBS.map(([x, y, z, r]) => { const g = new THREE.IcosahedronGeometry(r*0.72, 1); g.translate(x, y, z); return g; }));
+  const cardGeo = leafCards(CANOPY_BLOBS, mobile ? 10 : 15), leafCardM = leafMaterial();
+  const pineCards = leafCards([[0, 1.2, 0, 0.95], [0, 1.9, 0, 0.75], [0, 2.55, 0, 0.55], [0, 3.05, 0, 0.32]], mobile ? 9 : 13, 11), bushCards = leafCards([[0, 0.45, 0, 0.62], [0.35, 0.38, 0.2, 0.42], [-0.3, 0.4, -0.15, 0.45]], mobile ? 9 : 13, 13);
   const pineGeo = mergeGeometries([[0, 1.4, 1.0, 1.4], [0, 2.2, 0.8, 1.2], [0, 2.9, 0.55, 1.0]].map(([x, y, r, h]) => { const g = new THREE.ConeGeometry(r, h, 7); g.translate(x, y, 0); return g; }));
   const bushGeos = [0, 1, 2].map(v => { const R = rng(99 + v), parts = [];
     for (let i=0;i<4 + v;i++){ const g = new THREE.IcosahedronGeometry(0.35 + R()*0.25, 0); g.translate((R() - 0.5)*0.9, 0.3 + R()*0.25, (R() - 0.5)*0.9); parts.push(g); }
@@ -230,7 +281,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFe
     for (let i=0;i<p.count;i++){ const k = key(p.getX(i), p.getY(i), p.getZ(i)); off[k] = off[k] || 0.78 + R()*0.4; const s = off[k]; p.setXYZ(i, p.getX(i)*s, Math.max(-0.35, p.getY(i)*s*0.72), p.getZ(i)*s); }
     g.translate(0, 0.3, 0); g.computeVertexNormals(); return g; });
   const ROCK_COLS = ['#a19c92', '#8f8a80', '#b3ab9c', '#968c7c'], LEAF_COLS = ['#5f8f3e', '#6fa148', '#4f7d34', '#5a8a46'], BUSH_COLS = ['#5d9440', '#4d8237', '#6aa24a'];
-  W.geos = {trunkGeo, canopyGeo, pineGeo, rockGeos, bushGeos};
+  W.geos = {trunkGeo, canopyGeo, cardGeo, pineGeo, rockGeos, bushGeos};
 
   // An instanced patch of trees, bushes and rocks (overgrowth on locked plots, and the wild forest outside the world).
   function wilds(items){
@@ -240,8 +291,8 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFe
       g.add(m); return m; };
     const trees = items.filter(o => o.k === 'tree'), pines = items.filter(o => o.k === 'pine');
     make(trunkGeo, bark, [...trees, ...pines], null);
-    make(canopyGeo, leafM, trees, LEAF_COLS); make(pineGeo, leafM, pines, ['#3f6f45', '#4a7b4c', '#36633e']);
-    make(bushGeos[0], bushM, items.filter(o => o.k === 'bush'), BUSH_COLS);
+    make(canopyGeo, leafM, trees.map(o => ({...o, dim:0.72})), LEAF_COLS); make(cardGeo, leafCardM, trees, LEAF_COLS); make(pineGeo, leafM, pines.map(o => ({...o, dim:0.8})), ['#3f6f45', '#4a7b4c', '#36633e']); make(pineCards, leafCardM, pines, ['#3f6f45', '#4a7b4c', '#36633e']);
+    { const bushes = items.filter(o => o.k === 'bush'); make(bushGeos[0], bushM, bushes.map(o => ({...o, dim:0.75})), BUSH_COLS); make(bushCards, leafCardM, bushes, BUSH_COLS); }
     make(rockGeos[1], rockM, items.filter(o => o.k === 'rock'), ROCK_COLS);
     group.add(g); return g;
   }
@@ -295,7 +346,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFe
   function makeFeat(d){
     const g = new THREE.Group(); let m;
     if (d.k === 'rock'){ m = new THREE.Mesh(rockGeos[d.v % 4], rockMat(d.v)); m.scale.set(d.s, d.s*(0.8 + (d.v % 3)*0.12), d.s*0.9); }
-    else { m = new THREE.Mesh(bushGeos[d.v % 3], bushMat(d.v)); m.scale.setScalar(d.s);
+    else { m = new THREE.Mesh(bushGeos[d.v % 3], bushMat(d.v)); m.scale.setScalar(d.s); m.add(new THREE.Mesh(bushCards, bushLeaf(d.v)));
       if (d.v % 2){ for (let i=0;i<5;i++){ const b = new THREE.Mesh(berryGeo, berryM[(d.v >> 1) % 2]); const a = i*1.3 + d.v; b.position.set(Math.cos(a)*0.42, 0.5 + (i % 2)*0.18, Math.sin(a)*0.42); m.add(b); } } }
     g.add(m); g.position.set(d.x, H(d.x, d.z) - (d.k === 'rock' ? 0.12*d.s : 0.02), d.z); g.rotation.y = d.ry; group.add(g);
     const r = W.featR(d), hb = new THREE.Mesh(new THREE.CylinderGeometry(r, r, d.k === 'rock' ? 1.4*d.s + 0.4 : 1.2*d.s, 8), hbMat); hb.position.y = 0.5*d.s; hb.userData.kind = d.k; g.add(hb);
@@ -303,6 +354,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFe
   }
   const rockMats = {}, bushMats = {};
   const rockMat = v => rockMats[v % 4] || (rockMats[v % 4] = seeThrough(mat(ROCK_COLS[v % 4], 0.95)));
+  const bushLeafMats = {}, bushLeaf = v => bushLeafMats[v % 3] || (bushLeafMats[v % 3] = leafMaterial(BUSH_COLS[v % 3]));
   const bushMat = v => bushMats[v % 3] || (bushMats[v % 3] = seeThrough(new THREE.MeshLambertMaterial({color:BUSH_COLS[v % 3], flatShading:true})));
   const berryGeo = new THREE.SphereGeometry(0.06, 8, 6), berryM = [mat('#d8423c', 0.4), mat('#f2f0ea', 0.6)];
   W.featR = d => d.k === 'rock' ? 0.85*d.s : 0.6*d.s;
@@ -369,6 +421,8 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFe
     const FISH = [['#f08a3c', '#f6b26b'], ['#f2efe8', '#e0483a'], ['#e0483a', '#f2b0a0'], ['#4f86c6', '#9cc4ec'], ['#f3d250', '#fff2a8'], ['#7a8c5a', '#b5c48a'], ['#c3ccd6', '#eef2f6'], ['#2f3a40', '#e8a33c']];
     const bodyGeo = new THREE.SphereGeometry(1, 12, 8), finGeo = new THREE.ConeGeometry(0.09, 0.2, 4); finGeo.rotateX(Math.PI/2); finGeo.translate(0, 0, -0.09);
     for (let i=0;i<(mobile ? 9 : 13);i++){
+      const fm = fishModel && fishModel(i); if (fm){ const s = 1.2 + R()*0.8; fm.g.scale.setScalar(s); group.add(fm.g);
+        fish.push({g:fm.g, tail:fm.tail, z:lerp(Z0 + 3, Z1 - 3, R()), off:(R()*2 - 1)*0.6, tOff:0, sp:(R() < 0.5 ? -1 : 1)*(0.35 + R()*0.5), depth:0.18 + R()*0.22, ph:R()*9, turnT:3 + R()*6, darting:0}); continue; }
       const [c1, c2] = FISH[i % FISH.length], g = new THREE.Group(), body = new THREE.Mesh(bodyGeo, mat(c1, 0.35)); body.scale.set(0.085, 0.075, 0.24); g.add(body);
       const belly = new THREE.Mesh(bodyGeo, mat(c2, 0.4)); belly.scale.set(0.07, 0.05, 0.19); belly.position.set(0, -0.025, 0.01); g.add(belly);
       if (i % FISH.length === 1){ const spot = new THREE.Mesh(bodyGeo, mat('#e0483a', 0.4)); spot.scale.set(0.06, 0.035, 0.09); spot.position.set(0, 0.05, 0.05); g.add(spot); }
@@ -529,6 +583,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFe
   };
 
   W.update = (dt, t, o) => {
+    SEE.time.value = t;
     if (riverMat){ riverMat.uniforms.uTime.value = t; riverMat.uniforms.uNight.value = o.night; riverMat.uniforms.uSun.value = 1 - o.night*0.8; }
     if (seaMat){ const u = seaMat.uniforms; u.uTime.value = t; u.uNight.value = o.night; u.uSun.value = 1 - o.night*0.8; u.uFog.value.copy(o.fog.color); u.uFogN.value = o.fog.near; u.uFogF.value = o.fog.far; }
     updateFish(dt, t, o.pet);
