@@ -118,10 +118,10 @@ export function newWorld(seed){
   return upgradeWorld(D);
 }
 // Special regions on the 4 × 4 map: a lily pond, a swamp, the Australian outback and a beaver stream on the river.
-export const BIO = {pond:'0,-2', swamp:'-2,-1', aus:'-2,1', beaver:'-1,-2'};
+export const BIO = {pond:'0,-2', swamp:'-2,-1', aus:'-2,1', beaver:'-1,-2', forest:'-2,0', high:'-2,-2'};
 // v1 worlds were 3 × 3: grow them to 4 × 4 (new plots to the west and north) without moving anything already there.
 export function upgradeWorld(D){
-  if (D.v >= 2) return D;
+  if (D.v < 2){
   const R = rng(D.seed + 77), r = (a, b) => a + R()*(b - a), f = (v, d=1) => +v.toFixed(d);
   if (D.river.z0 == null){ D.river.z0 = -52; while (D.river.z0 > Z0 - 20){ D.river.pts.unshift(f(D.river.pts[0] + r(-1.2, 1.2), 2)); D.river.z0 -= 4; } }
   for (const k of ['-2,-2', '1,-2', '-2,0', BIO.aus]){ const [a, b] = k.split(',').map(Number), n = 1 + (R() < 0.5 ? 1 : 0);
@@ -129,7 +129,12 @@ export function upgradeWorld(D){
   const [sx, sz] = BIO.swamp.split(',').map(Number), pools = [];
   for (let i=0, n = 6 + Math.floor(R()*3); i<n; i++) pools.push([f(sx*PLOT + r(-6, 6)), f(sz*PLOT + r(-6, 6)), f(r(1.8, 3.4))]);
   D.bio = {pond:{x:f(r(-3, 3)), z:f(-36 + r(-2, 2)), r:f(r(4.4, 5.4))}, pools, beaverZ:f(-36 + r(-3, 3))};
-  D.v = 2; return D;
+  D.v = 2; }
+  if (D.v < 3){   // the highland in the north-west: a high flat-topped hill reached by one ramp from the east, with a wolf cave
+    const R3 = rng(D.seed + 91), [hx, hz] = plotCenter(BIO.high);
+    D.bio.high = {h:+(3.0 + R3()*0.6).toFixed(2), rampZ:+(hz + (R3() - 0.5)*6).toFixed(1), cave:{x:+(hx - 3 + R3()*2).toFixed(1), z:+(hz - 3 + R3()*2).toFixed(1)}};
+    D.v = 3; }
+  return D;
 }
 
 // ---------- the world: terrain shape, looks, water, nature ----------
@@ -168,6 +173,12 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
       const sw = swampW(x, z);   // the swamp: low, nearly flat and soggy, with dark pools
       if (sw > 0){ h = lerp(h, -0.14 + 0.06*Math.sin(x*0.9)*Math.sin(z*0.8), sw);
         for (const [px, pz, r] of D.bio.pools){ const d = Math.hypot(x - px, z - pz); if (d < r + 1) h = Math.min(h, lerp(-0.75, -0.14, sstep(r*0.35, r + 0.6, d))); } }
+      const HI = D.bio.high;
+      if (HI){ const [hx, hz] = plotCenter(BIO.high), q = Math.max(Math.abs(x - hx), Math.abs(z - hz)) + 0.6*Math.sin(x*0.7)*Math.sin(z*0.6);
+        if (q < 10.5){ let hh = HI.h*(1 - sstep(6.6, 8.4, q)) + (q < 7 ? 0.25*Math.sin(x*0.5)*Math.sin(z*0.45) : 0);   // flat top, steep rocky sides
+          const ex = hx + 8.4; if (Math.abs(z - HI.rampZ) < 2.4 && x > hx + 4){ const u = clamp((x - (ex - 1.5))/8, 0, 1); hh = Math.max(hh, HI.h*(1 - u)*(1 - sstep(1.5, 2.4, Math.abs(z - HI.rampZ)))); }   // the one ramp, on the east side
+          const cd = Math.hypot(x - HI.cave.x, z - HI.cave.z); if (cd < 3.4) hh += 1.6*bump(cd/3.4);   // rocky mound over the wolves' cave
+          h = Math.max(h, hh); } }
     }
     const rd = riverDist(x, z), bk = D.river.w/2;
     if (rd < bk + 4){ const bed = -1.05 + 1.05*sstep(bk*0.2, bk + 1.1, rd); h = lerp(bed, h, sstep(bk + 0.3, bk + 3.2, rd)); }
@@ -214,6 +225,8 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
     if (D.bio){
       const sw = swampW(x, z); if (sw > 0){ col = mixc(col, mixc([0.5, 0.5, 0.32], [0.4, 0.36, 0.26], nz), sw*0.85); g *= 1 - sw*0.7; }
       const au = plotW(BIO.aus, x, z, 6.5, 9.8); if (au > 0){ col = mixc(col, mixc([0.93, 0.6, 0.38], [0.84, 0.5, 0.32], nz), au*0.9); g *= 1 - au*0.75; }
+      const hi = plotW(BIO.high, x, z, 6, 9); if (hi > 0){ col = mixc(col, mixc([0.74, 0.76, 0.62], [0.62, 0.66, 0.54], nz), hi*0.55); g *= 1 - hi*0.35; }
+      const fo = plotW(BIO.forest, x, z, 6, 9.5); if (fo > 0){ col = mixc(col, [0.72, 0.82, 0.6], fo*0.4); }   // shady forest floor
       const pd = Math.hypot(x - D.bio.pond.x, z - D.bio.pond.z) - D.bio.pond.r; if (pd < 1.6){ const w = 1 - sstep(-0.2, 1.6, pd + (nz - 0.5)*0.6); col = mixc(col, pd < 0 ? [0.55, 0.52, 0.42] : [0.5, 0.42, 0.3], w); g *= 1 - w; }
     }
     const rock = sstep(0.8, 1.5, sl); if (rock > 0){ col = mixc(col, [0.66, 0.63, 0.58], rock); g *= 1 - rock; }
@@ -318,7 +331,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
   // overgrowth + a sign for each locked plot
   function buildLocked(k){
     const R = rng(D.seed + hashKey(k)), [cx, cz] = plotCenter(k), h = PLOT/2 - 0.4;
-    const items = scatter(R, cx - h, cx + h, cz - h, cz + h, 95, k === BIO.aus ? ['euc', 'euc', 'bush', 'bush', 'rock'] : ['tree', 'tree', 'pine', 'bush', 'bush', 'bush', 'rock'], (x, z) => !W.isBeach(x, z) || x < shoreX(z) - 2)
+    const items = scatter(R, cx - h, cx + h, cz - h, cz + h, 95, k === BIO.aus ? ['euc', 'euc', 'bush', 'bush', 'rock'] : k === BIO.forest ? ['tree', 'pine', 'pine', 'tree', 'bush'] : ['tree', 'tree', 'pine', 'bush', 'bush', 'bush', 'rock'], (x, z) => !W.isBeach(x, z) || x < shoreX(z) - 2)
       .concat(scatter(R, cx - h, cx + h, cz - h, cz + h, 14, ['bush', 'rock'], (x, z) => W.isBeach(x, z) && x < shoreX(z) + 0.5));
     const g = wilds(items); g.traverse(o => { if (o.isMesh){ o.userData.kind = 'locked'; o.userData.ref = k; W.pick.push(o); } });
     const sign = new THREE.Sprite(new THREE.SpriteMaterial({map:signTex(), transparent:true, depthWrite:false}));
@@ -369,6 +382,12 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
   W.featR = d => d.k === 'rock' ? 0.85*d.s : 0.6*d.s;
   W.rockSize = d => d.s > 0.95 ? 'big' : d.s > 0.5 ? 'mid' : 'small';
   // bushes slowly grow back on open land (rocks and trees never come back by themselves)
+  // extra trees for the deer forest (added once)
+  W.moreTrees = (k, n, existing) => { const R = rng(D.seed*3 + hashKey(k)), [cx, cz] = plotCenter(k), out = [];
+    for (let t=0; t<n*15 && out.length < n; t++){ const x = cx + (R()*2 - 1)*8, z = cz + (R()*2 - 1)*8, s = 0.95 + R()*0.35;
+      if (W.isWater(x, z) || slope(x, z) > 0.55 || existing.some(o => Math.hypot(o.x - x, o.z - z) < 2.4) || out.some(o => Math.hypot(o.x - x, o.z - z) < 2.4) || D.feats.some(o => Math.hypot(o.x - x, o.z - z) < W.featR(o) + 1.2)) continue;
+      out.push({x:+x.toFixed(2), z:+z.toFixed(2), s:+s.toFixed(2), ry:+(R()*6.28).toFixed(2), hive:false, p:k}); }
+    return out; };
   W.addBush = (x, z, k) => { const d = {id:D.nid++, k:'bush', x:+x.toFixed(2), z:+z.toFixed(2), s:+(0.7 + Math.random()*0.4).toFixed(2), ry:+(Math.random()*6.28).toFixed(2), v:Math.floor(Math.random()*12), p:k};
     D.feats.push(d); const f = makeFeat(d); f.g.scale.setScalar(0.01); fading.push({g:f.g, t:0, grow:true}); return f; };
   W.removeFeat = f => {
@@ -525,6 +544,21 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
     stillWater(sg, '0.2, 0.26, 0.16', '0.32, 0.38, 0.22', 0.78, true).userData.kind = 'swamp';
   }
 
+  // --- the wolves' cave: boulders piled into an arch over a dark opening, facing the ramp (east) ---
+  function buildCave(){
+    const HI = D.bio && D.bio.high; if (!HI) return;
+    const g = new THREE.Group(), cx = HI.cave.x, cz = HI.cave.z, rm = seeThrough(mat('#8d8a80', 0.95)), dark = new THREE.MeshBasicMaterial({color:'#0e0c0a'});
+    const door = V3(cx + 2.3, 0, cz); door.y = H(door.x, door.z);
+    const hole = new THREE.Mesh(new THREE.CircleGeometry(0.95, 20, 0, Math.PI), dark); hole.position.set(door.x - 0.15, door.y - 0.05, cz); hole.rotation.y = Math.PI/2; g.add(hole);
+    const inner = new THREE.Mesh(new THREE.SphereGeometry(0.9, 16, 10, 0, Math.PI*2, 0, Math.PI/2), new THREE.MeshBasicMaterial({color:'#0e0c0a', side:THREE.BackSide})); inner.position.set(door.x - 0.9, door.y - 0.05, cz); inner.scale.set(1.2, 1.05, 1); g.add(inner);
+    const R = rng(D.seed + 5);
+    for (let i=0;i<9;i++){ const a = -Math.PI/2 + i/8*Math.PI, r = 1.25 + R()*0.15, s = 0.38 + R()*0.22;   // arch stones round the opening
+      const st = new THREE.Mesh(rockGeos[i % 4], rm); st.scale.set(s, s*0.9, s); st.position.set(door.x - 0.1, door.y - 0.1 + Math.sin(a + Math.PI/2)*r*0.85, cz + Math.cos(a + Math.PI/2)*r); st.rotation.y = R()*6; g.add(st); }
+    for (let i=0;i<10;i++){ const a = R()*Math.PI*2, r = R()*2.4, s = 0.6 + R()*0.7, x = cx + Math.cos(a)*r - 0.5, z = cz + Math.sin(a)*r;   // boulders on the mound
+      const st = new THREE.Mesh(rockGeos[i % 4], rm); st.scale.set(s, s*0.8, s); st.position.set(x, H(x, z) - 0.25*s, z); st.rotation.y = R()*6; g.add(st); }
+    group.add(g); W.caveDoor = door;
+  }
+
   // --- bridges across the river ---
   W.BRIDGE_W = 1.9;
   function bridgeAt(x, z){
@@ -558,7 +592,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
   W.plotName = k => {
     const [a, b] = k.split(',').map(Number), dir = (b < 0 ? '北' : b > 0 ? '南' : '') + (a < 0 ? '西' : a > 0 ? '東' : '');
     const [cx, cz] = plotCenter(k), P = D.plat;
-    const special = {[BIO.pond]:'荷花池塘', [BIO.swamp]:'沼澤', [BIO.aus]:'澳洲草原', [BIO.beaver]:'河狸溪'}[k]; if (special) return special;
+    const special = {[BIO.pond]:'荷花池塘', [BIO.swamp]:'沼澤', [BIO.aus]:'澳洲草原', [BIO.beaver]:'河狸溪', [BIO.forest]:'鹿的森林', [BIO.high]:'狼的高地'}[k]; if (special) return special;
     const what = a === -2 ? '森林' : a === -1 ? '河畔' : a > 0 ? '海岸' : Math.abs(P.z - cz) < 6 ? '高台' : D.pits.some(([x, z]) => Math.abs(x - cx) < 9 && Math.abs(z - cz) < 9) ? '窪地' : '山丘';
     return `${dir}邊的${what}`;
   };
@@ -616,7 +650,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
   W.load = (data) => {
     D = upgradeWorld(data); W.data = D;
     const R = rng(D.seed);
-    buildTerrain(); buildTufts(rng(D.seed + 1)); buildRiver(rng(D.seed + 2)); buildSea(); buildStill();
+    buildTerrain(); buildTufts(rng(D.seed + 1)); buildRiver(rng(D.seed + 2)); buildSea(); buildStill(); buildCave();
     // wild forest beyond the world edge (west, north and south; the east is sea)
     const out = (x, z) => !(x > X0 - 0.8 && x < X1 + 0.8 && z > Z0 - 0.8 && z < Z1 + 0.8) && !W.isBeach(x, z);
     wilds(scatter(rng(D.seed + 3), X0 - MARGIN, X1 + MARGIN, Z0 - MARGIN, Z1 + MARGIN, mobile ? 360 : 600, ['tree', 'pine', 'pine', 'bush', 'rock'], out));

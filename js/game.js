@@ -859,10 +859,54 @@ function applyPlace(id){
   const c = placeCenter(b, S.place[id]); g.position.copy(c); g.position.y = footY(b, S.place[id]); g.rotation.y = S.place[id].rot*Math.PI/2; SPOTS[id] = c.clone(); NAV.dirty = true;
   if (!g.userData.hb){ const hb = new THREE.Mesh(new THREE.BoxGeometry(b.size[0], 1.6, b.size[1]), hbMat); hb.position.y = 0.8; hb.userData.kind = id === 'house' ? 'house' : 'build'; hb.userData.ref = id; g.add(hb); g.userData.hb = hb; }
 }
+// ---------- playing with buildings (and mud) ----------
+// The wombat walks over, then: rides the swing, slides down the slide, digs in the sandbox, sits on the bench,
+// splashes at the fountain or pond, or rolls in the mud. Each one lifts its mood.
+const PLAY_AT = {swing:{label:'讓牠盪鞦韆', dur:9}, slide:{label:'讓牠溜滑梯', dur:4.5}, sandbox:{label:'讓牠玩沙', dur:5}, bench:{label:'讓牠坐一下', dur:8},
+  fountain:{label:'讓牠玩水', dur:6}, pond:{label:'讓牠玩水', dur:6}, mud:{label:'在泥巴裡打滾', dur:5}};
+const PLAY_DONE = {swing:'盪鞦韆好開心！', slide:'咻——溜下來了！', sandbox:'沙坑挖得好開心。', bench:'在長椅上休息了一下。', fountain:'玩水玩得好開心！', pond:'在水池邊玩水好開心！', mud:'滾得全身都是泥巴，好開心！（游泳或下雨就會洗乾淨）'};
+function startUse(id, at){
+  const why = whyCantPlay(); if (why){ toast(why); return; }
+  const g = BG[id];
+  if (id !== 'mud' && !g) return;
+  let target = at ? at.clone() : g.position.clone();
+  if (id === 'fountain' || id === 'pond'){ const d = V3(pos.x - target.x, 0, pos.z - target.z); if (d.lengthSq() < 0.01) d.set(1, 0, 0); target.addScaledVector(d.normalize(), id === 'pond' ? 2.2 : 1.9); }
+  if (id === 'slide'){ target = g.localToWorld(V3(0, 0, -1.0)); }
+  const bd = id !== 'mud' && bdef(id); B.mode = 'useWalk'; B.use = {id, at:target.setY(0), t:0, center: g ? g.position.clone() : null, reach: bd ? (bd.r || 1) + 0.9*petS + 0.6 : 0}; B.timer = 40; B.path = null; B.treeVisit = null; closeSheet(); showEmote('❗', 0.9);
+}
+function useStep(dt){   // called from think() while B.mode is 'use'
+  const U_ = B.use, P = PLAY_AT[U_.id], g = BG[U_.id]; U_.t += dt; const t_ = U_.t;
+  if (U_.id !== 'mud' && !g){ B.mode = 'idle'; B.use = null; return; }
+  switch (U_.id){
+    case 'swing': { U_.hold = true; g.userData.ride = true; const seat = g.userData.sway.localToWorld(V3(0, -1.55, 0));
+      pos.x = seat.x; pos.z = seat.z; pos.y = seat.y - gy(pos.x, pos.z) - 0.05; vel.set(0, 0, 0); root.rotation.y = g.rotation.y; break; }
+    case 'bench': { U_.hold = true; const s = g.localToWorld(V3(0, 0.5, 0)); pos.x = s.x; pos.z = s.z; pos.y = s.y - gy(s.x, s.z); vel.set(0, 0, 0); root.rotation.y = g.rotation.y; break; }
+    case 'slide': { U_.hold = true; const top = g.localToWorld(V3(0, 1.55, -0.3)), end = g.localToWorld(V3(0, 0.05, 2.7));
+      const p = t_ < 1.6 ? g.localToWorld(V3(0, 0, -0.9)).lerp(top, t_/1.6) : top.clone().lerp(end, Math.min(1, (t_ - 1.6)/1.2));
+      pos.x = p.x; pos.z = p.z; pos.y = Math.max(0, p.y - gy(p.x, p.z)); vel.set(0, 0, 0); root.rotation.y = g.rotation.y + (t_ < 1.6 ? Math.PI : 0);
+      if (t_ > 1.6 && !U_.whee){ U_.whee = true; sfx('whoosh'); cry('happy'); } break; }
+    case 'sandbox': { if (!U_.dug){ pos.x = g.position.x; pos.z = g.position.z; U_.dug = true; U_.leave = true; act = {key:'dig', t:0, dir:1, moved:0, jumped:false, rolls:0, noteT:0, step:0}; } break; }
+    case 'mud': { if (!U_.rolled){ U_.rolled = true; act = {key:'belly', t:0, dir:1, moved:0, jumped:false, rolls:0, noteT:0, step:0}; }
+      if (Math.random() < dt*6) floatSprite(radialTex('rgba(110,80,52,1)','rgba(110,80,52,0)'), V3(pos.x + rnd(-0.6,0.6), gy(pos.x, pos.z) + 0.2, pos.z + rnd(-0.6,0.6)), {size:0.25, vy:rnd(1.5,2.5), vx:rnd(-1,1), vz:rnd(-1,1), g:8, max:0.7, grow:0});
+      S.muddy = 200; applyFur(); break; }
+    case 'fountain': case 'pond': { root.rotation.y += clamp(wrapA(Math.atan2(g.position.x - pos.x, g.position.z - pos.z) - root.rotation.y), -3*dt, 3*dt);
+      if (Math.floor(t_*1.5) !== U_.hop){ U_.hop = Math.floor(t_*1.5); vel.y = 2.2*petS + 0.6; sfx('splash');
+        for (let k=0;k<8;k++){ const a = Math.random()*Math.PI*2; floatSprite(radialTex('rgba(210,232,245,1)','rgba(210,232,245,0)'), V3(pos.x, gy(pos.x, pos.z) + 0.2, pos.z), {size:0.22, vx:Math.cos(a)*1.5, vz:Math.sin(a)*1.5, vy:rnd(2,3.5), g:9, max:0.8, grow:0}); } }
+      if (S.muddy) S.muddy = Math.max(0, S.muddy - dt*60); break; }
+  }
+  if (t_ >= P.dur){
+    if (g) g.userData.ride = false;
+    if (U_.hold || U_.leave){ const out = g.localToWorld(V3(0, 0, (BUILDS.find(b => b.id === U_.id).size[1])/2 + 1.2)); pos.set(out.x, 0, out.z); snapToLand(pos); }
+    B.mode = 'idle'; B.timer = 2; B.use = null;
+    S.st.happy = clamp(S.st.happy + (U_.id === 'bench' ? 6 : 14), 0, 100); if (U_.id === 'bench') S.st.energy = clamp(S.st.energy + 8, 0, 100);
+    S.aff = clamp(S.aff + 2, 0, 100); spawnHearts(2); cry('happy'); track('use'); track('use:' + U_.id);
+    if (stat('use:' + U_.id) === 1) toast(PLAY_DONE[U_.id]); hudDirty = true;
+  }
+}
 function buildMenu(id){
   const b = bdef(id);
   showModal(b.name, `<div class="bigicon">${BUILD_ICON[id] || '🏗️'}</div><p>${b.desc}</p>`,
-    [{label:'關閉', ghost:true, onClick:()=>{}}, ...(b.size ? [{label:'移動', onClick:() => startPlace(id, false)}] : [])]);
+    [{label:'關閉', ghost:true, onClick:()=>{}}, ...(b.size ? [{label:'移動', ghost:true, onClick:() => startPlace(id, false)}] : []), ...(PLAY_AT[id] ? [{label:PLAY_AT[id].label, onClick:() => startUse(id)}] : [])]);
 }
 // Placement mode: a grid laid over the ground around the footprint, a green/red footprint, the camera locked to top-down or 45°.
 let placing = null;
@@ -1241,6 +1285,8 @@ function sfx(name, at){   // `at`: where the sound comes from — quieter the fu
     case 'eagle': o = tone('sine', 2200, t, 0.05, 0.6, out, 0.02); o.frequency.exponentialRampToValueAtTime(1300, t+0.55); break;
     case 'spout': noiseHit(t, 1.0, 0.25, 'highpass', 1500, out, SND.noiseLong); break;
     case 'scurry': for (let i=0;i<5;i++) noiseHit(t+i*0.04, 0.03, 0.08, 'highpass', 5000, out); break;
+    case 'howl': { const g_ = c.createGain(); g_.gain.value = 1; g_.connect(out); o = tone('sine', 420, t, 0.09, 2.4, g_, 0.5); o.frequency.linearRampToValueAtTime(620, t + 0.8); o.frequency.linearRampToValueAtTime(560, t + 1.8); o.frequency.linearRampToValueAtTime(380, t + 2.6); break; }
+    case 'growl': noiseHit(t, 0.7, 0.18, 'lowpass', 260, out, SND.noiseLong); o = tone('sawtooth', 70, t, 0.05, 0.6, out, 0.1); break;
     case 'snap': noiseHit(t, 0.08, 0.5, 'bandpass', 900, out, null, 1.2); o = tone('square', 120, t, 0.08, 0.1, out); break;
     case 'scratch': for (let i=0;i<3;i++) noiseHit(t+i*0.09, 0.07, 0.12, 'bandpass', 2400 + i*300, out, null, 2); break;
     case 'sneeze': o = tone('sine', 420, t, 0.09, 0.35, out, 0.12); o.frequency.exponentialRampToValueAtTime(820, t+0.3);
@@ -1534,7 +1580,7 @@ function sting(){
 }
 function updateTrees(dt){
   if (BG.windmill) BG.windmill.userData.spin.rotation.z -= dt*1.4;
-  if (BG.swing) BG.swing.userData.sway.rotation.x = Math.sin(t*1.3)*0.16;
+  if (BG.swing) BG.swing.userData.sway.rotation.x = Math.sin(t*1.3)*(BG.swing.userData.ride ? 0.6 : 0.16);
   if (BG.fountain && Math.random() < dt*14){ const s = BG.fountain.position.clone().add(BG.fountain.userData.spout); floatSprite(dropTex, s, {size:0.12, vy:rnd(1.2,1.8), vx:rnd(-0.6,0.6), vz:rnd(-0.6,0.6), g:5, max:0.75, fade:0.3, grow:0}); }
   stingCd -= dt;
   for (let i=bees.length-1;i>=0;i--){ const b = bees[i]; b.life -= dt; const c = headTop(), a = t*5 + b.ph;
@@ -1977,6 +2023,7 @@ function applyFur(){
   const f = S.dye != null && DYES[S.dye] ? DYES[S.dye] : (FURS[S.fur] || FURS[0]), F = form();
   let c = f.c, b = f.b;
   if (F.tint){ c = mixHex(c, F.tint[0], F.tint[1]); b = mixHex(b, F.tint[0], F.tint[1]*0.8); }
+  if (S.muddy > 0){ const k = Math.min(0.55, S.muddy/200); c = mixHex(c, '#5b4330', k); b = mixHex(b, '#6b5038', k); }   // covered in mud after a wallow
   U.uColor.value.set(c); U.uBelly.value.set(b);
 }
 function applyForm(){
@@ -2317,6 +2364,11 @@ const ACH = [
   {id:'builds10', icon:'🏙️', name:'城市規劃師', desc:'蓋 10 種建築', test:() => Object.values(S.builds).filter(Boolean).length >= 10, coins:100},
   {id:'fish10', icon:'🎣', name:'看魚跳', desc:'讓魚跳出水面 10 次', test:() => stat('meet:fish') >= 10, coins:25},
   {id:'meetAll', icon:'🦓', name:'動物博士', desc:'遇見所有的野生動物', test:() => Object.keys({...SPECIES, ...WILD_NAMES}).every(k => stat('meet:' + k) >= 1), coins:300},
+  {id:'use1', icon:'🎠', name:'院子遊樂園', desc:'第一次讓牠玩院子裡的設施', test:() => stat('use') >= 1, coins:15},
+  {id:'swing10', icon:'🎡', name:'鞦韆高手', desc:'盪 10 次鞦韆', test:() => stat('use:swing') >= 10, coins:40},
+  {id:'mud5', icon:'🟤', name:'泥巴小子', desc:'在泥巴裡打滾 5 次', test:() => stat('use:mud') >= 5, coins:30},
+  {id:'cave', icon:'🕳️', name:'狼的家', desc:'打開狼的高地', test:() => world.isOpenKey(BIO.high), coins:50},
+  {id:'forest', icon:'🌲', name:'走進森林', desc:'打開鹿的森林', test:() => world.isOpenKey(BIO.forest), coins:50},
   {id:'formsAll', icon:'📖', name:'袋熊圖鑑完成', desc:'養出所有型態的袋熊', test:() => ALL_FORMS.every(f => S.formsSeen && S.formsSeen[f]), coins:500}
 ];
 let achBusy = false;
@@ -2369,6 +2421,7 @@ function sim(m, offline){
   if (BG.fruittree){ S.fruitT = (S.fruitT ?? 120) - m; if (S.fruitT <= 0){ S.fruitT = 120; S.food = S.food || {}; if (!S.food.apple){ S.food.apple = true; if (!offline) toast('果樹結果了！以後蘋果隨時都能免費給牠吃。'); } else { S.coins += 3; if (!offline) toast('果樹結的蘋果賣了 3 代幣。'); } } }
   S.aff = clamp(S.aff - (0.05 + (st.hunger < 25 || dirty ? 0.04 : 0))*m*k, 0, 100);   // affection fades slowly unless you keep caring
   if (S.swollen){ st.happy -= 0.25*m*k; st.health -= 0.08*m*k; }   // bee-sting bumps hurt until treated
+  if (S.muddy > 0){ S.muddy = Math.max(0, S.muddy - m*(badWeather() ? 60 : 12)); applyFur(); }   // the mud wears off (fast in the rain)
   if (offline) st.energy += 1.2*m;
   else if (asleep()) st.energy += (B.mode === 'inHouse' ? 3.2 : 2.4)*m;
   else if (act && act.key === 'fireflies') st.energy += 1.5*m;
@@ -2696,6 +2749,7 @@ function goHouse(sleep){ B.mode = 'goHouse'; B.sleepAfter = sleep; }
 function exitHouse(){ if (B.mode !== 'inHouse') return; B.mode = 'exit'; B.anim = 0; B.sleeping = false; root.visible = true; shadow.g.visible = true; }
 function think(dt){
   walkVel.set(0,0,0);
+  if (B.mode === 'use' && B.use && petActive() && !dragging && !hatching){ if (!act) useStep(dt); if (B.mode === 'use' && (B.use.hold || act)) return false; }
   if (!petActive() || hatching || B.mode === 'evolve' || dragging || act || pos.y > 0.02 || liftW > 0.05) return false;
   const st = S.st; B.timer -= dt;
   if (B.mode === 'bloated'){ if (B.timer <= 0){ B.mode = 'idle'; B.timer = 2; toast(`${S.name || '牠'}的肚子消下去了，可以動了。`); } return false; }
@@ -2707,7 +2761,7 @@ function think(dt){
     if (!B.sleeping && !badWeather()) exitHouse();
     return false;
   }
-  const busy = ['eat','drink','enter','exit','goHouse'].includes(B.mode);
+  const busy = ['eat','drink','enter','exit','goHouse','use','useWalk'].includes(B.mode);
   const wantSleep = st.energy < 20 || (nightF > 0.6 && st.energy < 85);
   if (!busy && wantSleep){ if (BG.house) goHouse(true); else startSleep(); return false; }
   if (!busy || B.mode === 'goHouse'){
@@ -2743,6 +2797,12 @@ function think(dt){
         break; }
       const r = walkTo(B.target.x, B.target.z, dt, sp, 0.25); moving = r.moving;
       if (r.dist < 0.3 || r.arrived || B.timer <= 0){ B.mode = 'idle'; B.timer = rnd(2,5); B.lookT = 0; B.path = null; }
+      break; }
+    case 'useWalk': {   // heading to a swing, bench, sandbox, fountain, pond or mud to play
+      const r = walkTo(B.use.at.x, B.use.at.z, dt, sp, 0.3); moving = r.moving;
+      const atB = B.use.center && Math.hypot(pos.x - B.use.center.x, pos.z - B.use.center.z) < B.use.reach;
+      if (r.dist < 0.7 || r.arrived || atB){ B.mode = 'use'; B.use.t = 0; B.path = null; }
+      else if (B.timer <= 0){ B.mode = 'idle'; B.timer = 1; B.use = null; }
       break; }
     case 'scratch': {   // up on the hind legs, scratching the bark with the front paws
       const tv = B.scr;
@@ -2842,7 +2902,7 @@ function think(dt){
       if (B.anim >= 1){ B.mode = 'idle'; B.timer = 2; }
       break; }
   }
-  if (!['enter','exit','inHouse'].includes(B.mode)){
+  if (!['enter','exit','inHouse','use'].includes(B.mode)){
     for (const o of obstacles()){ const dx = pos.x-o.c.x, dz = pos.z-o.c.z, d = Math.hypot(dx,dz), min = o.r + 0.9*petS;
       if (d < min && d > 0.001){ pos.x = o.c.x + dx/d*min; pos.z = o.c.z + dz/d*min; } }
   }
@@ -2869,6 +2929,8 @@ function statusText(){
   if (B.mode === 'beg') return '在裝可憐，想要你摸摸牠';
   if (B.mode === 'chase') return '在追蝴蝶！';
   if (B.mode === 'scratch') return '在抓樹';
+  if (B.mode === 'useWalk') return '要去玩囉';
+  if (B.mode === 'use' && B.use) return {swing:'在盪鞦韆', slide:'在溜滑梯', sandbox:'在沙坑裡挖沙', bench:'坐在長椅上休息', fountain:'在噴水池玩水', pond:'在水池邊玩水', mud:'在泥巴裡打滾'}[B.use.id] || '在玩';
   if (dragging) return '被抓起來了！';
   if (act) return ACTS[act.key].name;
   if (B.mode === 'inHouse') return B.sleeping ? '在小窩裡睡覺' : '躲在小窩裡';
@@ -2969,7 +3031,7 @@ function updateWorld(dt, t){
   updateBeach(dt, t);
   updateAmbience(dt, t, di.n > 0.6);
   wild.update(dt, t, {cam:camTarget, pet: petActive() && root.visible ? pos : null, night:di.n, onSound: (n, at) => sfx(n, at)});
-  fauna.update(dt, t, {cam:camTarget, pet: petActive() && root.visible ? pos : null, night:di.n, onScare:animalScare, onSmile: p => floatSprite(emojiTex('😊'), p.add(V3(0, 0.9, 0)), {size:0.5, vy:0.5, max:1.6}), onZzz: p => floatSprite(textTex('Z','#5d6e8f','bold 90px sans-serif','rgba(255,255,255,.85)'), p, {size:0.35, vy:0.5, vx:0.2, max:2}),
+  fauna.update(dt, t, {bad:badWeather(), cam:camTarget, pet: petActive() && root.visible ? pos : null, night:di.n, onScare:animalScare, onSmile: p => floatSprite(emojiTex('😊'), p.add(V3(0, 0.9, 0)), {size:0.5, vy:0.5, max:1.6}), onZzz: p => floatSprite(textTex('Z','#5d6e8f','bold 90px sans-serif','rgba(255,255,255,.85)'), p, {size:0.35, vy:0.5, vx:0.2, max:2}),
     chips: p => floatSprite(radialTex('rgba(201,160,110,1)','rgba(201,160,110,0)'), p, {size:0.12, vx:rnd(-1,1), vz:rnd(-1,1), vy:rnd(1,2), g:8, max:0.6, grow:0}), treeNear:(x, z, r) => { const tr = trees.find(t => Math.hypot(t.d.x - x, t.d.z - z) < r); return tr ? tr.d : null; }});
   flashV *= Math.exp(-5*dt); $('#flash').style.opacity = (flashV*0.8).toFixed(3);
   const dim = W.dim*(1 - fxoV*0.45);
@@ -3433,6 +3495,7 @@ const GUIDE = [
       <li><b>蝴蝶</b>：晴天白天會出現，牠有時會追著跑，追完心情變好。</li>
       <li><b>環境太髒</b>：便便和雜草太多會有蒼蠅飛、蟑螂爬，快清乾淨！手動清理時會出現掃把畚箕和小手；想一鍵清光，到商店買「一鍵清理」。</li>
       <li><b>吃太撐</b>：已經很飽還硬餵，牠會肚子鼓鼓、四腳朝天躺一分鐘動不了。</li>
+      <li><b>玩院子裡的設施</b>：點鞦韆、長椅、沙坑、噴水池、小水池或溜滑梯，按「讓牠玩」牠就會過去玩；點地上的泥巴，牠會跑去打滾，全身變髒髒的，游泳或下雨就會洗乾淨。</li>
       <li><b>蓋建築</b>：在商店選好建築後，會進入擺放模式：拖曳選位置、按「旋轉」換方向，綠色可以蓋、紅色不行。蓋好後點建築可以再「移動」。</li>
       <li><b>任務與成就</b>：右邊的「📋 任務」每天有三個小任務，完成就有代幣，三個全做完再加 30。還有幾十個成就（拔草、撿貝殼、開拓土地、養出每一種型態……），達成時自動拿代幣。</li>
       <li><b>告別</b>：牠離開後魂魄會在墳上飄，點墳墓就能送牠去天堂，然後出現新的蛋。</li></ul>`},
@@ -3451,7 +3514,7 @@ const GUIDE = [
       <li>地上的<b>石頭、樹叢、樹</b>點一下都可以花代幣清掉（大石頭比袋熊還大）。樹上的<b>蜂窩</b>也能單獨清除。</li>
       <li><b>西邊有一條河</b>：看得到水在流、水底的石頭和魚。要過河就<b>點河面蓋橋</b>。把袋熊丟進河裡，牠會自己爬上岸。</li>
       <li><b>東邊是沙灘和海</b>：有螃蟹、寄居蟹，點<b>貝殼</b>可以撿（+1 代幣），偶爾會漂來<b>瓶中信</b>，打開可能有代幣。</li>
-      <li><b>特別的區域</b>：北邊的<b>荷花池塘</b>（青蛙、蜻蜓、烏龜）、西邊的<b>沼澤</b>（鱷魚、蒼鷺）、河上游的<b>河狸溪</b>（河狸的水壩和小屋）、西南的<b>澳洲草原</b>（袋鼠、微笑袋鼠、鴯鶓、尤加利樹上的無尾熊）。點一下動物會有反應，第一次遇見每種動物都有成就。</li>
+      <li><b>特別的區域</b>：北邊的<b>荷花池塘</b>（青蛙、蜻蜓、烏龜）、西邊的<b>沼澤</b>（鱷魚、蒼鷺）、河上游的<b>河狸溪</b>（河狸的水壩和小屋）、西南的<b>澳洲草原</b>（袋鼠、微笑袋鼠、鴯鶓、尤加利樹上的無尾熊）、西邊的<b>鹿的森林</b>（梅花鹿會在樹林間奔跑）、西北的<b>狼的高地</b>（高台上有山洞，狼晚上會嚎叫，下雨打雷時會躲進山洞）。點一下動物會有反應，第一次遇見每種動物都有成就。</li>
       <li><b>海邊和天空</b>：海鷗在沙灘上空盤旋、偶爾停在沙灘上；海豚會成群游過、跳出水面翻轉；鯨魚不時浮上來噴水再潛下去；淺海有熱帶魚。白天有老鷹在高空盤旋、會停在樹頂；晚上樹頂有貓頭鷹盯著你看；石頭上常有蜥蜴曬太陽，靠近就溜走。</li>
       <li><b>游泳圈</b>（商店「道具」）：有了它袋熊就能下水，走進水裡自動套上、上岸就脫下。</li>
       <li>地形有小山丘、低窪的泥巴地、斜坡和大高台。右上角「視角」可以切換，拖曳畫面移動鏡頭，「🐾 找牠」把鏡頭移回袋熊身上。</li></ul>`},
@@ -3563,6 +3626,7 @@ function updatePointerWorld(e){
   if (ray.ray.intersectPlane(plane, p)){ const g0 = gy(p.x, p.z); p.y = clamp(p.y, g0 + 0.3, g0 + 3.6*Math.max(petS,0.6)); p.x = clamp(p.x, X0 + 0.5, X1 - 0.5); p.z = clamp(p.z, Z0 + 0.5, Z1 - 0.5); pointerWorld.copy(p); }
 }
 function startGrab(e){
+  if (B.use){ if (BG[B.use.id]) BG[B.use.id].userData.ride = false; B.use = null; }
   if (act){ if (act.ball) scene.remove(act.ball); if (act.ball2) scene.remove(act.ball2); puddles.forEach(m => scene.remove(m)); puddles.length = 0; act = null; actG.rotation.set(0,0,0); actY = 0; }
   if (asleep()) wake(true);
   mode = 'grab'; dragging = true; B.mode = 'idle'; B.food = null;
@@ -3658,7 +3722,8 @@ function up(e){
     const p = groundHit(e), key = p && plotKey(p.x, p.z);
     if (p && key && !world.isOpenKey(key)) plotMenu(key);
     else if (p && petActive() && !asleep() && !act && !['inHouse','enter','exit','eat','drink','evolve'].includes(B.mode)){
-      if (groundOK(p.x, p.z)){ B.target.copy(p).setY(0); B.mode = 'goto'; B.timer = 25; B.treeVisit = null; B.path = null; showEmote('❗',0.9); }
+      if (groundOK(p.x, p.z) && world.isMud(p.x, p.z) && !whyCantPlay()) startUse('mud', p);   // tap the mud: it goes for a roll
+      else if (groundOK(p.x, p.z)){ B.target.copy(p).setY(0); B.mode = 'goto'; B.timer = 25; B.treeVisit = null; B.path = null; showEmote('❗',0.9); }
       else if (world.isWater(p.x, p.z)) toast('那裡是水，袋熊過不去。河上可以蓋橋（點一下河面）。');
     }
   }
@@ -3778,6 +3843,7 @@ if (!S.trees) plantTrees();
 if (!S.world.trim){ S.world.trim = 1; const keep = id => (id*2654435761 >>> 0) % 100 > 40;
   S.world.feats = S.world.feats.filter(d => world.isOpenKey(d.p) || keep(d.id)); S.world.feats.forEach(d => { if (d.k === 'rock') d.s = +(d.s*0.72).toFixed(2); });
   S.trees = S.trees.filter((t, i) => !t.p || world.isOpenKey(t.p) || i % 3 !== 0); }
+if (!S.world.forestMore){ S.world.forestMore = 1; S.trees.push(...world.moreTrees(BIO.forest, 9, S.trees)); }   // the deer forest is thick with trees
 seedWorldNature();   // fills any plot that has no rocks, bushes or trees yet (new worlds, and the plots added when the world grew to 4 × 4)
 S.trees.filter(d => world.isOpenKey(d.p || '0,0')).forEach(makeTree); applyBumps();
 world.showFeats();
@@ -3808,7 +3874,7 @@ if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
 if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
-if (new URLSearchParams(location.search).has('debug')) window.W = {songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+if (new URLSearchParams(location.search).has('debug')) window.W = {startUse, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   sim:(secs) => { skipRender = true; try { for (let i=0;i<secs*30;i++) step(true); } finally { skipRender = false; } clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};
@@ -3881,7 +3947,7 @@ function step(manual){
       const desired = V3(pointerWorld.x-off.x, pointerWorld.y - ROPE - grabLocal.y*petS - petGY, pointerWorld.z-off.z);
       vel.addScaledVector(desired.sub(pos).multiplyScalar(60).sub(vel.clone().multiplyScalar(9)), dt);
       pos.addScaledVector(vel, dt); if (pos.y < 0){ pos.y = 0; if (vel.y < 0) vel.y = 0; }
-    } else if (B.mode !== 'inHouse'){
+    } else if (B.mode !== 'inHouse' && !(B.mode === 'use' && B.use && B.use.hold)){
       vel.y -= 25*dt; pos.addScaledVector(vel, dt);
       if (pos.y <= 0){ const impact = -vel.y; pos.y = 0;
         if (impact > 2.5){ vel.y = impact*0.22; sqv += Math.min(impact*0.3, 3.2); if (impact > 5) sfx('thud'); } else vel.y = 0;
@@ -3902,6 +3968,7 @@ function step(manual){
     // in the water (with the swim ring) the wombat floats, body half under the surface; the ring appears on its own
     swimming = petActive() && root.visible && pos.y < 0.4 && world.isWater(pos.x, pos.z) && world.bridgeAt(pos.x, pos.z) == null;
     if (swimming && !swimRing.visible) track('swim');
+    if (swimming && S.muddy > 0){ S.muddy = Math.max(0, S.muddy - dt*80); applyFur(); }   // a swim washes the mud off
     swimRing.visible = swimming; shadow.g.visible = root.visible && !swimming;
     if (swimming && Math.random() < dt*(gaitW > 0.3 ? 5 : 1)) floatSprite(radialTex('rgba(225,240,248,0.8)','rgba(225,240,248,0)'), V3(pos.x + rnd(-0.5,0.5)*petS, WATER_Y + 0.03, pos.z + rnd(-0.5,0.5)*petS), {size:0.4*Math.max(petS,0.6), vy:0, max:1.2, grow:1.5});
     petGY += ((swimming ? WATER_Y - 0.5*petS + Math.sin(t*2)*0.03 : gy(pos.x, pos.z)) - petGY)*Math.min(1, dt*(swimming ? 5 : 15));
