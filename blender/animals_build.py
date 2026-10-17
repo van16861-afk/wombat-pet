@@ -1,10 +1,13 @@
 # Builds the wild animals and exports assets/models/animals.glb (run headless:
 #   blender.exe -b --factory-startup -P animals_build.py ).
 # Every body is "organic": simple shapes are merged, voxel-remeshed and smoothed into ONE soft surface, then painted with
-# vertex colours (alpha = fur length) so the game can draw fur or feathers on it the same way as the wombat.
+# vertex colours. Alpha means: fur length on "*_fur" meshes (the game grows fur shells), feather-pattern strength on
+# "*_feather" meshes (the game draws overlapping feathers on them, no fluff) and glossiness on everything else.
 # Parts the game animates are separate objects named "<animal>_<part>" with their origin at the joint
-# (wingL/wingR at the shoulder, tail at its base, head/neck at the neck, legXX at the hip, jaw at the hinge).
-# Meshes whose name ends in "_fur" get fur/feather shells in the game; eyes, beaks and claws are plain glossy parts.
+# (wingL/wingR at the shoulder, handL/handR at the wrist, tail at its base, head/neck at the neck, legXX at the hip, jaw at the hinge).
+# Small hard parts (beaks, feet, claws, teeth, eyes) are merged into vertex-coloured "Painted" meshes: one draw call each.
+# Eyes are set INTO the surface (a ray finds the skin) and get upper and lower lids in the skin colour, so they look
+# alive and relaxed instead of round and staring.
 # Front faces -Y in Blender (= +Z in the game); Z is up.
 import bpy, bmesh, math, random
 from mathutils import Vector, Matrix
@@ -20,6 +23,7 @@ def lin(h):
     h = h.lstrip('#'); c = [int(h[i:i+2], 16)/255 for i in (0, 2, 4)]
     return [x/12.92 if x <= 0.04045 else ((x + 0.055)/1.055)**2.4 for x in c]
 def mixc(a, b, t): return [a[i] + (b[i] - a[i])*t for i in range(3)]
+def sstep(a, b, x): t = max(0.0, min(1.0, (x - a)/(b - a))); return t*t*(3 - 2*t)
 def mat(name, hexc, rough=0.5, emit=None):
     m = bpy.data.materials.get(name) or bpy.data.materials.new(name); m.use_nodes = True
     bs = next(n for n in m.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
@@ -66,12 +70,29 @@ def limb(a, b, r1, r2, seg=12):
     bm = bm_cone(r1, r2, L, seg=seg); bmesh.ops.translate(bm, vec=Vector((0, 0, L/2)), verts=bm.verts)
     q = Vector((0, 0, 1)).rotation_difference(d.normalized()); bmesh.ops.rotate(bm, cent=Vector(), matrix=q.to_matrix(), verts=bm.verts)
     bmesh.ops.translate(bm, vec=a, verts=bm.verts); return bm
+def bm_torus(R1, r, seg=20, sides=8):
+    """A ring lying in the XZ plane (axis = Y)."""
+    bm = bmesh.new(); rings = []
+    for i in range(seg):
+        a = i/seg*2*math.pi; c = Vector((math.cos(a)*R1, 0, math.sin(a)*R1)); out = Vector((math.cos(a), 0, math.sin(a)))
+        rings.append([bm.verts.new(c + out*math.cos(b/sides*2*math.pi)*r + Vector((0, math.sin(b/sides*2*math.pi)*r, 0))) for b in range(sides)])
+    for i in range(seg):
+        r0, r1 = rings[i], rings[(i+1) % seg]
+        for k in range(sides): bm.faces.new((r0[k], r0[(k+1) % sides], r1[(k+1) % sides], r1[k]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces); return bm
+def bm_cap(r, nrm, h, seg=18):
+    """The part of a sphere on the far side of a plane (v.nrm > h): an eyelid."""
+    bm = bm_ball(r, seg=seg); nrm = Vector(nrm).normalized()
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.dot(nrm) < h], context='VERTS'); return bm
+def xf(bm, M=None, T=(0, 0, 0)):
+    if M is not None: bmesh.ops.transform(bm, matrix=M.to_4x4(), verts=bm.verts)
+    bmesh.ops.translate(bm, vec=Vector(T), verts=bm.verts); return bm
 
 class Piece:
     """Collects shapes, each with a colour and fur length; build() merges them into one smooth painted mesh."""
     def __init__(self, name, voxel, target=None): self.name, self.voxel, self.shapes, self.paint = name, voxel, [], []; self.target = target or (1500 if "body" in name else 380)
     def add(self, bm, color, fur=1.0): self.shapes.append((bm, lin(color) if isinstance(color, str) else color, fur)); return self
-    def build(self, parent=None, at=(0, 0, 0), smooth=6, shade=None):
+    def build(self, parent=None, at=(0, 0, 0), smooth=6, shade=None, deform=None):
         big = bmesh.new(); trees = []
         for bm, col, fur in self.shapes:
             me = bpy.data.meshes.new("tmp"); bm.to_mesh(me); big.from_mesh(me); bpy.data.meshes.remove(me)
@@ -87,6 +108,10 @@ class Piece:
             tmp = link(bpy.data.objects.new(self.name + "_dec", out)); dm = tmp.modifiers.new("dec", 'DECIMATE'); dm.ratio = self.target/len(out.polygons)
             ev2 = tmp.evaluated_get(bpy.context.evaluated_depsgraph_get()); out2 = bpy.data.meshes.new_from_object(ev2)
             bpy.data.objects.remove(tmp, do_unlink=True); bpy.data.meshes.remove(out); out = out2
+        if deform:   # surface relief (scute seams, bony bumps) pushed along the normals
+            moves = [deform(v.co.copy(), v.normal.copy()) for v in out.vertices]
+            for v, co in zip(out.vertices, moves): v.co = co
+            out.update()
         # paint: blend the colours of the nearest shapes (soft seams), then optional shading rules
         ca = out.color_attributes.new("Col", 'FLOAT_COLOR', 'POINT')
         for v in out.vertices:
@@ -94,7 +119,6 @@ class Piece:
             for tree, col, f in trees:
                 hit = tree.find_nearest(v.co)
                 if not hit[0]: continue
-                inside = 0
                 w = math.exp(-max(hit[3], 0)/(self.voxel*1.6))
                 acc = [acc[i] + col[i]*w for i in range(3)]; wsum += w; fur += f*w
             c = [x/max(wsum, 1e-6) for x in acc]; fz = fur/max(wsum, 1e-6)
@@ -105,120 +129,273 @@ class Piece:
         out.materials.append(FURMAT)
         o = link(bpy.data.objects.new(self.name, out), parent, at); return o
 
+class Painted:
+    """Small hard parts kept as modelled (no remesh), each with a colour and a gloss (alpha), merged into one mesh."""
+    def __init__(self, name): self.name, self.parts = name, []
+    def add(self, bm, color, gloss=0.3): self.parts.append((bm, lin(color) if isinstance(color, str) else list(color), gloss)); return self
+    def build(self, parent=None, at=(0, 0, 0)):
+        big = bmesh.new(); cols = []
+        for bm, col, g in self.parts:
+            me = bpy.data.meshes.new("tmp"); bm.to_mesh(me); bm.free(); n0 = len(big.verts); big.from_mesh(me); bpy.data.meshes.remove(me)
+            cols += [(col, g)]*(len(big.verts) - n0)
+        me = bpy.data.meshes.new(self.name); big.to_mesh(me); big.free()
+        ca = me.color_attributes.new("Col", 'FLOAT_COLOR', 'POINT')
+        for i, (c, g) in enumerate(cols): ca.data[i].color = (*c, g)
+        me.color_attributes.active_color = ca
+        for p in me.polygons: p.use_smooth = True
+        me.materials.append(FURMAT)
+        return link(bpy.data.objects.new(self.name, me), parent, at)
+
 def solid(name, bm, m, parent=None, at=(0, 0, 0), sub=1):
     me = bpy.data.meshes.new(name); bm.to_mesh(me); bm.free()
     for p in me.polygons: p.use_smooth = True
     me.materials.append(m); o = link(bpy.data.objects.new(name, me), parent, at)
     if sub: s = o.modifiers.new("sub", 'SUBSURF'); s.levels = sub; s.render_levels = sub
     return o
-EYE_W, PUPIL, SHINE = mat("EyeWhite", '#f8f8f2', 0.15), mat("Pupil", '#0d0d0d', 0.08), mat("Shine", '#ffffff', 0.05)
-def eye(prefix, at, r, parent, iris=None, look=(0, -1, 0)):
-    """A glossy eye: (white or coloured) ball, pupil and a small highlight, looking along `look`."""
-    d = Vector(look).normalized(); at = Vector(at)
-    solid(prefix + "_eye", bm_ball(r, seg=10), mat("Iris_" + iris, iris, 0.15) if iris else EYE_W, parent, at, 0)
-    solid(prefix + "_pupil", bm_ball(r*(0.55 if iris else 0.62), scale=(1, 0.5, 1), seg=8), PUPIL, parent, at + d*r*0.72, 0)
-    solid(prefix + "_shine", bm_ball(r*0.18, seg=6), SHINE, parent, at + d*r*0.95 + Vector((r*0.3, 0, r*0.35)), 0)
+
+def basis(f, up=(0, 0, 1)):
+    """Rotation taking local -Y to `f` (where the eye looks) and local +Z towards `up`."""
+    f = Vector(f).normalized(); up = Vector(up); u = up - f*f.dot(up)
+    if u.length < 1e-4: u = Vector((0, 1, 0))
+    u.normalize(); Y = -f; X = Y.cross(u)
+    return Matrix((X, Y, u)).transposed()
+def surface_hit(body, origin, d):
+    """Ray from inside `body` (in its parent's space) out along d: the skin point, its normal and its painted colour."""
+    me = body.data; bm = bmesh.new(); bm.from_mesh(me); bm.faces.ensure_lookup_table(); bvh = BVHTree.FromBMesh(bm)
+    ca = me.color_attributes.get("Col"); loc = body.location
+    hit, n, idx, dist = bvh.ray_cast(Vector(origin) - loc, Vector(d).normalized())
+    if hit is None: bm.free(); return None
+    col = [sum(ca.data[v.index].color[i] for v in bm.faces[idx].verts)/len(bm.faces[idx].verts) for i in range(3)] if ca else lin('#666666')
+    bm.free(); n = n.normalized()
+    if n.dot(Vector(d)) < 0: n = -n
+    return hit + loc, n, col
+def clear_fur(body, p, rad):
+    """No fur or feather pattern right round the eyes (it would grow over them)."""
+    ca = body.data.color_attributes.get("Col"); p = Vector(p) - body.location
+    if not ca: return
+    for v in body.data.vertices:
+        d = (v.co - p).length
+        if d < rad: c = list(ca.data[v.index].color); c[3] *= (d/rad)**2; ca.data[v.index].color = c
+
+def eyes(prefix, body, parent, origin, d, r, iris='#2e1d12', pupil='round', lid=0.3, low=0.12, slant=0.0, ring=None, bulge=0.45,
+         look=0.5, glow=False, lidcol=None, up=(0, 0, 1), shine=True):
+    """A pair of eyes (mirrored in x) set into `body`: a ray from `origin` along `d` finds the skin, the eyeball sinks in a little,
+    and lids in the skin colour cover the top (`lid`, tilted inwards by `slant` for a keen look) and the bottom (`low`)."""
+    P = Painted(prefix + "_eyes")
+    for s in (1, -1):
+        o = Vector((origin[0]*s, origin[1], origin[2])); dd = Vector((d[0]*s, d[1], d[2])).normalized()
+        h = surface_hit(body, o, dd) if body else None
+        if h: hit, n, col = h
+        else: hit, n, col = o, dd, lin(lidcol or '#666666')
+        f = (n*(1 - look) + dd*look).normalized(); C = hit - n*r*bulge
+        M = basis(f, up); lc = lin(lidcol) if lidcol else col
+        ball = xf(bm_ball(r, scale=(1, 0.84, 1), seg=16), M, C)
+        if glow: solid(prefix + "_iris" + ("L" if s > 0 else "R"), ball, mat("Iris_" + iris, iris, 0.15), parent, (0, 0, 0), 0)
+        else: P.add(ball, iris, 0.85)
+        px, pz = {'round': (0.5, 0.5), 'slit': (0.13, 0.62), 'hbar': (0.5, 0.22), 'big': (0.66, 0.66)}[pupil]
+        P.add(xf(bm_ball(r, scale=(px, 0.2, pz), at=(0, -0.7*r, 0), seg=12), M, C), '#080808', 1.0)
+        if shine: P.add(xf(bm_ball(r*0.12, at=(0.3*r, -0.86*r, 0.34*r), seg=6), M, C), '#ffffff', 1.0)
+        if lid > 0:
+            R1 = r*1.1; nl = Vector((-s*math.sin(slant), 0, math.cos(slant)))
+            P.add(xf(bm_cap(R1, nl, R1*(1 - 2*lid)), M, C), lc, 0.1)
+        if low > 0:
+            R2 = r*1.07; P.add(xf(bm_cap(R2, (0, 0, -1), R2*(1 - 2*low)), M, C), lc, 0.1)
+        if ring: P.add(xf(bm_torus(r*0.92, r*0.16, 20, 6), M, C + f*(-0.0)), ring, 0.3)
+        if body: clear_fur(body, hit, r*2.4)
+    return P.build(parent)
+
+def bird_wing(a, s, side, g, shoulder, arm_len, arm, hand, voxel, shade_arm=None, shade_hand=None, quills=None):
+    """A two-part wing along +X: "<a>_wing<side>" holds the inner wing (joint at the shoulder) and "<a>_hand<side>" the
+    outer wing (joint at the wrist). The game folds it the way birds do: the arm tucks in and the hand lies back along the body."""
+    w = empty(a + "_wing" + side, g, shoulder)
+    ap = Piece(a + "_wing%s_feather" % side, voxel, target=600); arm(ap); ao = ap.build(w, shade=shade_arm); ao.scale.x = s
+    h = empty(a + "_hand" + side, w, (arm_len*s, 0, 0))
+    hp = Piece(a + "_hand%s_feather" % side, voxel, target=600); hand(hp); ho = hp.build(h, shade=shade_hand); ho.scale.x = s
+    if quills: q = Painted(a + "_quills" + side); quills(q); qo = q.build(h); qo.scale.x = s
+    return w
+
+def feather_quill(q, base, ang, L, w, col, gloss=0.15, droop=0.0):
+    """One long flight feather from `base`, pointing along angle `ang` from +X (towards +Y = backwards)."""
+    d = Vector((math.cos(ang), math.sin(ang), 0))
+    prof = [(0.0, w*0.55, 0.004, 0), (L*0.25, w, 0.0045, droop*0.3), (L*0.7, w*0.85, 0.0035, droop*0.7), (L*0.93, w*0.45, 0.003, droop), (L, w*0.06, 0.002, droop)]
+    bm = bm_tube(prof, axis='X', seg=8); bmesh.ops.rotate(bm, cent=Vector(), matrix=R(ang, 3, 'Z'), verts=bm.verts)
+    bmesh.ops.translate(bm, vec=Vector(base), verts=bm.verts); q.add(bm, col, gloss)
 
 # ================================================================== birds
-# ---------- seagull ----------
+# ---------- seagull (common gull: white head and body, pale grey back and wings, black wingtips with white "mirrors",
+# yellow bill with a red spot, yellow legs, dark eye with a red eye-ring) ----------
 def gull():
-    g = empty("gull"); W_, G_, BK = '#f5f5f2', '#aab4be', '#2c2c2c'
-    p = Piece("gull_body_fur", 0.012)
-    p.add(bm_tube([(-0.16, 0.001, 0.001, 0.02), (-0.1, 0.09, 0.09, 0.02), (0.0, 0.12, 0.11, 0.0), (0.14, 0.09, 0.08, 0.0), (0.26, 0.04, 0.03, 0.02), (0.3, 0.001, 0.001, 0.03)], at=(0, 0, 0.3)), W_, 0.5)
-    p.add(bm_ball(0.075, at=(0, -0.2, 0.38)), W_, 0.4).add(bm_ball(0.06, at=(0, -0.13, 0.35), scale=(1, 1.3, 1)), W_, 0.4)
-    p.add(bm_ball(0.1, at=(0, 0.06, 0.37), scale=(1.05, 1.6, 0.35)), G_, 0.4)              # grey back
-    p.add(bm_tube([(0.24, 0.05, 0.015, 0), (0.36, 0.06, 0.01, 0)], at=(0, 0, 0.33)), W_, 0.3)   # tail
-    p.build(g)
-    solid("gull_beak", bm_cone(0.022, 0.006, 0.1, rot=R(math.pi/2, 3, 'X')), mat("GullBeak", '#f1c33a', 0.3), g, (0, -0.31, 0.37), 1)
-    solid("gull_beakdot", bm_ball(0.008), mat("Red", '#d8452f'), g, (0, -0.33, 0.355), 0)
+    g = empty("gull"); W_, G_, BK = '#f7f7f4', '#9fa9b4', '#1d1d1f'
+    def shade(co, c, f):
+        back = sstep(0.345, 0.385, co.z)*sstep(-0.09, -0.05, co.y)*(1 - sstep(0.22, 0.27, co.y))
+        return mixc(c, lin(G_), back), 0.45 + 0.5*back
+    p = Piece("gull_body_feather", 0.008, target=1800)
+    p.add(bm_tube([(-0.15, 0.001, 0.001, 0.0), (-0.12, 0.065, 0.07, 0.0), (-0.06, 0.1, 0.105, -0.01), (0.03, 0.105, 0.1, -0.005), (0.13, 0.08, 0.07, 0.01),
+                   (0.22, 0.045, 0.035, 0.025), (0.3, 0.02, 0.012, 0.035)], at=(0, 0, 0.3)), W_, 0.5)
+    p.add(limb((0, -0.1, 0.33), (0, -0.165, 0.44), 0.058, 0.047), W_, 0.4)
+    p.add(bm_ball(0.058, at=(0, -0.19, 0.465), scale=(0.88, 1.12, 0.93)), W_, 0.35).add(bm_ball(0.032, at=(0, -0.232, 0.47)), W_, 0.3)
+    p.add(bm_tube([(0.2, 0.045, 0.014, 0), (0.3, 0.055, 0.01, 0.005), (0.38, 0.05, 0.006, 0.01)], at=(0, 0, 0.335)), W_, 0.6)
+    body = p.build(g, shade=shade)
+    eyes("gull", body, g, (0.0, -0.2, 0.475), (1, -0.3, 0.12), 0.0095, iris='#2a1a12', ring='#c8352a', lid=0.24, low=0.1, bulge=0.3, look=0.35)
+    bits = Painted("gull_bits")
+    h = surface_hit(body, (0, -0.19, 0.462), (0, -1, -0.12)); B = h[0] + Vector((0, 0.008, 0))
+    bits.add(bm_tube([(0.008, 0.013, 0.016, 0.0), (-0.02, 0.011, 0.014, -0.001), (-0.045, 0.008, 0.012, -0.002), (-0.06, 0.006, 0.011, -0.004), (-0.07, 0.004, 0.008, -0.009),
+                      (-0.075, 0.002, 0.003, -0.014)], seg=12, at=B), '#f2c230', 0.45)
+    bits.add(bm_ball(0.006, at=B + Vector((0, -0.057, -0.011)), scale=(1.15, 1.6, 0.8), seg=8), '#d63c2a', 0.4)
+    bits.add(bm_ball(0.004, at=B + Vector((0, -0.03, -0.002)), scale=(3.4, 7, 0.4), seg=8), '#3a2a1a', 0.2)   # the gape line
+    bits.build(g)
+    legs = empty("gull_legs", g, (0, 0.0, 0.25)); L = Painted("gull_legsP"); LY = '#d9c14a'
+    for s in (1, -1):
+        A = Vector((0.04*s, -0.01, -0.225))
+        L.add(limb((0.035*s, 0.012, 0.05), (0.035*s, 0.0, 0.0), 0.016, 0.012), W_, 0.1)
+        L.add(limb((0.035*s, 0.0, 0.0), A, 0.009, 0.007), LY, 0.35)
+        for dx in (-0.024, 0, 0.024): L.add(limb(A, A + Vector((dx*s, -0.055, -0.018)), 0.005, 0.004), LY, 0.35)
+        L.add(bm_ball(0.03, at=A + Vector((0, -0.036, -0.016)), scale=(0.85, 1.0, 0.1)), LY, 0.3)   # webbing
+        L.add(limb(A, A + Vector((0, 0.02, -0.012)), 0.004, 0.003), LY, 0.3)
+    L.build(legs)
+    def arm(ap): ap.add(bm_tube([(0.0, 0.07, 0.022, 0), (0.1, 0.075, 0.02, 0.0), (0.2, 0.07, 0.016, 0)], axis='X', at=(0, 0.05, 0)), G_, 1.0)
+    def hand(hp): hp.add(bm_tube([(0.0, 0.068, 0.016, 0), (0.12, 0.06, 0.013, 0), (0.24, 0.045, 0.01, 0), (0.32, 0.02, 0.006, 0), (0.35, 0.003, 0.002, 0)], axis='X', at=(0, 0.045, 0), rot=R(0.22, 3, 'Z')), G_, 1.0)
+    def sh_arm(co, c, f): return mixc(c, lin(W_), sstep(0.095, 0.112, co.y)), f            # white trailing edge
+    def sh_hand(co, c, f):
+        col = mixc(c, lin(W_), sstep(0.09, 0.105, co.y)*(1 - sstep(0.13, 0.17, co.x)))
+        tip = sstep(0.16, 0.2, co.x); col = mixc(col, lin(BK), tip)
+        for mx, my, rx, ry in ((0.3, 0.115, 0.03, 0.018), (0.235, 0.105, 0.016, 0.012)):     # white "mirrors" in the black tip
+            if ((co.x - mx)/rx)**2 + ((co.y - my)/ry)**2 < 1: col = lin(W_)
+        return col, f*(1 - tip*0.6)
     for s, side in ((1, "L"), (-1, "R")):
-        eye("gull_" + side, (0.045*s, -0.235, 0.405), 0.013, g, look=(0.4*s, -1, 0.1))
-        w = empty("gull_wing" + side, g, (0.09*s, -0.02, 0.37))
-        wp = Piece("gull_wing%s_fur" % side, 0.01)
-        wp.add(bm_tube([(0.0, 0.11, 0.025, 0), (0.25, 0.1, 0.02, 0), (0.5, 0.07, 0.015, 0), (0.68, 0.035, 0.008, 0), (0.74, 0.005, 0.004, 0)], axis='X'), G_, 0.3)
-        wp.add(bm_ball(0.06, at=(0.66, 0.0, 0), scale=(1.8, 0.7, 0.2)), BK, 0.2)
-        wo = wp.build(w); wo.scale.x = s
-        for k in (-1, 1): solid("gull_leg%s%d" % (side, k), limb((0.04*s, 0.04, 0.24), (0.04*s, 0.05, 0.08), 0.012, 0.01), mat("GullLeg", '#e8894a'), g)
+        bird_wing("gull", s, side, g, (0.08*s, -0.07, 0.38), 0.2, arm, hand, 0.0065, sh_arm, sh_hand)
     return g
 
-# ---------- eagle ----------
+# ---------- eagle (bald eagle: dark brown body and wings, white head and tail, big hooked yellow bill, pale fierce eye
+# under a heavy brow, yellow feet with black talons; spread "finger" primaries) ----------
 def eagle():
-    g = empty("eagle"); BR, DK, WH = '#5b3f2b', '#3a271a', '#f4f1ea'
-    p = Piece("eagle_body_fur", 0.014)
-    p.add(bm_tube([(-0.22, 0.001, 0.001, 0.0), (-0.15, 0.1, 0.1, 0), (0.0, 0.15, 0.14, -0.01), (0.2, 0.11, 0.1, 0), (0.32, 0.05, 0.04, 0.01)], at=(0, 0, 0)), BR, 0.6)
-    p.add(bm_ball(0.09, at=(0, -0.28, 0.08), scale=(0.95, 1.15, 0.95)), WH, 0.5).add(bm_ball(0.075, at=(0, -0.2, 0.05)), WH, 0.5)
-    p.add(bm_tube([(0.28, 0.06, 0.015, 0), (0.48, 0.12, 0.012, 0)], at=(0, 0, 0.02)), WH, 0.4)
-    p.add(bm_ball(0.06, at=(0.07, 0.05, -0.12)), BR, 0.6).add(bm_ball(0.06, at=(-0.07, 0.05, -0.12)), BR, 0.6)   # feathered "trousers"
-    p.build(g)
-    hb = bm_cone(0.032, 0.006, 0.09, rot=R(math.pi/2 + 0.45, 3, 'X')); solid("eagle_beak", hb, mat("EagleBeak", '#f0b62e', 0.3), g, (0, -0.37, 0.065), 1)
+    g = empty("eagle"); BR, DK, WH, YL = '#4a3220', '#24170e', '#f4f2ec', '#f2a91c'
+    def shade(co, c, f): return mixc(c, lin(WH), sstep(-0.15, -0.19, co.y)), f
+    p = Piece("eagle_body_feather", 0.01, target=1800)
+    p.add(bm_tube([(-0.2, 0.001, 0.001, 0.02), (-0.17, 0.075, 0.075, 0.02), (-0.1, 0.125, 0.12, 0.0), (0.02, 0.14, 0.13, -0.01), (0.14, 0.12, 0.11, -0.005),
+                   (0.24, 0.08, 0.07, 0.0), (0.31, 0.045, 0.035, 0.01)]), BR, 1.0)
+    p.build(g, shade=shade)
+    hd = empty("eagle_head", g, (0, -0.17, 0.035))
+    hp = Piece("eagle_headP_feather", 0.007, target=1100)
+    hp.add(limb((0, 0.05, -0.02), (0, -0.04, 0.02), 0.078, 0.066), WH, 0.4)
+    hp.add(bm_ball(0.07, at=(0, -0.075, 0.04), scale=(0.82, 1.25, 0.82)), WH, 0.35)
+    for s in (1, -1): hp.add(bm_ball(0.026, at=(0.034*s, -0.108, 0.074), scale=(1.15, 1.9, 0.55), rot=R(-0.25*s, 3, 'Y')), WH, 0.2)   # heavy brow
+    head = hp.build(hd)
+    eyes("eagle", head, hd, (0.015, -0.1, 0.05), (1, -0.75, 0.05), 0.0115, iris='#ecd25e', lid=0.36, slant=0.5, low=0.14, bulge=0.4, look=0.55)
+    bk = Painted("eagle_beak"); h = surface_hit(head, (0, -0.075, 0.035), (0, -1, -0.12)); B = h[0] + Vector((0, 0.012, 0))
+    bk.add(bm_tube([(0.012, 0.026, 0.026, 0.004), (-0.015, 0.022, 0.024, 0.002), (-0.04, 0.016, 0.02, -0.004), (-0.06, 0.01, 0.015, -0.014), (-0.072, 0.006, 0.01, -0.028),
+                    (-0.076, 0.003, 0.005, -0.042), (-0.074, 0.001, 0.002, -0.05)], seg=14, at=B), YL, 0.5)
+    bk.add(bm_tube([(0.0, 0.018, 0.01, -0.018), (-0.04, 0.012, 0.008, -0.022), (-0.058, 0.005, 0.004, -0.024)], seg=10, at=B), '#e0921a', 0.4)
+    bk.add(bm_ball(0.004, at=B + Vector((0, -0.025, -0.012)), scale=(5.6, 6.5, 0.5), seg=8), '#3a2410', 0.2)   # gape
+    bk.build(hd)
+    t = empty("eagle_tail", g, (0, 0.27, 0.0))
+    tp = Piece("eagle_tailP_feather", 0.006, target=600)
+    for k in range(-3, 4):
+        a = k*0.1; tp.add(bm_ball(0.04, at=(math.sin(a)*0.12, math.cos(a)*0.12, 0), scale=(0.55, 3.0, 0.12), rot=R(-a, 3, 'Z')), WH, 0.6)
+    tp.build(t)
+    lg = empty("eagle_legs", g, (0, 0.02, -0.07))
+    lp = Piece("eagle_legsP_feather", 0.008, target=500)
+    for s in (1, -1): lp.add(bm_ball(0.045, at=(0.045*s, 0, -0.02), scale=(0.9, 1.0, 1.5)), BR, 0.8)
+    lp.build(lg)
+    ft = Painted("eagle_feet")
+    for s in (1, -1):
+        A = Vector((0.047*s, -0.01, -0.15))
+        ft.add(limb((0.045*s, -0.005, -0.06), A, 0.014, 0.012), '#f3b52a', 0.3)
+        for dx, dy in ((-0.02, -0.05), (0.0, -0.055), (0.02, -0.048), (0.0, 0.04)):
+            E = A + Vector((dx*s, dy, -0.012)); ft.add(limb(A, E, 0.009, 0.007), '#f3b52a', 0.3)
+            ft.add(limb(E, E + Vector((0, -0.016 if dy < 0 else 0.016, -0.022)), 0.0065, 0.001), '#15110d', 0.6)
+    ft.build(lg)
+    def arm(ap):
+        ap.add(bm_tube([(0.0, 0.1, 0.03, 0), (0.15, 0.11, 0.025, 0), (0.3, 0.105, 0.02, 0)], axis='X', at=(0, 0.07, 0)), BR, 1.0)
+    def hand(hp): hp.add(bm_tube([(0.0, 0.1, 0.02, 0), (0.12, 0.09, 0.016, 0), (0.2, 0.075, 0.012, 0)], axis='X', at=(0, 0.065, 0)), BR, 1.0)
+    def sh_arm(co, c, f): return mixc(c, lin(DK), sstep(0.12, 0.165, co.y)), f
+    def sh_hand(co, c, f): return mixc(c, lin(DK), sstep(0.1, 0.15, co.y) + sstep(0.12, 0.2, co.x)*0.5), f
+    def quills(q):
+        for k in range(6):
+            ang = -0.2 + k*0.15; feather_quill(q, (0.15 + k*0.008, 0.0 + k*0.028, 0), ang, 0.27 - k*0.017, 0.021, DK, droop=-0.01)
     for s, side in ((1, "L"), (-1, "R")):
-        eye("eagle_" + side, (0.045*s, -0.33, 0.11), 0.014, g, iris='#e8b030', look=(0.5*s, -1, 0))
-        solid("eagle_brow" + side, bm_ball(0.02, scale=(1.6, 0.8, 0.5)), mat("EagleBrowM", '#efe9dc', 0.6), g, (0.045*s, -0.33, 0.13), 0)
-        w = empty("eagle_wing" + side, g, (0.11*s, -0.04, 0.05))
-        wp = Piece("eagle_wing%s_fur" % side, 0.012)
-        wp.add(bm_tube([(0.0, 0.16, 0.03, 0), (0.4, 0.17, 0.025, 0), (0.8, 0.13, 0.02, 0), (0.95, 0.08, 0.015, 0)], axis='X'), BR, 0.35)
-        for k in range(5):
-            wp.add(bm_tube([(0.0, 0.025, 0.01, 0), (0.25, 0.022, 0.008, 0), (0.33, 0.002, 0.002, 0)], axis='X', at=(0.88, -0.09 + k*0.045, 0), rot=R((k - 2)*0.12, 3, 'Z')), DK, 0.2)
-        wo = wp.build(w); wo.scale.x = s
-        for k in (-1, 1): solid("eagle_talon%s%d" % (side, k), bm_cone(0.012, 0.004, 0.06, rot=R(math.pi/2, 3, 'X')), mat("Talon", '#f0c040'), g, (0.07*s + k*0.015, 0.0, -0.2), 0)
+        bird_wing("eagle", s, side, g, (0.1*s, -0.07, 0.05), 0.3, arm, hand, 0.008, sh_arm, sh_hand, quills)
     return g
 
-# ---------- owl ----------
+# ---------- owl (eagle-owl: ear tufts, orange eyes in a pale facial disc, streaked chest; the eyes glow at night) ----------
 def owl():
-    g = empty("owl"); BR, LT, FC = '#8a6a4a', '#d9c4a2', '#f1e6cf'
-    p = Piece("owl_body_fur", 0.012)
+    g = empty("owl"); BR, LT, FC, DK = '#7d5d3e', '#d6bf98', '#e6d6b8', '#3f2b1a'
+    def shade(co, c, f):
+        chest = sstep(-0.05, -0.12, co.y)
+        col = c
+        if chest > 0.3 and math.sin(co.x*95) > 0.55: col = mixc(col, lin(DK), 0.55*chest)              # vertical streaks
+        if co.y > -0.02 and math.sin(co.x*40 + co.z*70)*math.sin(co.z*55) > 0.5: col = mixc(col, lin(DK), 0.4)   # mottled back
+        return col, f
+    p = Piece("owl_body_feather", 0.011)
     p.add(bm_ball(0.19, at=(0, 0.02, 0.22), scale=(1, 0.9, 1.2)), BR, 1.0).add(bm_ball(0.14, at=(0, -0.08, 0.18), scale=(1, 0.6, 1.15)), LT, 1.0)
     for s in (1, -1): p.add(bm_ball(0.045, at=(0.06*s, -0.07, 0.02), scale=(1, 1.2, 0.6)), LT, 1.0)
-    p.build(g)
+    p.build(g, shade=shade)
     h = empty("owl_head", g, (0, 0, 0.44))
-    hp = Piece("owl_headball_fur", 0.011)
+    hp = Piece("owl_headball_feather", 0.009, target=1000)
     hp.add(bm_ball(0.165, at=(0, 0, 0.03), scale=(1.12, 0.95, 0.92)), BR, 1.0)
+    hp.add(bm_ball(0.06, at=(0, -0.12, -0.08), scale=(1.4, 0.6, 0.8)), '#f2ece0', 0.5)              # white throat
     for s in (1, -1):
-        hp.add(bm_ball(0.08, at=(0.068*s, -0.11, 0.03), scale=(1.0, 0.45, 1.05)), FC, 0.6)        # facial disc, part of the head surface
-        hp.add(bm_cone(0.035, 0.004, 0.11, at=(0.11*s, -0.01, 0.17), rot=R(-0.35*s, 3, 'Y')), BR, 0.7)   # ear tufts
-    hp.build(h)
+        hp.add(bm_ball(0.08, at=(0.068*s, -0.11, 0.03), scale=(1.0, 0.45, 1.05)), FC, 0.5)        # facial disc
+        hp.add(bm_cone(0.035, 0.004, 0.12, at=(0.11*s, -0.01, 0.17), rot=R(-0.4*s, 3, 'Y')), DK, 0.7)  # ear tufts
+        hp.add(limb((0.018*s, -0.14, 0.07), (0.115*s, -0.105, 0.112), 0.014, 0.01), '#f1eadb', 0.3)   # pale "eyebrows" in a V
+    def hshade(co, c, f):
+        rim = abs(math.hypot(abs(co.x) - 0.068, co.z - 0.03) - 0.085)
+        if co.y < -0.06 and rim < 0.012: return mixc(c, lin(DK), 0.7), f                          # dark rim of the facial disc
+        return c, f
+    head = hp.build(h, shade=hshade)
+    eyes("owl", head, h, (0.066, -0.05, 0.045), (0.25, -1, 0.0), 0.03, iris='#f28a14', ring='#2a1a0e', lid=0.36, slant=0.6, low=0.12, bulge=0.4, look=0.8, glow=True, lidcol='#5a4430')
     for s, side in ((1, "L"), (-1, "R")):
-        eye("owl_" + side, (0.066*s, -0.135, 0.04), 0.04, h, iris='#f2b81f', look=(0.12*s, -1, 0))   # iris material "Iris_#f2b81f" glows at night (game.js)
         w = empty("owl_wing" + side, g, (0.16*s, 0.02, 0.33))
-        wp = Piece("owl_wing%s_fur" % side, 0.01)
-        wp.add(bm_ball(0.1, at=(0.0, 0.03, -0.12), scale=(0.35, 0.85, 1.35)), BR, 0.6)
+        wp = Piece("owl_wing%s_feather" % side, 0.01)
+        wp.add(bm_ball(0.1, at=(0.0, 0.03, -0.12), scale=(0.35, 0.85, 1.35)), BR, 1.0)
         wo = wp.build(w); wo.scale.x = s
-        for k in (-1, 0, 1): solid("owl_toe%s%d" % (side, k), bm_cone(0.014, 0.004, 0.05, rot=R(math.pi/2, 3, 'X')), mat("OwlToe", '#7a6a4a'), g, (0.06*s + k*0.018, -0.1, 0.02), 0)
-    solid("owl_beak", bm_cone(0.022, 0.003, 0.06, rot=R(math.pi*0.62, 3, 'X')), mat("OwlBeak", '#5f5135', 0.3), h, (0, -0.15, -0.01), 0)
+    bits = Painted("owl_bits")
+    bits.add(bm_cone(0.02, 0.003, 0.06, rot=R(math.pi*0.62, 3, 'X'), at=(0, -0.155, -0.005)), '#3b3128', 0.5)
+    bits.build(h)
+    feet = Painted("owl_feet")
+    for s in (1, -1):
+        for k in (-1, 0, 1):
+            A = Vector((0.06*s + k*0.018, -0.07, 0.02)); feet.add(limb(A, A + Vector((0, -0.035, -0.005)), 0.012, 0.01), LT, 0.1)
+            feet.add(limb(A + Vector((0, -0.035, -0.005)), A + Vector((0, -0.05, -0.02)), 0.006, 0.001), '#15110d', 0.6)
+    feet.build(g)
     return g
 
 # ---------- heron ----------
 def heron():
     g = empty("heron"); GR, WH, DK = '#a2a9b0', '#eef0f0', '#2b2b2b'
-    p = Piece("heron_body_fur", 0.014)
-    p.add(bm_tube([(-0.2, 0.001, 0.001, 0), (-0.14, 0.12, 0.12, 0), (0.05, 0.15, 0.14, 0), (0.25, 0.1, 0.08, -0.02), (0.42, 0.04, 0.02, -0.06)], at=(0, 0, 1.0)), GR, 0.5)
+    p = Piece("heron_body_feather", 0.014)
+    p.add(bm_tube([(-0.2, 0.001, 0.001, 0), (-0.14, 0.12, 0.12, 0), (0.05, 0.15, 0.14, 0), (0.25, 0.1, 0.08, -0.02), (0.42, 0.04, 0.02, -0.06)], at=(0, 0, 1.0)), GR, 1.0)
     p.build(g)
     n = empty("heron_neck", g, (0, -0.16, 1.06))
-    np_ = Piece("heron_neckP_fur", 0.012)
+    np_ = Piece("heron_neckP_feather", 0.011)
     np_.add(limb((0, 0, 0), (0, -0.08, 0.32), 0.05, 0.035), WH, 0.4).add(limb((0, -0.08, 0.32), (0, -0.14, 0.55), 0.035, 0.03), WH, 0.4)
-    np_.add(bm_ball(0.06, at=(0, -0.17, 0.58), scale=(0.9, 1.3, 0.9)), WH, 0.4).add(bm_ball(0.03, at=(0, -0.17, 0.62), scale=(0.9, 1.5, 0.5)), DK, 0.3)
-    np_.build(n)
-    solid("heron_beak", bm_cone(0.025, 0.003, 0.26, rot=R(math.pi/2, 3, 'X')), mat("HeronBeak", '#e2b43c', 0.3), n, (0, -0.37, 0.58), 0)
-    for s, side in ((1, "L"), (-1, "R")):
-        eye("heron_" + side, (0.035*s, -0.21, 0.6), 0.012, n, iris='#f0d040', look=(0.6*s, -1, 0))
-        solid("heron_leg" + side, limb((0.06*s, 0.0, 0.98), (0.07*s, 0.02, 0.0), 0.016, 0.012), mat("HeronLeg", '#d7b45a'), g)
+    np_.add(bm_ball(0.06, at=(0, -0.17, 0.58), scale=(0.9, 1.3, 0.9)), WH, 0.3).add(bm_ball(0.03, at=(0, -0.15, 0.625), scale=(0.9, 1.6, 0.5)), DK, 0.3)
+    neck = np_.build(n)
+    eyes("heron", neck, n, (0.0, -0.2, 0.6), (1, -0.4, 0.1), 0.011, iris='#e8cf3a', lid=0.28, slant=0.3, low=0.1, bulge=0.35)
+    bits = Painted("heron_bits")
+    bits.add(bm_cone(0.025, 0.003, 0.26, rot=R(math.pi/2, 3, 'X'), at=(0, -0.37, 0.58)), '#e2b43c', 0.5)
+    for s in (1, -1): bits.add(limb((0.06*s, 0.16, 0.98), (0.07*s, 0.18, 0.0), 0.016, 0.012), '#d7b45a', 0.3)
+    bits.build(n)
+    legs = Painted("heron_legs")
+    for s in (1, -1): legs.add(limb((0.06*s, 0.0, 0.98), (0.07*s, 0.02, 0.0), 0.016, 0.012), '#d7b45a', 0.3)
+    legs.build(g)
     return g
 
 # ================================================================== water animals
 def dolphin():
     g = empty("dolphin")
-    def shade(co, c, f): t = max(0, min(1, (co.z + 0.08)/0.2)); return mixc(lin('#dfe5e8'), lin('#6c8494'), t), 0
+    def shade(co, c, f): t = max(0, min(1, (co.z + 0.08)/0.2)); return mixc(lin('#dfe5e8'), lin('#6c8494'), t), 0.5
     p = Piece("dolphin_body", 0.022)
     p.add(bm_tube([(-1.15, 0.03, 0.03, -0.05), (-1.05, 0.08, 0.07, -0.05), (-0.9, 0.12, 0.1, -0.03), (-0.8, 0.2, 0.2, 0.03), (-0.5, 0.3, 0.3, 0.05), (0.0, 0.33, 0.33, 0.05),
             (0.5, 0.24, 0.23, 0.04), (0.9, 0.12, 0.13, 0.02), (1.15, 0.06, 0.06, 0.02), (1.22, 0.001, 0.001, 0.02)], seg=20), '#6c8494', 0)
     p.add(bm_tube([(0.0, 0.03, 0.17, 0), (0.15, 0.02, 0.1, 0.12), (0.26, 0.004, 0.02, 0.26)], at=(0, -0.05, 0.38)), '#6c8494', 0)   # dorsal fin
     for s in (1, -1): p.add(bm_tube([(0.0, 0.1, 0.02, 0), (0.18, 0.06, 0.015, -0.03), (0.3, 0.005, 0.005, -0.06)], axis='X', at=(0.25*s, -0.45, -0.12), rot=R(0.5*s, 3, 'Z') if s > 0 else R(math.pi - 0.5, 3, 'Z')), '#6c8494', 0)
-    p.build(g, shade=shade)
-    for s, side in ((1, "L"), (-1, "R")): eye("dolphin_" + side, (0.2*s, -0.8, 0.04), 0.028, g, look=(1*s, -0.6, 0))
+    body = p.build(g, shade=shade)
+    eyes("dolphin", body, g, (0.0, -0.8, 0.04), (1, -0.2, 0.0), 0.024, iris='#1e1a18', lid=0.25, low=0.18, bulge=0.4)
     t = empty("dolphin_tail", g, (0, 1.1, 0.02))
     tp = Piece("dolphin_flukeP", 0.016)
     for s in (1, -1): tp.add(bm_tube([(0.0, 0.1, 0.025, 0), (0.25, 0.08, 0.02, 0.0), (0.4, 0.01, 0.01, 0.0)], axis='X', rot=R(-0.35*s, 3, 'Z') if s > 0 else R(math.pi + 0.35, 3, 'Z')), '#6c8494', 0)
-    tp.build(t)
+    tp.build(t, shade=lambda co, c, f: (c, 0.5))
     return g
 
 def whale():
@@ -226,18 +403,18 @@ def whale():
     def shade(co, c, f):
         t = max(0, min(1, (co.z + 0.5)/0.6)); col = mixc(lin('#c9cfd4'), lin('#3f4f63'), t)
         if co.z < -0.55 and co.y < 1.2 and math.sin(co.x*14) > 0.6: col = mixc(col, lin('#8f989e'), 0.6)   # throat grooves
-        return col, 0
+        return col, 0.3
     p = Piece("whale_body", 0.09)
     p.add(bm_tube([(-4.0, 0.25, 0.18, -0.2), (-3.6, 0.8, 0.6, -0.15), (-2.6, 1.3, 1.1, 0), (-1.0, 1.5, 1.3, 0.1), (0.8, 1.3, 1.15, 0.1), (2.4, 0.8, 0.7, 0.05), (3.6, 0.35, 0.3, 0.05), (4.3, 0.12, 0.1, 0.05)], seg=22), '#3f4f63', 0)
     p.add(bm_ball(0.4, at=(0, 1.8, 1.05), scale=(0.3, 1.0, 0.6)), '#3f4f63', 0)
     for s in (1, -1): p.add(bm_tube([(0.0, 0.35, 0.08, 0), (1.4, 0.3, 0.07, -0.25), (2.6, 0.1, 0.04, -0.5)], axis='X', at=(1.1*s, -1.5, -0.6), rot=None if s > 0 else R(math.pi, 3, 'Z')), '#3f4f63', 0)
     for i in range(8): p.add(bm_ball(0.09, at=((i % 3 - 1)*0.5, -3.3 + i*0.12, 0.55 + (i % 2)*0.1)), '#2f3a48', 0)   # knobbly snout bumps
-    p.build(g, shade=shade)
-    for s, side in ((1, "L"), (-1, "R")): eye("whale_" + side, (1.18*s, -2.9, -0.15), 0.1, g, look=(1*s, -0.4, 0))
+    body = p.build(g, shade=shade)
+    eyes("whale", body, g, (0.0, -2.9, -0.15), (1, -0.1, 0.0), 0.08, iris='#1e1a18', lid=0.3, low=0.2, bulge=0.45)
     t = empty("whale_tail", g, (0, 4.15, 0.05))
     tp = Piece("whale_flukeP", 0.06)
     for s in (1, -1): tp.add(bm_tube([(0.0, 0.45, 0.09, 0), (0.9, 0.4, 0.07, 0.0), (1.55, 0.06, 0.03, 0.0)], axis='X', rot=R(-0.4*s, 3, 'Z') if s > 0 else R(math.pi + 0.4, 3, 'Z')), '#3f4f63', 0)
-    tp.build(t)
+    tp.build(t, shade=lambda co, c, f: (c, 0.3))
     return g
 
 def fish():
@@ -248,93 +425,200 @@ def fish():
     solid("fish_spot1", bm_ball(0.03, scale=(1.5, 1.7, 0.45)), FS, g, (0.0, -0.02, 0.068), 1)
     solid("fish_spot2", bm_ball(0.025, scale=(1.5, 1.5, 0.45)), FS, g, (0.0, 0.07, 0.048), 1)
     solid("fish_dorsal", bm_tube([(0.0, 0.004, 0.03, 0), (0.06, 0.003, 0.05, 0.02), (0.11, 0.002, 0.005, 0.03)], at=(0, -0.04, 0.07)), FF, g, sub=1)
+    eyes("fish", None, g, (0.036, -0.1, 0.02), (1, -0.5, 0), 0.012, iris='#d8c070', lid=0, low=0, bulge=0, look=1)
     for s, side in ((1, "L"), (-1, "R")):
-        eye("fish_" + side, (0.04*s, -0.1, 0.02), 0.012, g, look=(1*s, -0.5, 0))
         solid("fish_pec" + side, bm_ball(0.035, scale=(1.4, 0.8, 0.15), rot=R(0.4*s, 3, 'Y')), FF, g, (0.055*s, -0.04, -0.025), 1)
     t = empty("fish_tail", g, (0, 0.19, 0))
     solid("fish_fin", bm_tube([(0.0, 0.004, 0.02, 0), (0.08, 0.003, 0.07, 0), (0.12, 0.002, 0.08, 0)]), FF, t, sub=1)
     return g
 
-# ================================================================== reptiles & amphibians (no fur: plain painted surface)
+# ================================================================== reptiles & amphibians (no fur: painted skin, alpha = gloss)
 def lizard():
     g = empty("lizard")
     def shade(co, c, f):
         n = math.sin(co.x*90)*math.sin(co.y*70)
         col = mixc(lin('#e2dc9a'), c, max(0, min(1, (co.z - 0.012)/0.02)))
         if co.z > 0.04 and n > 0.55: col = mixc(col, lin('#3f6a2a'), 0.7)
-        return col, 0
+        return col, 0.35
     p = Piece("lizard_body", 0.0045)
     p.add(bm_tube([(-0.2, 0.001, 0.001, 0.035), (-0.18, 0.028, 0.02, 0.035), (-0.13, 0.038, 0.028, 0.036), (-0.09, 0.026, 0.022, 0.036), (0.0, 0.05, 0.034, 0.036), (0.1, 0.045, 0.03, 0.035), (0.16, 0.028, 0.02, 0.03)], seg=18), '#6f9a3a', 0)
     for s in (1, -1):
         for y in (-0.06, 0.1):
             p.add(limb((0.03*s, y, 0.03), (0.08*s, y - 0.01, 0.02), 0.012, 0.01), '#6f9a3a', 0).add(limb((0.08*s, y - 0.01, 0.02), (0.1*s, y - 0.02, 0.0), 0.01, 0.008), '#6f9a3a', 0)
-    p.build(g, shade=shade)
-    for s, side in ((1, "L"), (-1, "R")): eye("lizard_" + side, (0.026*s, -0.15, 0.055), 0.01, g, iris='#d9a420', look=(1*s, -0.5, 0.2))
+    body = p.build(g, shade=shade)
+    eyes("lizard", body, g, (0.0, -0.15, 0.045), (1, -0.3, 0.45), 0.008, iris='#c99a20', lid=0.28, low=0.18, bulge=0.4)
     t = empty("lizard_tail", g, (0, 0.15, 0.03))
     tp = Piece("lizard_tailP", 0.004); tp.add(bm_tube([(0.0, 0.026, 0.019, 0), (0.12, 0.016, 0.012, 0), (0.25, 0.007, 0.005, -0.008), (0.34, 0.001, 0.001, -0.012)], seg=14), '#6f9a3a', 0)
     tp.build(t, shade=shade)
     return g
 
+# ---------- frog (pond frog sitting up: pointed snout, bulging golden eyes with a horizontal pupil, eardrum, light ridges
+# down the back, dark spots, cream belly, folded hind legs with long webbed toes, slender fingers; wet and glossy) ----------
 def frog():
-    g = empty("frog")
+    g = empty("frog"); GR, LT, BE, DK = '#5c9a3e', '#a9c76a', '#ece6bf', '#2c5a24'
+    spots = [(random.uniform(-0.07, 0.07), random.uniform(-0.05, 0.12), random.uniform(0.012, 0.022)) for _ in range(9)]
     def shade(co, c, f):
-        col = mixc(lin('#e6e7b4'), lin('#5aa04a'), max(0, min(1, (co.z - 0.06)/0.06)))
-        if co.z > 0.12 and math.sin(co.x*60 + 1)*math.sin(co.y*55) > 0.7: col = mixc(col, lin('#2f6a2e'), 0.6)
-        return col, 0
-    p = Piece("frog_body", 0.007)
-    p.add(bm_ball(0.15, at=(0, 0.0, 0.1), scale=(1.0, 1.2, 0.68)), '#5aa04a', 0)
-    p.add(bm_ball(0.1, at=(0, -0.13, 0.13), scale=(1.15, 0.9, 0.62)), '#5aa04a', 0)
+        belly = (1 - sstep(0.05, 0.09, co.z))*(1 - sstep(0.06, 0.085, abs(co.x)))*(1 - sstep(0.1, 0.14, abs(co.y + 0.01)))
+        col = mixc(c, lin('#b9c27a'), (1 - sstep(0.04, 0.1, co.z))*0.6)                          # paler, yellowish underneath
+        col = mixc(col, lin(BE), belly)
+        if abs(co.x) > 0.075 and co.z < 0.08 and math.sin(co.y*95 + co.x*30) > 0.45: col = mixc(col, lin(DK), 0.55)   # barred legs
+        for x, y, r in spots:
+            if co.z > 0.1 and math.hypot(abs(co.x) - abs(x), co.y - y) < r: col = mixc(col, lin(DK), 0.75)
+        for s in (1, -1):
+            if co.z > 0.11 and abs(co.x - 0.058*s) < 0.008 and -0.07 < co.y < 0.13: col = mixc(col, lin(LT), 0.8)   # dorsolateral ridges
+            if math.hypot(co.x - 0.085*s, co.y + 0.075, co.z - 0.14) < 0.022 and abs(co.x) > 0.07: col = mixc(lin('#7a5a32'), lin('#5d4224'), 0.4)   # eardrum
+        if co.y < -0.08 and abs(co.z - 0.095) < 0.005 and abs(co.x) > 0.02: col = mixc(col, lin('#2c3a1e'), 0.7)   # mouth line
+        return col, 0.65
+    p = Piece("frog_body", 0.0055, target=2600)
+    p.add(bm_ball(0.12, at=(0, 0.03, 0.09), scale=(0.95, 1.25, 0.62), rot=R(0.2, 3, 'X')), GR, 0)
+    p.add(bm_ball(0.085, at=(0, -0.1, 0.12), scale=(1.12, 1.0, 0.6)), GR, 0).add(bm_ball(0.05, at=(0, -0.165, 0.112), scale=(0.95, 1.05, 0.55)), GR, 0)
     for s in (1, -1):
-        p.add(bm_ball(0.045, at=(0.065*s, -0.15, 0.2)), '#5aa04a', 0)                            # eye bumps
-        p.add(bm_ball(0.07, at=(0.13*s, 0.08, 0.06), scale=(0.8, 1.6, 0.6)), '#5aa04a', 0)        # folded thighs
-        p.add(limb((0.14*s, 0.15, 0.03), (0.16*s, -0.02, 0.015), 0.03, 0.02), '#5aa04a', 0)
-        p.add(limb((0.08*s, -0.14, 0.07), (0.1*s, -0.2, 0.01), 0.022, 0.016), '#5aa04a', 0)
-    p.build(g, shade=shade)
-    for s, side in ((1, "L"), (-1, "R")): eye("frog_" + side, (0.07*s, -0.17, 0.215), 0.032, g, iris='#d8b33a', look=(0.7*s, -1, 0.3))
-    solid("frog_sac", bm_ball(0.06, scale=(1, 0.8, 0.7)), mat("FrogSac", '#f1efc3', 0.4), g, (0, -0.19, 0.06), 1)
+        p.add(bm_ball(0.036, at=(0.052*s, -0.1, 0.162)), GR, 0)                                    # eye bumps
+        p.add(limb((0.058*s, -0.07, 0.15), (0.068*s, 0.12, 0.125), 0.01, 0.008), LT, 0)            # ridges
+        p.add(limb((0.075*s, -0.07, 0.08), (0.095*s, -0.11, 0.035), 0.02, 0.016), GR, 0)          # upper arm
+        p.add(limb((0.095*s, -0.11, 0.035), (0.09*s, -0.13, 0.008), 0.016, 0.012), GR, 0)         # forearm
+        p.add(bm_ball(0.05, at=(0.1*s, 0.08, 0.06), scale=(0.75, 1.75, 0.7), rot=R(0.5*s, 3, 'Z')), GR, 0)   # thigh (folded forward)
+        p.add(limb((0.14*s, -0.01, 0.045), (0.125*s, 0.15, 0.03), 0.026, 0.018), GR, 0)           # shin back to the ankle
+        p.add(limb((0.125*s, 0.15, 0.025), (0.16*s, 0.02, 0.012), 0.014, 0.01), GR, 0)            # foot forward again
+    body = p.build(g, shade=shade)
+    eyes("frog", body, g, (0.052, -0.1, 0.162), (0.65, -0.55, 0.55), 0.025, iris='#c9a02e', pupil='hbar', lid=0.22, low=0.16, bulge=0.35, look=0.4, lidcol=GR)
+    toes = Painted("frog_toes")
+    for s in (1, -1):
+        W_ = Vector((0.09*s, -0.13, 0.008))
+        for k, a in enumerate((-0.6, -0.15, 0.25, 0.65)):
+            E = W_ + Vector((math.sin(a)*0.035*s, -math.cos(a)*0.03, -0.004)); toes.add(limb(W_, E, 0.004, 0.003), GR, 0.6)
+            toes.add(bm_ball(0.005, at=E, seg=8), LT, 0.6)
+        A = Vector((0.16*s, 0.02, 0.012))
+        for k, a in enumerate((-0.5, -0.2, 0.1, 0.4, 0.7)):
+            L = (0.05, 0.065, 0.08, 0.06, 0.045)[k]; E = A + Vector((math.sin(a)*L*s, -math.cos(a)*L, -0.008)); toes.add(limb(A, E, 0.0045, 0.003), GR, 0.6)
+        toes.add(bm_ball(0.04, at=A + Vector((0.012*s, -0.04, -0.008)), scale=(1.0, 1.1, 0.06)), '#4f8a36', 0.5)   # webbing
+    toes.build(g)
+    sac = Painted("frog_sac"); sac.add(bm_ball(0.026, scale=(1.1, 0.9, 0.8), seg=14), '#efe9c4', 0.7); sac.build(g, (0, -0.13, 0.065))   # tucked under the chin; it swells when the frog croaks
     return g
 
+# ---------- turtle (red-eared slider: domed olive shell made of scutes with dark seams and yellow markings, yellow plastron,
+# striped head and legs, red patch behind the eye, clawed feet; head and legs move) ----------
 def turtle():
-    g = empty("turtle")
+    g = empty("turtle"); SH, SEAM, YL, SK = '#4d5a2c', '#232914', '#c9b64e', '#46572a'
+    cen = [(0, y) for y in (-0.21, -0.105, 0.0, 0.105, 0.21)] + [(x*s, y) for s in (1, -1) for x, y in ((0.12, -0.15), (0.14, -0.05), (0.14, 0.05), (0.12, 0.15))]
+    for i in range(24):
+        a = i/24*2*math.pi; cen.append((math.sin(a)*0.235, -math.cos(a)*0.31))
+    def vor(x, y):
+        ds = sorted(math.hypot(x - cx, y - cy) for cx, cy in cen); return ds[0], ds[1]
+    def deform(co, n):
+        if co.z < 0.07: return co
+        d1, d2 = vor(co.x, co.y); seam = sstep(0.0, 0.016, d2 - d1)
+        return co - n*0.006*(1 - seam) + n*0.004*max(0, 1 - d1/0.07)
     def shade(co, c, f):
-        if co.z > 0.06:
-            a = math.atan2(co.y, co.x); hexish = math.sin(co.x*30)*math.sin(co.y*26)
-            return mixc(lin('#5b6b3a'), lin('#7f8f4a'), 0.5 + 0.5*hexish), 0
-        return c, 0
-    p = Piece("turtle_body", 0.012)
-    p.add(bm_ball(0.3, at=(0, 0, 0.04), scale=(1, 1.2, 0.55)), '#5b6b3a', 0)
-    p.add(bm_ball(0.31, at=(0, 0, 0.0), scale=(1.02, 1.22, 0.12)), '#c9b77a', 0)                 # rim / underside
-    p.add(bm_ball(0.085, at=(0, -0.42, 0.04), scale=(0.95, 1.3, 0.85)), '#7c9a52', 0).add(limb((0, -0.3, 0.02), (0, -0.4, 0.04), 0.05, 0.05), '#7c9a52', 0)
+        if co.z < 0.035: col = mixc(lin(YL), lin('#3b3a20'), 0.6 if math.sin(co.x*40)*math.sin(co.y*35) > 0.55 else 0); return col, 0.3   # plastron
+        d1, d2 = vor(co.x, co.y); seam = sstep(0.0, 0.016, d2 - d1)
+        col = mixc(lin(SH), lin('#5f6b34'), 0.5 + 0.5*math.sin(d1*130))                      # growth rings
+        if 0.03 < d1 < 0.05 and math.sin(math.atan2(co.y, co.x)*7 + d1*60) > 0.4: col = mixc(col, lin(YL), 0.45)   # yellow markings
+        if 0.045 < co.z < 0.065: col = mixc(col, lin(YL), 0.35)                                # pale rim of the marginal scutes
+        return mixc(lin(SEAM), col, seam), 0.45
+    p = Piece("turtle_body", 0.0075, target=2600)
+    p.add(bm_ball(0.28, at=(0, 0, 0.05), scale=(0.84, 1.13, 0.6)), SH, 0)
+    p.add(bm_ball(0.285, at=(0, 0, 0.055), scale=(0.88, 1.16, 0.09)), SH, 0)                     # flared rim
+    p.add(bm_ball(0.25, at=(0, 0, 0.03), scale=(0.78, 1.03, 0.07)), YL, 0)                       # plastron
+    body = p.build(g, shade=shade, deform=deform)
+    def skin(co, c, f):
+        col = c
+        if math.sin(co.x*210 + co.z*90) > 0.82: col = mixc(col, lin('#d6c64a'), 0.8)             # thin yellow stripes
+        return col, 0.35
+    hd = empty("turtle_head", g, (0, -0.27, 0.05))
+    hp = Piece("turtle_headP", 0.005, target=900)
+    hp.add(limb((0, 0.06, -0.005), (0, -0.05, 0.01), 0.045, 0.038), SK, 0)
+    hp.add(bm_ball(0.045, at=(0, -0.075, 0.02), scale=(0.85, 1.3, 0.8)), SK, 0).add(bm_ball(0.022, at=(0, -0.122, 0.012), scale=(1, 1, 0.8)), SK, 0)
+    def hshade(co, c, f):
+        col, gl = skin(co, c, f)
+        if co.y > -0.075 and co.y < -0.03 and abs(co.x) > 0.022 and abs(co.z - 0.025) < 0.012: col = lin('#c8302a')   # the red "ear"
+        return col, gl
+    head = hp.build(hd, shade=hshade)
+    eyes("turtle", head, hd, (0.0, -0.09, 0.03), (1, -0.6, 0.25), 0.011, iris='#b9b24a', pupil='hbar', lid=0.3, low=0.2, bulge=0.4)
+    beak = Painted("turtle_beak"); beak.add(bm_ball(0.016, at=(0, -0.135, 0.003), scale=(1.1, 0.6, 0.5), seg=10), '#3a3a24', 0.4); beak.build(hd)
+    claws = Painted("turtle_claws")
     for s in (1, -1):
-        for y in (-0.22, 0.22): p.add(bm_ball(0.08, at=(0.28*s, y, -0.01), scale=(1.5, 0.9, 0.35)), '#7c9a52', 0)
-    p.add(bm_cone(0.04, 0.0, 0.1, at=(0, 0.38, 0.0), rot=R(-math.pi/2, 3, 'X')), '#7c9a52', 0)
-    p.build(g, shade=shade)
-    for s, side in ((1, "L"), (-1, "R")): eye("turtle_" + side, (0.05*s, -0.48, 0.07), 0.017, g, look=(1*s, -0.6, 0.1))
+        for y, nm, fr in ((-0.2, "F", True), (0.2, "B", False)):
+            leg = empty("turtle_leg%s%s" % (nm, "L" if s > 0 else "R"), g, (0.19*s, y, 0.035))
+            lp = Piece("turtle_leg%s%sP" % (nm, "L" if s > 0 else "R"), 0.006, target=300)
+            tip = Vector((0.1*s, -0.04 if fr else 0.05, -0.02))
+            lp.add(limb((0, 0, 0), tip*0.6, 0.032, 0.026), SK, 0).add(bm_ball(0.035, at=tip, scale=(1.3, 0.9, 0.35)), SK, 0)
+            lp.build(leg, shade=skin)
+            for k in range(4 if not fr else 5):
+                a = (k - 2)*0.3; E = tip + Vector((math.cos(a)*0.045*s, math.sin(a)*0.045 - (0.012 if fr else -0.012), -0.004))
+                claws.add(limb(tip + (E - tip)*0.7 + leg.location, E + (E - tip)*0.4 + leg.location, 0.004, 0.0008), '#2a2418', 0.5)
+    claws.build(g)
+    tail = Painted("turtle_tail"); tail.add(bm_cone(0.025, 0.002, 0.08, at=(0, 0.33, 0.03), rot=R(-math.pi/2 - 0.2, 3, 'X')), SK, 0.3); tail.build(g)
     return g
 
+# ---------- crocodile (long flat body with rows of bony bumps, a tall thin tail with a double crest, sprawling legs with
+# webbed toes, a long snout with nostril and eye bumps, interlocking teeth showing outside the lips, slit-pupil eyes) ----------
 def croc():
-    g = empty("croc")
+    g = empty("croc"); TOP, MID, BEL, DK = '#3e4a2a', '#5b6436', '#cbc290', '#2a3220'
+    def bumps(co, n, x0=0.2, top=0.24):
+        if co.z < top: return co
+        gx = round(co.x/0.065)*0.065; gy_ = round(co.y/0.075)*0.075
+        if abs(gx) > x0: return co
+        d = math.hypot(co.x - gx, co.y - gy_); return co + n*0.016*math.exp(-(d/0.022)**2)*sstep(top, top + 0.05, co.z)
     def shade(co, c, f):
-        col = mixc(lin('#b7b27a'), lin('#4c5c33'), max(0, min(1, (co.z - 0.08)/0.1)))
-        if co.z > 0.24 and math.sin(co.y*22) > 0.3: col = mixc(col, lin('#3a4727'), 0.5)
-        return col, 0
-    p = Piece("croc_body", 0.02)
-    p.add(bm_tube([(-0.55, 0.16, 0.1, 0.0), (-0.3, 0.32, 0.17, 0.02), (0.1, 0.38, 0.18, 0.03), (0.5, 0.3, 0.15, 0.02), (1.0, 0.18, 0.11, 0.0), (1.6, 0.09, 0.07, 0.0), (2.1, 0.02, 0.03, 0.0)], at=(0, 0, 0.16), seg=20), '#4c5c33', 0)
-    for i in range(14): p.add(bm_cone(0.05, 0.005, 0.1, at=(((i % 2) - 0.5)*0.16, -0.25 + i*0.17, 0.32 - i*0.008)), '#3a4727', 0)   # back scutes
+        col = mixc(lin(BEL), lin(MID), sstep(0.08, 0.16, co.z)); col = mixc(col, lin(TOP), sstep(0.2, 0.3, co.z))
+        if math.sin(co.y*9) > 0.55 and co.z > 0.1: col = mixc(col, lin(DK), 0.45)              # dark bands
+        gx = round(co.x/0.065)*0.065; gy_ = round(co.y/0.075)*0.075
+        if co.z > 0.26 and math.hypot(co.x - gx, co.y - gy_) < 0.012: col = mixc(col, lin('#2a2f1c'), 0.5)
+        return col, 0.25
+    p = Piece("croc_body", 0.013, target=2600)
+    p.add(bm_tube([(-0.62, 0.15, 0.1, 0.0), (-0.45, 0.25, 0.13, 0.01), (-0.2, 0.34, 0.16, 0.02), (0.15, 0.36, 0.16, 0.02), (0.45, 0.3, 0.14, 0.01), (0.62, 0.22, 0.12, 0.0)], at=(0, 0, 0.17), seg=22), MID, 0)
+    p.build(g, shade=shade, deform=bumps)
+    t = empty("croc_tail", g, (0, 0.58, 0.17))
+    tp = Piece("croc_tailP", 0.012, target=1400)
+    tp.add(bm_tube([(0.0, 0.21, 0.12, 0), (0.4, 0.15, 0.115, 0.01), (0.8, 0.09, 0.1, 0.02), (1.2, 0.05, 0.08, 0.02), (1.6, 0.012, 0.035, 0.02)], seg=18), MID, 0)
+    for i in range(22):
+        y = 0.05 + i*0.07; dbl = y < 0.65; h = 0.07 - i*0.002; z = 0.11 - i*0.0025 + (0.02 if y > 0.8 else 0)
+        for xo in ((-0.06, 0.06) if dbl else (0,)): tp.add(bm_cone(0.028, 0.004, h, at=(xo, y, z + h/2)), TOP, 0)   # crest scutes
+    tp.build(t, shade=lambda co, c, f: (mixc(c, lin(DK), 0.5) if math.sin(co.y*11) > 0.5 else c, 0.25))
+    hd = empty("croc_head", g, (0, -0.6, 0.19))
+    def hshade(co, c, f):
+        col = mixc(lin(BEL), c, sstep(-0.01, 0.02, co.z))
+        if math.sin(co.x*160)*math.sin(co.y*140) > 0.6 and co.z > 0.03: col = mixc(col, lin(DK), 0.35)
+        return col, 0.3
+    hp = Piece("croc_upper", 0.009, target=1500)
+    hp.add(bm_tube([(0.05, 0.19, 0.1, 0.02), (-0.15, 0.17, 0.08, 0.01), (-0.4, 0.13, 0.055, 0.0), (-0.62, 0.1, 0.042, -0.005), (-0.74, 0.105, 0.04, -0.005), (-0.82, 0.06, 0.03, -0.008)], seg=18), TOP, 0)
+    for s in (1, -1): hp.add(bm_ball(0.042, at=(0.075*s, -0.06, 0.085), scale=(1, 1.15, 0.85)), TOP, 0)   # eye bumps
+    hp.add(bm_ball(0.035, at=(0, -0.79, 0.03), scale=(1.2, 1, 0.7)), TOP, 0)                                  # nostril bump
+    head = hp.build(hd, shade=hshade, deform=lambda co, n: co + n*0.003*math.sin(co.x*120)*math.sin(co.y*90))
+    eyes("croc", head, hd, (0.075, -0.06, 0.085), (0.5, -0.4, 1.0), 0.02, iris='#b8a83a', pupil='slit', lid=0.28, low=0.2, bulge=0.35, look=0.3)
+    teeth = Painted("croc_teeth")
     for s in (1, -1):
-        for y in (-0.3, 0.45):
-            p.add(limb((0.28*s, y, 0.14), (0.42*s, y - 0.05, 0.08), 0.07, 0.06), '#4c5c33', 0).add(limb((0.42*s, y - 0.05, 0.08), (0.48*s, y - 0.12, 0.0), 0.06, 0.04), '#4c5c33', 0)
-    p.build(g, shade=shade)
-    hd = empty("croc_head", g, (0, -0.55, 0.18))
-    hp = Piece("croc_upper", 0.012)
-    hp.add(bm_tube([(0.0, 0.16, 0.08, 0.02), (-0.35, 0.12, 0.05, 0.0), (-0.75, 0.08, 0.035, -0.01), (-0.82, 0.06, 0.03, -0.01)], seg=16), '#4c5c33', 0)
-    for s in (1, -1): hp.add(bm_ball(0.045, at=(0.08*s, -0.05, 0.08)), '#4c5c33', 0)
-    hp.build(hd, shade=lambda co, c, f: (mixc(lin('#4c5c33'), lin('#3a4727'), 0.3), 0))
-    for s, side in ((1, "L"), (-1, "R")):
-        eye("croc_" + side, (0.08*s, -0.07, 0.115), 0.025, hd, iris='#c8b23a', look=(0.5*s, -1, 0.4))
-        for k in range(5): solid("croc_tooth%s%d" % (side, k), bm_cone(0.012, 0.0, 0.035, rot=R(math.pi, 3, 'X')), mat("Tooth", '#f3efe0'), hd, (0.085*s, -0.2 - k*0.11, -0.02), 0)
+        for k in range(13):
+            y = -0.12 - k*0.055; x = (0.155 - k*0.0075 if k < 10 else 0.075 + (k - 10)*0.003)*s; L = 0.022 + (0.012 if k in (3, 11) else 0)
+            teeth.add(bm_cone(0.0085, 0.0005, L, at=(x, y, -0.03 - L/2), rot=R(math.pi, 3, 'X'), seg=6), '#f1ecd8', 0.5)
+    for x, y in ((0.018, -0.84), (-0.018, -0.84)): teeth.add(bm_ball(0.007, at=(x, y, 0.055), scale=(1, 1.3, 0.5), seg=8), '#1a1c12', 0.4)   # nostrils
+    teeth.build(hd)
     jaw = empty("croc_jaw", hd, (0, 0.0, -0.02))
-    jp = Piece("croc_lower", 0.012); jp.add(bm_tube([(0.0, 0.14, 0.04, 0), (-0.4, 0.1, 0.03, 0), (-0.78, 0.06, 0.02, 0)], seg=14), '#b7b27a', 0); jp.build(jaw)
+    jp = Piece("croc_lower", 0.009, target=900)
+    jp.add(bm_tube([(0.05, 0.16, 0.045, -0.02), (-0.4, 0.105, 0.032, -0.012), (-0.66, 0.07, 0.025, -0.01), (-0.82, 0.06, 0.022, -0.01)], seg=16), '#7d7a4e', 0)
+    jp.build(jaw, shade=lambda co, c, f: (mixc(lin(BEL), lin(MID), sstep(-0.02, 0.0, co.z)), 0.3))
+    lt = Painted("croc_lowteeth")
+    for s in (1, -1):
+        for k in range(12):
+            y = -0.15 - k*0.055; x = (0.12 - k*0.0055)*s; L = 0.02 + (0.012 if k == 2 else 0)
+            lt.add(bm_cone(0.008, 0.0005, L, at=(x, y, 0.0 + L/2), seg=6), '#efe9d2', 0.5)
+    lt.build(jaw)
+    claws = Painted("croc_claws")
+    for s in (1, -1):
+        for y, nm in ((-0.36, "F"), (0.4, "B")):
+            leg = empty("croc_leg%s%s" % (nm, "L" if s > 0 else "R"), g, (0.3*s, y, 0.15))
+            lp = Piece("croc_leg%s%sP" % (nm, "L" if s > 0 else "R"), 0.01, target=500)
+            K = Vector((0.2*s, -0.02, 0.02)); Fo = Vector((0.24*s, -0.06 if nm == "F" else 0.02, -0.13))
+            lp.add(limb((0, 0, 0), K, 0.075 if nm == "B" else 0.06, 0.05), MID, 0).add(limb(K, Fo, 0.05, 0.04), MID, 0)
+            lp.add(bm_ball(0.06, at=Fo + Vector((0, -0.04, -0.005)), scale=(1.2, 1.3, 0.3)), MID, 0)
+            lp.build(leg, shade=lambda co, c, f: (mixc(lin(TOP), lin(MID), sstep(0.0, -0.12, co.z)) if math.sin(co.x*40 + co.y*30) < 0.6 else lin(DK), 0.25))
+            n_ = 5 if nm == "F" else 4
+            for k in range(n_):
+                a = (k - (n_ - 1)/2)*0.38; E = Fo + Vector((math.sin(a)*0.1*s, -0.04 - math.cos(a)*0.08, -0.008)) + leg.location
+                claws.add(limb(Fo + leg.location + Vector((0, -0.04, 0)), E, 0.012, 0.008), MID, 0.2)
+                claws.add(limb(E, E + (E - Fo - leg.location).normalized()*0.025 + Vector((0, 0, -0.008)), 0.006, 0.0008), '#26261a', 0.5)
+    claws.build(g)
     return g
 
 # ================================================================== mammals (furry)
@@ -347,12 +631,12 @@ def beaver():
     for s in (1, -1):
         p.add(bm_ball(0.045, at=(0.13*s, -0.3, 0.52), scale=(1, 0.6, 1)), DK, 0.4)
         p.add(limb((0.16*s, -0.22, 0.12), (0.17*s, -0.3, 0.0), 0.05, 0.04), DK, 0.6).add(limb((0.2*s, 0.2, 0.14), (0.22*s, 0.24, 0.0), 0.07, 0.05), DK, 0.6)
-    p.build(g)
+    body = p.build(g)
     solid("beaver_nose", bm_ball(0.035, scale=(1.3, 0.9, 0.8)), mat("Nose", '#1e1612', 0.15), g, (0, -0.585, 0.36), 0)
     solid("beaver_teeth", bm_ball(0.05, scale=(0.8, 0.25, 0.9)), mat("BeaverTeeth", '#f0b83a', 0.25), g, (0, -0.56, 0.24), 0)
-    for s, side in ((1, "L"), (-1, "R")): eye("beaver_" + side, (0.09*s, -0.47, 0.44), 0.025, g, look=(0.6*s, -1, 0.1))
+    eyes("beaver", body, g, (0.0, -0.36, 0.38), (0.09, -0.11, 0.08), 0.021, lid=0.3, low=0.15)
     t = empty("beaver_tail", g, (0, 0.38, 0.12))
-    def scales(co, c, f): return (lin('#3a2a20') if math.sin(co.x*80)*math.sin(co.y*80) > 0 else lin('#4b3727')), 0
+    def scales(co, c, f): return (lin('#3a2a20') if math.sin(co.x*80)*math.sin(co.y*80) > 0 else lin('#4b3727')), 0.3
     tp = Piece("beaver_tailP", 0.01); tp.add(bm_ball(0.15, at=(0, 0.17, 0), scale=(0.95, 1.6, 0.18)), '#3a2a20', 0); tp.build(t, shade=scales)
     return g
 
@@ -371,14 +655,14 @@ def kangaroo():
         p.add(limb((0.16*s, 0.05, 0.3), (0.17*s, -0.05, 0.05), 0.07, 0.05), BR, 0.7).add(limb((0.17*s, 0.05, 0.03), (0.17*s, -0.35, 0.02), 0.05, 0.035), '#8a5a38', 0.4)   # long feet
         p.add(limb((0.12*s, -0.2, 1.08), (0.13*s, -0.32, 0.88), 0.04, 0.03), BR, 0.6)                                       # little arms
     p.add(limb((0, 0.3, 0.45), (0, 0.85, 0.08), 0.13, 0.05), BR, 0.8)                                                       # tail
-    p.build(g, shade=shade)
+    body = p.build(g, shade=shade)
     solid("kangaroo_nose", bm_ball(0.03, scale=(1.3, 0.8, 0.9)), mat("Nose", '#1e1612', 0.15), g, (0, -0.37, 1.4), 0)
-    for s, side in ((1, "L"), (-1, "R")): eye("kangaroo_" + side, (0.075*s, -0.25, 1.48), 0.025, g, look=(0.7*s, -1, 0))
+    eyes("kangaroo", body, g, (0.0, -0.12, 1.43), (0.075, -0.13, 0.05), 0.021, lid=0.32, low=0.14)
     j = empty("kangaroo_joey", g, (0, -0.24, 0.88))
     jp = Piece("kangaroo_joeyP_fur", 0.01); jp.add(bm_ball(0.07, scale=(0.9, 1.1, 0.9)), BR, 0.8)
     for s in (1, -1): jp.add(bm_ball(0.025, at=(0.04*s, 0.02, 0.07), scale=(0.6, 0.4, 1.6)), BR, 0.5)
-    jp.build(j)
-    for s, side in ((1, "L"), (-1, "R")): eye("kangaroo_joey" + side, (0.03*s, -0.06, 0.02), 0.012, j, look=(0.5*s, -1, 0))
+    joey = jp.build(j)
+    eyes("kangaroo_joey", joey, j, (0, 0, 0.01), (0.03, -0.06, 0.02), 0.011, lid=0.25, low=0.12)
     return g
 
 def quokka():
@@ -390,10 +674,10 @@ def quokka():
         p.add(bm_ball(0.05, at=(0.09*s, -0.02, 0.58), scale=(1, 0.5, 1.05)), BR, 0.6)
         p.add(limb((0.1*s, 0.05, 0.12), (0.11*s, -0.08, 0.02), 0.05, 0.035), BR, 0.6).add(limb((0.07*s, -0.12, 0.3), (0.08*s, -0.16, 0.16), 0.025, 0.02), BR, 0.6)
     p.add(limb((0, 0.18, 0.12), (0, 0.38, 0.04), 0.04, 0.02), BR, 0.6)
-    p.build(g)
+    body = p.build(g)
     solid("quokka_nose", bm_ball(0.025, scale=(1.3, 0.8, 0.9)), mat("Nose", '#1e1612', 0.15), g, (0, -0.255, 0.44), 0)
     solid("quokka_smile", bm_ball(0.035, scale=(1.2, 0.3, 0.35)), mat("Smile", '#3a2418', 0.4), g, (0, -0.25, 0.405), 0)
-    for s, side in ((1, "L"), (-1, "R")): eye("quokka_" + side, (0.055*s, -0.19, 0.49), 0.021, g, look=(0.5*s, -1, 0))
+    eyes("quokka", body, g, (0.0, -0.08, 0.45), (0.055, -0.11, 0.04), 0.018, iris='#1e140e', lid=0.25, low=0.12)
     return g
 
 def emu():
@@ -406,10 +690,10 @@ def emu():
     n = empty("emu_neck", g, (0, -0.28, 1.2))
     np_ = Piece("emu_neckP_fur", 0.012)
     np_.add(limb((0, 0, 0), (0, -0.12, 0.62), 0.07, 0.05), '#6a7790', 0.4).add(bm_ball(0.075, at=(0, -0.17, 0.68), scale=(0.9, 1.35, 0.9)), '#5d6b86', 0.3)
-    np_.build(n)
+    neck = np_.build(n)
     solid("emu_beak", bm_cone(0.03, 0.006, 0.1, rot=R(math.pi/2, 3, 'X')), mat("EmuBeak", '#3b3530', 0.3), n, (0, -0.3, 0.67), 0)
+    eyes("emu", neck, n, (0.0, -0.17, 0.68), (0.045, -0.05, 0.04), 0.016, iris='#a05a2a', lid=0.28, low=0.12)
     for s, side in ((1, "L"), (-1, "R")):
-        eye("emu_" + side, (0.045*s, -0.22, 0.72), 0.018, n, iris='#a05a2a', look=(0.8*s, -1, 0))
         legs = empty("emu_leg" + side, g, (0.13*s, 0.05, 0.78))
         solid("emu_legM" + side, limb((0, 0, 0), (0, 0.06, -0.4), 0.05, 0.035), mat("EmuLeg", '#6b6158', 0.6), legs)
         solid("emu_legL" + side, limb((0, 0.06, -0.4), (0, 0.0, -0.76), 0.035, 0.03), mat("EmuLeg", '#6b6158', 0.6), legs)
@@ -428,9 +712,9 @@ def koala():
         p.add(bm_ball(0.12, at=(0.22*s, 0.0, 0.74), scale=(1, 0.5, 1)), GR, 1.6).add(bm_ball(0.08, at=(0.22*s, -0.04, 0.74), scale=(1, 0.3, 1)), WH, 1.8)   # big fluffy ears
         p.add(limb((0.15*s, -0.12, 0.42), (0.1*s, -0.24, 0.3), 0.06, 0.05), GR, 1.0)    # arms hugging the trunk
         p.add(limb((0.15*s, -0.05, 0.12), (0.1*s, -0.2, 0.05), 0.07, 0.05), GR, 1.0)
-    p.build(g, shade=shade)
+    body = p.build(g, shade=shade)
     solid("koala_nose", bm_ball(0.06, scale=(0.8, 0.7, 1.25)), mat("KoalaNose", '#222020', 0.12), g, (0, -0.215, 0.6), 1)
-    for s, side in ((1, "L"), (-1, "R")): eye("koala_" + side, (0.085*s, -0.17, 0.67), 0.022, g, look=(0.4*s, -1, 0))
+    eyes("koala", body, g, (0.0, -0.04, 0.64), (0.085, -0.13, 0.03), 0.017, iris='#2a1a10', lid=0.36, low=0.15)   # sleepy
     return g
 
 def deer():
@@ -445,9 +729,9 @@ def deer():
     p.add(bm_ball(0.11, at=(0, -0.72, 1.62), scale=(0.85, 1.3, 0.9)), BR, 0.5).add(bm_ball(0.06, at=(0, -0.88, 1.57), scale=(0.8, 1.3, 0.7)), DK, 0.3)
     for s in (1, -1): p.add(bm_ball(0.07, at=(0.1*s, -0.66, 1.75), scale=(0.5, 0.25, 1.1), rot=R(0.5*s, 3, 'Y')), BR, 0.4)
     p.add(bm_ball(0.06, at=(0, 0.5, 1.1), scale=(0.9, 0.6, 1.1)), LT, 0.8)                     # white tail tuft
-    p.build(g, shade=shade)
+    body = p.build(g, shade=shade)
     solid("deer_nose", bm_ball(0.03), mat("Nose", '#1e1612', 0.15), g, (0, -0.96, 1.58), 0)
-    for s, side in ((1, "L"), (-1, "R")): eye("deer_" + side, (0.075*s, -0.78, 1.66), 0.024, g, look=(1*s, -0.7, 0))
+    eyes("deer", body, g, (0.0, -0.72, 1.64), (0.075, -0.06, 0.02), 0.021, iris='#1e130c', lid=0.28, low=0.12, look=0.6)
     a = empty("deer_antlers", g, (0, -0.7, 1.72)); AM = mat("Antler", '#d9c7a2', 0.6)
     for s in (1, -1):
         b = Vector((0.06*s, 0, 0)); m_ = Vector((0.2*s, 0.08, 0.28)); top = Vector((0.26*s, 0.12, 0.5))
@@ -473,9 +757,9 @@ def wolf():
     p.add(bm_ball(0.13, at=(0, -0.7, 0.98), scale=(1, 1.1, 0.95)), GR, 0.8)
     p.add(bm_tube([(0.0, 0.07, 0.06, 0.0), (-0.16, 0.045, 0.04, -0.01), (-0.2, 0.03, 0.03, -0.02)], at=(0, -0.8, 0.94)), LT, 0.3)   # snout
     for s in (1, -1): p.add(bm_cone(0.05, 0.005, 0.12, at=(0.07*s, -0.68, 1.12), rot=R(0.2*s, 3, 'Y')), DK, 0.4)
-    p.build(g, shade=shade)
+    body = p.build(g, shade=shade)
     solid("wolf_nose", bm_ball(0.028), mat("Nose", '#1e1612', 0.15), g, (0, -1.01, 0.93), 0)
-    for s, side in ((1, "L"), (-1, "R")): eye("wolf_" + side, (0.06*s, -0.8, 1.02), 0.02, g, iris='#d9a72a', look=(0.5*s, -1, 0))
+    eyes("wolf", body, g, (0.0, -0.72, 1.0), (0.06, -0.1, 0.03), 0.017, iris='#d29a28', lid=0.34, slant=0.35, low=0.15, look=0.7)
     t = empty("wolf_tail", g, (0, 0.48, 0.78))
     tp = Piece("wolf_tailP_fur", 0.012); tp.add(limb((0, 0, 0), (0, 0.42, -0.25), 0.07, 0.05), GR, 1.4).add(bm_ball(0.05, at=(0, 0.44, -0.27)), DK, 1.2); tp.build(t)
     for s in (1, -1):
@@ -486,8 +770,65 @@ def wolf():
             lp.build(leg)
     return g
 
-for f in (gull, eagle, owl, heron, dolphin, whale, fish, lizard, frog, turtle, croc, beaver, kangaroo, quokka, emu, koala, deer, wolf):
+# ---------- wild rabbit (agouti brown, rufous nape, pale belly, white scut; long ears move) ----------
+def rabbit():
+    g = empty("rabbit"); BR, BE, RU = '#86705a', '#e2d8c4', '#a77548'
+    def shade(co, c, f):
+        col = c
+        if co.z < 0.085 or (co.y < -0.06 and co.z < 0.2 and abs(co.x) < 0.06): col = mixc(col, lin(BE), 0.75)
+        if -0.14 < co.y < -0.06 and co.z > 0.24: col = mixc(col, lin(RU), 0.6)                  # rufous nape
+        n = math.sin(co.x*120 + co.z*80)*math.sin(co.y*110)
+        return [x*(0.92 + 0.12*n) for x in col], f
+    p = Piece("rabbit_body_fur", 0.0075, target=1700)
+    p.add(bm_ball(0.13, at=(0, 0.05, 0.14), scale=(0.9, 1.35, 0.95)), BR, 1.0)
+    for s in (1, -1): p.add(bm_ball(0.085, at=(0.075*s, 0.1, 0.11), scale=(0.8, 1.2, 1.0)), BR, 1.0)
+    p.add(bm_ball(0.09, at=(0, -0.07, 0.15)), BR, 1.0)
+    p.add(bm_ball(0.07, at=(0, -0.15, 0.25), scale=(0.85, 1.2, 0.92)), BR, 0.7).add(bm_ball(0.038, at=(0, -0.215, 0.232), scale=(1, 0.9, 0.85)), BR, 0.5)
+    for s in (1, -1):
+        p.add(bm_ball(0.03, at=(0.035*s, -0.18, 0.222)), BR, 0.6)
+        p.add(limb((0.04*s, -0.1, 0.1), (0.04*s, -0.14, 0.0), 0.022, 0.016), BR, 0.5).add(bm_ball(0.018, at=(0.04*s, -0.155, 0.01), scale=(1, 1.4, 0.6)), BE, 0.4)
+        p.add(limb((0.08*s, 0.12, 0.03), (0.07*s, -0.04, 0.012), 0.024, 0.018), BR, 0.5)
+    p.add(bm_ball(0.035, at=(0, 0.215, 0.165)), '#f4f2ec', 1.5)                                  # white scut
+    body = p.build(g, shade=shade)
+    eyes("rabbit", body, g, (0.0, -0.15, 0.265), (1, -0.15, 0.15), 0.0135, iris='#24160e', lid=0.26, low=0.14, bulge=0.35, look=0.3)
+    nose = Painted("rabbit_nose"); h = surface_hit(body, (0, -0.2, 0.235), (0, -1, 0.1))
+    nose.add(bm_ball(0.009, at=h[0] + Vector((0, 0.003, 0.004)), scale=(1.3, 0.8, 0.9), seg=8), '#c4948a', 0.5); nose.build(g)
+    for s, side in ((1, "L"), (-1, "R")):
+        e = empty("rabbit_ear" + side, g, (0.026*s, -0.125, 0.305))
+        ep = Piece("rabbit_ear%sP_fur" % side, 0.005, target=300)
+        ep.add(bm_ball(0.03, at=(0, 0, 0.075), scale=(0.6, 0.32, 2.6)), BR, 0.4)
+        def eshade(co, c, f): return (mixc(c, lin('#c9a99a'), 0.55) if co.y < -0.002 and 0.02 < co.z < 0.14 and abs(co.x) < 0.012 else mixc(c, lin('#3a2c22'), sstep(0.13, 0.15, co.z))), f*0.4
+        eo = ep.build(e, shade=eshade); e.rotation_euler = (-0.3, 0.22*s, 0)
+    return g
+
+# ---------- beetles (glossy, Painted): rhinoceros beetle and stag beetle for tree trunks, a green scarab for rocks ----------
+def beetle(kind):
+    g = empty("beetle_" + kind); P = Painted("beetle_%s_body" % kind)
+    EL, PR, LG = {'rhino': ('#3b2213', '#2c190d', '#1a0f08'), 'stag': ('#3a2a1c', '#2b1f15', '#1a120c'), 'green': ('#3f8f3a', '#4a9a40', '#22301c')}[kind]
+    k = 0.8 if kind == 'green' else 1.0
+    P.add(bm_ball(0.03*k, at=(0, 0.015*k, 0.022*k), scale=(0.85, 1.45, 0.62)), EL, 0.95)
+    P.add(bm_ball(0.03*k, at=(0, 0.015*k, 0.0225*k), scale=(0.05, 1.44, 0.63)), LG, 0.9)       # the seam between the wing cases
+    P.add(bm_ball(0.022*k, at=(0, -0.028*k, 0.022*k), scale=(1.05, 0.85, 0.7)), PR, 0.95)
+    P.add(bm_ball(0.012*k, at=(0, -0.047*k, 0.016*k), scale=(1.1, 1, 0.8)), PR, 0.8)
+    if kind == 'rhino':
+        P.add(limb((0, -0.05, 0.02), (0, -0.075, 0.048), 0.006, 0.003), PR, 0.9)
+        for s in (1, -1): P.add(limb((0, -0.075, 0.048), (0.006*s, -0.082, 0.056), 0.003, 0.0015), PR, 0.9)
+        P.add(limb((0, -0.032, 0.036), (0, -0.054, 0.046), 0.005, 0.002), PR, 0.9)
+    if kind == 'stag':
+        for s in (1, -1):
+            a = Vector((0.01*s, -0.055, 0.016)); b = Vector((0.03*s, -0.085, 0.02)); c = Vector((0.012*s, -0.105, 0.022))
+            P.add(limb(a, b, 0.004, 0.0035), '#4a2a18', 0.9).add(limb(b, c, 0.0035, 0.0012), '#4a2a18', 0.9)
+    for y in (-0.03, -0.008, 0.016):
+        for s in (1, -1):
+            a = Vector((0.016*s*k, y*k, 0.012*k)); b = Vector((0.036*s*k, (y + 0.004)*k, 0.016*k)); c = Vector((0.048*s*k, (y + 0.014 if y > -0.02 else y - 0.012)*k, 0.0))
+            P.add(limb(a, b, 0.003*k, 0.0025*k, seg=6), LG, 0.5).add(limb(b, c, 0.0025*k, 0.0012*k, seg=6), LG, 0.5)
+    for s in (1, -1): P.add(limb((0.008*s*k, -0.055*k, 0.018*k), (0.022*s*k, -0.07*k, 0.03*k), 0.0012, 0.0008, seg=5), LG, 0.4)   # feelers
+    P.build(g)
+    return g
+
+for f in (gull, eagle, owl, heron, dolphin, whale, fish, lizard, frog, turtle, croc, beaver, kangaroo, quokka, emu, koala, deer, wolf, rabbit):
     f(); print("built", f.__name__)
+for k in ('rhino', 'stag', 'green'): beetle(k); print("built beetle", k)
 
 for o in scene.objects: o.select_set(True)
 bpy.ops.export_scene.gltf(filepath=OUT, export_format='GLB', use_selection=True, export_apply=True, export_vertex_color='ACTIVE', export_yup=True)

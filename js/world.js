@@ -560,30 +560,38 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
   }
 
   // --- bridges across the river ---
-  W.BRIDGE_W = 1.9;
+  // a wide wooden arch bridge: deck 2.8 wide, reaching well up both banks, with railings and lanterns at the ends
+  W.BRIDGE_W = 2.8; const ARCH = 0.75;
   function bridgeAt(x, z){
     for (const b of W.bridges){ const dx = x - b.x, dz = z - b.z, a = dx*b.ax + dz*b.az, s = -dx*b.az + dz*b.ax;
-      if (Math.abs(a) < b.len/2 && Math.abs(s) < W.BRIDGE_W/2) return 0.05 + 0.55*Math.cos(Math.PI*a/b.len); }
+      if (Math.abs(a) < b.len/2 && Math.abs(s) < W.BRIDGE_W/2) return 0.05 + ARCH*Math.cos(Math.PI*a/b.len); }
     return null;
   }
   W.bridgeAt = bridgeAt;
-  function makeBridge(bd){
-    const x = riverX(bd.z), s = riverX(bd.z + 0.3) - riverX(bd.z - 0.3), ax = 1/Math.sqrt(1 + (s/0.6)**2), az = -(s/0.6)*ax;
-    const len = D.river.w + 3.2, b = {x, z:bd.z, ax, az, len, d:bd};
-    const g = new THREE.Group(), plank = mat('#a87b52', 0.9), dark = mat('#7a5634', 0.9);
-    const n = 14;
-    for (let i=0;i<n;i++){ const a = -len/2 + (i + 0.5)*len/n, y = 0.05 + 0.55*Math.cos(Math.PI*a/len), p = new THREE.Mesh(new THREE.BoxGeometry(len/n*0.92, 0.09, W.BRIDGE_W), i % 2 ? plank : mat('#b58a5f', 0.9));
-      p.position.set(a, y - 0.03, 0); p.rotation.z = -0.55*Math.PI/len*Math.sin(Math.PI*a/len); g.add(p); }
+  function bridgeMesh(z){
+    const x = riverX(z), s = riverX(z + 0.3) - riverX(z - 0.3), ax = 1/Math.sqrt(1 + (s/0.6)**2), az = -(s/0.6)*ax;
+    const len = D.river.w + 5, BW = W.BRIDGE_W, b = {x, z, ax, az, len};
+    const g = new THREE.Group(), plank = mat('#a87b52', 0.9), plank2 = mat('#b58a5f', 0.9), dark = mat('#7a5634', 0.9), lamp = mat('#f3d27a', 0.4);
+    const deckY = a => 0.05 + ARCH*Math.cos(Math.PI*a/len), n = 22;
+    for (let i=0;i<n;i++){ const a = -len/2 + (i + 0.5)*len/n, p = new THREE.Mesh(new THREE.BoxGeometry(len/n*0.92, 0.1, BW), i % 2 ? plank : plank2);
+      p.position.set(a, deckY(a) - 0.035, 0); p.rotation.z = -ARCH*Math.PI/len*Math.sin(Math.PI*a/len); g.add(p); }
     for (const sd of [-1, 1]){
-      const pts = []; for (let i=0;i<=16;i++){ const a = -len/2 + i*len/16; pts.push(V3(a, 0.05 + 0.55*Math.cos(Math.PI*a/len) + 0.55, sd*W.BRIDGE_W/2)); }
-      g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, 0.05, 6), dark));
-      for (let i=0;i<=6;i++){ const a = -len/2 + 0.2 + i*(len - 0.4)/6, y = 0.05 + 0.55*Math.cos(Math.PI*a/len), post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.6, 6), dark);
-        post.position.set(a, y + 0.27, sd*W.BRIDGE_W/2); g.add(post); }
+      const beam = []; for (let i=0;i<=20;i++){ const a = -len/2 + i*len/20; beam.push(V3(a, deckY(a) - 0.12, sd*(BW/2 - 0.08))); }
+      g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(beam), 30, 0.09, 6), dark));   // the stringers under the deck
+      const pts = []; for (let i=0;i<=20;i++){ const a = -len/2 + 0.25 + i*(len - 0.5)/20; pts.push(V3(a, deckY(a) + 0.7, sd*BW/2)); }
+      g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 30, 0.055, 6), dark));
+      for (let i=0;i<=8;i++){ const a = -len/2 + 0.25 + i*(len - 0.5)/8, post = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.07, 0.75, 6), dark);
+        post.position.set(a, deckY(a) + 0.34, sd*BW/2); g.add(post); }
+      for (const e of [-1, 1]){ const a = e*(len/2 - 0.25), top = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 0.22), lamp); top.position.set(a, deckY(a) + 0.85, sd*BW/2); g.add(top); }
     }
-    g.position.set(x, 0, bd.z); g.rotation.y = Math.atan2(-az, ax); group.add(g); b.g = g; W.bridges.push(b); return b;
+    g.position.set(x, 0, z); g.rotation.y = Math.atan2(-az, ax); b.g = g; return b;
   }
+  function makeBridge(bd){ const b = bridgeMesh(bd.z); b.d = bd; group.add(b.g); W.bridges.push(b); return b; }
+  W.bridgeGhost = z => bridgeMesh(z).g;   // a preview while choosing where to build
   W.addBridge = z => { const bd = {z:+z.toFixed(2)}; D.bridges.push(bd); return makeBridge(bd); };
-  W.canBridge = z => !W.bridges.some(b => Math.abs(b.z - z) < 3.2) && W.isOpen(riverX(z) - D.river.w, z) && W.isOpen(riverX(z) + D.river.w, z) && z > Z0 + 2 && z < Z1 - 2;
+  W.bridgeWhy = z => z <= Z0 + 2.5 || z >= Z1 - 2.5 ? '太靠近世界的邊緣了。' : W.bridges.some(b => Math.abs(b.z - z) < 4.5) ? '這附近已經有橋了。'
+    : !(W.isOpen(riverX(z) - D.river.w/2 - 2.5, z) && W.isOpen(riverX(z) + D.river.w/2 + 2.5, z)) ? '河的兩岸都要是你的領地，才能蓋橋。' : '';
+  W.canBridge = z => !W.bridgeWhy(z);
 
   // --- opening a plot ---
   W.price = () => 120 + 60*(D.open.length - 1);

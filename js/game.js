@@ -265,13 +265,47 @@ void main(){
   vec3 V = normalize(cameraPosition - vWP); float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0)*0.4*uLayer;
   gl_FragColor = vec4(col*(hemi*0.5 + d*0.72*uSun) + rim*uSky*0.3, 1.0); }`;
 const FUR_SHELLS = mobile ? 4 : 7;
-const FUR_OF = {gull:[0.012, 120], eagle:[0.016, 110], owl:[0.022, 120], heron:[0.012, 120], beaver:[0.026, 170], kangaroo:[0.03, 150], quokka:[0.022, 190], emu:[0.045, 70], koala:[0.038, 150], deer:[0.014, 170], wolf:[0.036, 130]};
+const FUR_OF = {beaver:[0.026, 170], kangaroo:[0.03, 150], quokka:[0.022, 190], emu:[0.045, 70], koala:[0.038, 150], deer:[0.014, 170], wolf:[0.036, 130]};
 function furify(mesh, len, dens){
   const mk = i => new THREE.ShaderMaterial({vertexShader:VS2, fragmentShader:FS2, vertexColors:true,
     uniforms:{uLayer:{value:i/(FUR_SHELLS - 1)}, uLen:{value:len}, uDens:{value:dens}, uLight:U.uLight, uSky:U.uSky, uGround:U.uGround, uSun:U.uSun}});
   mesh.material = mk(0);
   for (let i=1;i<FUR_SHELLS;i++){ const s = new THREE.Mesh(mesh.geometry, mk(i)); s.userData.shell = true; s.raycast = () => {}; mesh.add(s); }
 }
+// Birds have no fluff: "*_feather" meshes get a pattern of overlapping feathers (rows of scallops, tips pointing back
+// and down, a darker overlap shadow, a pale fringe and a shaft line) drawn from the model-space position, strength = vertex alpha.
+const FEATHER_GLSL = `
+float fh2(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7)))*43758.5453); }
+float fscale(vec2 uv){
+  float row = floor(uv.y); vec2 q = vec2(uv.x + mod(row, 2.0)*0.5, uv.y);
+  vec2 c = floor(q), f = fract(q); float dx = abs(f.x - 0.5)*2.0, t = f.y - 0.45*dx*dx;
+  if (t < 0.0){ q = vec2(uv.x + mod(row - 1.0, 2.0)*0.5, uv.y); c = floor(q) - vec2(0.0, 1.0); f = fract(q); f.y += 1.0; dx = abs(f.x - 0.5)*2.0; t = f.y - 0.45*dx*dx; }
+  float b = 1.0 - 0.17*smoothstep(0.6, 1.0, t) + 0.08*(1.0 - smoothstep(0.0, 0.14, t)) - 0.05*(1.0 - smoothstep(0.0, 0.07, abs(f.x - 0.5)))*smoothstep(0.1, 0.5, t);
+  return b + (fh2(c) - 0.5)*0.07;
+}
+float feather(vec3 p, vec3 n, float k){
+  vec3 w = pow(abs(n), vec3(4.0)); w /= (w.x + w.y + w.z);
+  vec2 S = vec2(uFD, uFD*uFS);
+  float s = w.y*fscale(p.xz*S) + w.x*fscale(p.yz*S) + w.z*fscale(vec2(p.x, p.y)*S);
+  return mix(1.0, s, clamp(k, 0.0, 1.0));
+}`;
+const FEATHER_MATS = {};
+function featherMat(dens, stretch){
+  const key = dens + ':' + stretch; if (FEATHER_MATS[key]) return FEATHER_MATS[key];
+  const m = new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.8});
+  m.onBeforeCompile = sh => { sh.uniforms.uFD = {value:dens}; sh.uniforms.uFS = {value:stretch};
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vFP; varying vec3 vFN;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvFP = position; vFN = normal;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vFP; varying vec3 vFN; uniform float uFD; uniform float uFS;' + FEATHER_GLSL)
+      .replace('#include <color_fragment>', '#ifdef USE_COLOR_ALPHA\n diffuseColor.rgb *= vColor.rgb*feather(vFP, normalize(vFN), vColor.a);\n#endif'); };
+  m.customProgramCacheKey = () => 'feather';
+  return FEATHER_MATS[key] = m;
+}
+const FEATHER_D = {gull:50, eagle:44, owl:46, heron:44};
+// painted hard parts and skins: vertex colour, alpha = how glossy (wet frog skin, beaks, eyes, beetle shells)
+const PAINT_M = new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.62});
+PAINT_M.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace('#include <color_fragment>', '#ifdef USE_COLOR_ALPHA\n diffuseColor.rgb *= vColor.rgb;\n#elif defined(USE_COLOR)\n diffuseColor.rgb *= vColor;\n#endif')
+  .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n#ifdef USE_COLOR_ALPHA\n roughnessFactor = mix(roughnessFactor, 0.1, vColor.a);\n#endif'); };
+PAINT_M.customProgramCacheKey = () => 'paint';
 try {
   const ag = await new GLTFLoader().loadAsync('assets/models/animals.glb');
   ag.scene.children.forEach(o => ANIM[o.name] = o);
@@ -281,7 +315,8 @@ try {
     const m = o.material; if (m.color && !m.userData.srgb){ m.userData.srgb = true; m.color.convertLinearToSRGB(); m.metalness = 0; }
     const kind = o.name.split('_')[0];
     if (/_fur$/.test(o.name) && ca) furify(o, ...(FUR_OF[kind] || [0.02, 140]));
-    else if (ca){ o.material = new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.55}); }   // reptiles, dolphins, whales: smooth painted skin
+    else if (/_feather$/.test(o.name) && ca){ const wing = /_(wing|hand|tail)/.test(o.name); o.material = featherMat(Math.round((FEATHER_D[kind] || 40)*(wing ? 0.75 : /head/.test(o.name) ? 1.35 : 1)), wing ? 0.45 : 1); }
+    else if (ca) o.material = PAINT_M;   // reptiles, dolphins, whales, beaks, feet, eyes, beetles: painted skin
   });
 } catch(e){ console.warn('animals.glb not loaded', e); }
 // Trees and bushes modelled in Blender (blender/trees_build.py): soft leaf masses painted light-to-dark with vertex colours.
@@ -950,16 +985,18 @@ function updatePlace(){
 }
 function placePointer(e){
   const hitP = groundHit(e); if (!hitP) return;
+  if (placing.bridge){ if (Math.abs(hitP.z - placing.z) > 0.15){ placing.z = clamp(hitP.z, Z0 + 1, Z1 - 1); updateBridgeGhost(); } return; }
   const P = placing, [w, d] = rotSize(P.b, P.p.rot), i = Math.round(hitP.x - w/2), j = Math.round(hitP.z - d/2);
   if (i !== P.p.i || j !== P.p.j){ P.p.i = i; P.p.j = j; updatePlace(); }
 }
 function endPlace(){
-  const P = placing; placing = null;
+  const P = placing; placing = null; $('#placeRot').hidden = false;
   gridMesh.visible = foot.visible = doorArrow.visible = false; document.body.classList.remove('placing'); $('#placeBar').hidden = true;
   yaw = P.cam.yaw; pitch = P.cam.pitch; zoom = P.cam.zoom; panTarget.set(P.mesh.position.x, 0, P.mesh.position.z); save(); hudDirty = true;
 }
 function commitPlace(){
   const P = placing; if (!P || !P.ok) return;
+  if (P.bridge) return commitBridge();
   if (P.isNew){ if (S.coins < P.b.price){ toast('代幣不夠。'); cancelPlace(); return; }
     S.coins -= P.b.price; S.builds[P.id] = true; BG[P.id] = P.mesh; sfx('grow'); toast(`${P.b.name}蓋好了！之後點一下建築就能再移動。`); }
   else { sfx('pop'); toast(`${P.b.name}搬好了。`); }
@@ -972,6 +1009,7 @@ function commitPlace(){
 }
 function cancelPlace(){
   const P = placing; if (!P) return;
+  if (P.bridge){ scene.remove(P.mesh); endPlace(); return; }
   if (P.isNew){ scene.remove(P.mesh); if (S.place) delete S.place[P.id]; }
   else { S.place[P.id] = P.prev; applyPlace(P.id); }
   endPlace();
@@ -1667,16 +1705,31 @@ function featMenu(f){
       if (!rock) leafFall({g:f.g, d:{s:1}}, 6);
       toast(`${name}清掉了。`); save(); }}]);
 }
+// Tapping the river starts placing a bridge: a see-through preview follows your finger along the river; 確定 builds it there.
 function bridgeMenu(p){
-  if (!p) return;
-  const z = p.z;
+  if (!p || placing) return;
   if (!world.isOpen(p.x, p.z)){ plotMenu(plotKey(p.x, p.z)); return; }
-  if (!world.canBridge(z)){ toast(world.bridges.some(b => Math.abs(b.z - z) < 3.2) ? '這附近已經有橋了。' : '河的兩岸都要是你的領地，才能蓋橋。'); return; }
-  showModal('在這裡蓋一座橋？', `<div class="bigicon">🌉</div><p>河水清清的，看得到水底的石頭和魚。要過河就要蓋橋：花 ${BRIDGE_PRICE} 代幣，在這裡蓋一座木頭拱橋。</p>`,
-    [{label:'再想想', ghost:true, onClick:()=>{}}, {label:`蓋橋（${BRIDGE_PRICE}）`, onClick:() => {
-      if (!pay(BRIDGE_PRICE)) return;
-      const b = world.addBridge(z); b.g.scale.set(0.01, 0.01, 0.01); tools.push({t:0, dur:0.9, update(t){ const k = ease(Math.min(1, t/0.8)); b.g.scale.set(1, Math.max(0.01, k), 1); }, done(){ b.g.scale.set(1, 1, 1); }});
-      dust(b.x, b.z, 10, 2); sfx('grow'); NAV.dirty = true; toast('橋蓋好了！袋熊可以過河了。'); track('bridge'); save(); }}]);
+  if (S.coins < BRIDGE_PRICE){ toast(`蓋橋要 ${BRIDGE_PRICE} 代幣。`); return; }
+  closeSheet(); $('#modal').hidden = true;
+  placing = {bridge:true, z:p.z, mesh:null, cam:{yaw, pitch, zoom}, b:{name:'木頭拱橋', price:BRIDGE_PRICE}, isNew:true};
+  document.body.classList.add('placing'); $('#placeBar').hidden = false; $('#placeRot').hidden = true;
+  $('#placeName').textContent = `蓋木頭拱橋（${BRIDGE_PRICE} 代幣）`; $('#placeView').textContent = S.buildView === 'iso' ? '視角：45 度' : '視角：俯視';
+  updateBridgeGhost();
+}
+function updateBridgeGhost(){
+  const P = placing; if (P.mesh) scene.remove(P.mesh);
+  P.mesh = world.bridgeGhost(P.z); const why = world.bridgeWhy(P.z); P.ok = !why;
+  P.mesh.traverse(o => { if (o.isMesh){ o.material = o.material.clone(); o.material.transparent = true; o.material.opacity = 0.6; o.material.color.lerp(new THREE.Color(P.ok ? '#7be38a' : '#ef6a5e'), 0.45); } });
+  scene.add(P.mesh); panTarget.set(P.mesh.position.x, 0, P.z);
+  $('#placeHint').textContent = P.ok ? '沿著河拖曳，選好位置按「確定」。' : why; $('#placeOk').disabled = !P.ok;
+}
+function commitBridge(){
+  const P = placing; if (!P.ok) return;
+  if (!pay(BRIDGE_PRICE)){ cancelPlace(); return; }
+  scene.remove(P.mesh); const b = world.addBridge(P.z); P.mesh = b.g;
+  b.g.scale.set(0.01, 0.01, 0.01); tools.push({t:0, dur:0.9, update(t){ const k = ease(Math.min(1, t/0.8)); b.g.scale.set(1, Math.max(0.01, k), 1); }, done(){ b.g.scale.set(1, 1, 1); }});
+  dust(b.x, b.z, 14, 2.5); sfx('grow'); NAV.dirty = true; toast('橋蓋好了！袋熊可以過河了。'); track('bridge');
+  $('#placeRot').hidden = false; endPlace();
 }
 
 // ---------- the beach: crabs, hermit crabs, shells to pick up and the odd message in a bottle ----------
@@ -1743,7 +1796,8 @@ function pickShell(s){
   addCoins(1, at.add(V3(0, 0.5, 0))); S.shells = (S.shells || 0) + 1; track('shell');
   if (S.shells === 1 || S.shells % 10 === 0) toast(`撿到貝殼了！目前一共撿了 ${S.shells} 個。`);
 }
-const ANIMAL_ICON = {fish:'🐟', deer:'🦌', wolf:'🐺', gull:'🐦', dolphin:'🐬', whale:'🐋', owl:'🦉', eagle:'🦅', lizard:'🦎', seafish:'🐠', frog:'🐸', dragonfly:'🪰', turtle:'🐢', croc:'🐊', heron:'🪿', beaver:'🦫', kangaroo:'🦘', quokka:'😊', emu:'🦤', koala:'🐨', crab:'🦀'};
+let wetUntil = 0;
+const ANIMAL_ICON = {rabbit:'🐇', beetle:'🪲', worm:'🪱', fish:'🐟', deer:'🦌', wolf:'🐺', gull:'🐦', dolphin:'🐬', whale:'🐋', owl:'🦉', eagle:'🦅', lizard:'🦎', seafish:'🐠', frog:'🐸', dragonfly:'🪰', turtle:'🐢', croc:'🐊', heron:'🪿', beaver:'🦫', kangaroo:'🦘', quokka:'😊', emu:'🦤', koala:'🐨', crab:'🦀'};
 function pokeAnimal(a){
   const k = (a.kind in WILD_NAMES ? wild : fauna).poke(a), first = !stat('meet:' + k);
   track('meet:' + k); floatSprite(emojiTex(ANIMAL_ICON[k] || '❗'), a.g.position.clone().add(V3(0, 1.4, 0)), {size:0.55, vy:0.6, max:1.4});
@@ -1941,10 +1995,18 @@ function foodMesh(kind){
   }
   g.rotation.y = Math.random()*Math.PI*2; return g;
 }
+// food and bowls go down where the wombat can walk all round them (not squeezed against a building, tree or rock)
+function clearSpot(p, rad){
+  navEnsure(); const free = (x, z) => { for (let a=0;a<8;a++) for (const r of [0, rad*0.5, rad]){ const k = navIdx(x + Math.sin(a/8*Math.PI*2)*r, z + Math.cos(a/8*Math.PI*2)*r); if (k < 0 || NAV.block[k]) return false; } return true; };
+  if (free(p.x, p.z)) return;
+  for (let r = 0.5; r < 10; r += 0.5) for (let a = 0; a < 16; a++){ const x = p.x + Math.sin(a/16*Math.PI*2)*r, z = p.z + Math.cos(a/16*Math.PI*2)*r; if (free(x, z)){ p.x = x; p.z = z; return; } }
+  snapToLand(p);
+}
+const tapBox = (g, r, kind, ref) => { const hb = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6), hbMat); hb.position.y = 0.15; hb.userData.kind = kind; hb.userData.ref = ref; g.add(hb); return hb; };
 function spawnFood(x, z, kind='grass'){
-  { const p = V3(x, 0, z); snapToLand(p); x = p.x; z = p.z; }
+  { const p = V3(x, 0, z); clearSpot(p, 1.95*petS + 0.6); x = p.x; z = p.z; }
   const g = foodMesh(kind); g.position.set(x, gy(x, z) + 1.6, z); scene.add(g);
-  foods.push({g, kind, vy:0, landed:false, eat:1, sh:makeShadow(0.6,0.6)});
+  const f = {g, kind, vy:0, landed:false, eat:1, sh:makeShadow(0.6,0.6)}; f.hb = tapBox(g, 0.45, 'food', f); foods.push(f);
 }
 // Extra effects of a food or drink, plus the pet's own taste: one favourite and one food it dislikes.
 const rollLikes = () => { const ids = FOODS.map(f => f.id), fav = ids[Math.floor(Math.random()*ids.length)], rest = ids.filter(i => i !== fav && i !== 'grass');
@@ -1964,14 +2026,14 @@ function foodBonus(fi){
 let bowl = null;
 function spawnBowl(kind='water'){
   const a = root.rotation.y + rnd(-1,1), d = 1.9*petS + 1.3;
-  let x = pos.x + Math.sin(a)*d, z = pos.z + Math.cos(a)*d; { const p = V3(x, 0, z); snapToLand(p); x = p.x; z = p.z; }
+  let x = pos.x + Math.sin(a)*d, z = pos.z + Math.cos(a)*d; { const p = V3(x, 0, z); clearSpot(p, 1.95*petS + 0.6); x = p.x; z = p.z; }
   const g = new THREE.Group();
   const pts = [[0.001,0],[0.3,0],[0.36,0.05],[0.38,0.2],[0.33,0.2],[0.31,0.07],[0.001,0.07]].map(p => new THREE.Vector2(p[0],p[1]));
   g.add(new THREE.Mesh(new THREE.LatheGeometry(pts,28), mat('#d6dde2',0.35)));
   const w = new THREE.Mesh(new THREE.CircleGeometry(0.31,24), new THREE.MeshStandardMaterial({color:foodInfo(kind).color, roughness:0.15})); w.rotation.x = -Math.PI/2; w.position.y = 0.17; g.add(w);
   if (kind === 'coco'){ const sh = new THREE.Mesh(new THREE.SphereGeometry(0.16,14,10,0,Math.PI*2,0,Math.PI/2), mat('#7a5634',0.9)); sh.material.side = THREE.DoubleSide; sh.rotation.x = Math.PI; sh.position.set(0.45,0.14,0); g.add(sh); }
   g.position.set(x,gy(x, z),z); scene.add(g);
-  bowl = {g, w, kind, left:1}; sfx('pop');
+  bowl = {g, w, kind, left:1}; bowl.hb = tapBox(g, 0.5, 'bowl', bowl); sfx('pop');
 }
 const snowmen = [];
 function makeSnowman(x, z, ry, melt=0){
@@ -2363,6 +2425,10 @@ const ACH = [
   {id:'clothes5', icon:'👗', name:'衣櫃滿滿', desc:'收集 5 件衣服', test:() => Object.values(S.owned).filter(Boolean).length >= 5, coins:40},
   {id:'builds10', icon:'🏙️', name:'城市規劃師', desc:'蓋 10 種建築', test:() => Object.values(S.builds).filter(Boolean).length >= 10, coins:100},
   {id:'fish10', icon:'🎣', name:'看魚跳', desc:'讓魚跳出水面 10 次', test:() => stat('meet:fish') >= 10, coins:25},
+  {id:'eagleHunt', icon:'🦅', name:'獵鷹出擊', desc:'親眼看到老鷹俯衝抓到獵物', test:() => stat('eagleCatch') >= 1, coins:40},
+  {id:'beetle5', icon:'🪲', name:'甲蟲收集家', desc:'點一下甲蟲 5 次（樹幹上、石頭上都有）', test:() => stat('meet:beetle') >= 5, coins:30},
+  {id:'worm3', icon:'🪱', name:'雨後的小客人', desc:'下雨後點一下 3 隻蚯蚓', test:() => stat('meet:worm') >= 3, coins:30},
+  {id:'rabbit5', icon:'🐇', name:'兔子嚇一跳', desc:'讓野兔逃回洞裡 5 次', test:() => stat('meet:rabbit') >= 5, coins:30},
   {id:'meetAll', icon:'🦓', name:'動物博士', desc:'遇見所有的野生動物', test:() => Object.keys({...SPECIES, ...WILD_NAMES}).every(k => stat('meet:' + k) >= 1), coins:300},
   {id:'use1', icon:'🎠', name:'院子遊樂園', desc:'第一次讓牠玩院子裡的設施', test:() => stat('use') >= 1, coins:15},
   {id:'swing10', icon:'🎡', name:'鞦韆高手', desc:'盪 10 次鞦韆', test:() => stat('use:swing') >= 10, coins:40},
@@ -2714,7 +2780,8 @@ function walkTo(x, z, dt, speed, stopDist){
 function petSpeed(){ let v = 0.95*(0.55 + 0.45*Math.min(petS,1)); const st = S.st;
   if (st.health < 35) v *= 0.5; if (S.stage === 'ultimate') v *= 0.85; if (st.energy < 20) v *= 0.7; if (swimming) v *= 0.6; return v*(form().speed || 1); }
 function nearestFood(){ let best = null, bd = 1e9; for (const f of foods){ if (!f.landed) continue; const d = Math.hypot(f.g.position.x-pos.x, f.g.position.z-pos.z); if (d < bd){ bd = d; best = f; } } return best; }
-function waterSpot(){ if (bowl && bowl.kind !== 'water') return {p:bowl.g.position, r:0.15}; if (BG.pond) return {p:SPOTS.pond, r:1.45}; if (bowl) return {p:bowl.g.position, r:0.15}; return null; }
+const pondBad = () => (B.pondFail || 0) > Date.now() - 120000;   // the yard pond couldn't be reached lately: use a bowl
+function waterSpot(){ if (bowl && bowl.kind !== 'water') return {p:bowl.g.position, r:0.15}; if (BG.pond && !pondBad()) return {p:SPOTS.pond, r:1.45}; if (bowl) return {p:bowl.g.position, r:0.15}; return null; }
 function pickWander(){
   const obs = obstacles();
   const near = trees.filter(tr => Math.hypot(tr.d.x - pos.x, tr.d.z - pos.z) < 9);
@@ -2736,8 +2803,13 @@ function walkTowards(tx_, tz_, dt, speed, stopDist){
   const dx = tx_-pos.x, dz = tz_-pos.z, dist = Math.hypot(dx,dz), diff = wrapA(Math.atan2(dx,dz) - root.rotation.y);
   root.rotation.y += clamp(diff, -2.6*dt, 2.6*dt);
   let sp = speed*clamp(Math.cos(diff), 0, 1); if (dist < stopDist) sp = 0;
-  const fwd = V3(Math.sin(root.rotation.y), 0, Math.cos(root.rotation.y));
-  pos.addScaledVector(fwd, sp*dt); walkVel.copy(fwd).multiplyScalar(sp);
+  const fwd = V3(Math.sin(root.rotation.y), 0, Math.cos(root.rotation.y)), step = sp*dt;
+  // about to step into water or off the edge (cutting a corner onto a bridge, say): slide along the edge instead of bumping back
+  const clear = (dx, dz) => groundOK(pos.x + dx*step, pos.z + dz*step) && groundOK(pos.x + dx*step*3, pos.z + dz*step*3);
+  if (step > 0 && pos.y < 0.05 && groundOK(pos.x, pos.z) && !clear(fwd.x, fwd.z)){
+    for (const da of [0.4, -0.4, 0.8, -0.8, 1.2, -1.2, 1.6, -1.6]){ const a = root.rotation.y + da, ux = Math.sin(a), uz = Math.cos(a);
+      if (clear(ux, uz) && Math.hypot(tx_ - pos.x - ux*step, tz_ - pos.z - uz*step) < dist + step*0.5){ fwd.set(ux, 0, uz); break; } } }
+  pos.addScaledVector(fwd, step); walkVel.copy(fwd).multiplyScalar(sp);
   return {dist, diff, moving: sp > 0.05 || Math.abs(diff) > 0.15};
 }
 function startSleep(){ B.mode = 'sleep'; B.zzzT = 0; cry('sleepy'); }
@@ -2767,8 +2839,8 @@ function think(dt){
   if (!busy || B.mode === 'goHouse'){
     if (!['seek','seekWater'].includes(B.mode)){
       const f = nearestFood();
-      if (f){ B.mode = 'seek'; B.food = f; }
-      else if (B.water && st.thirst < 96 && waterSpot()) B.mode = 'seekWater';
+      if (f){ B.mode = 'seek'; B.food = f; B.seekT = 0; }
+      else if (B.water && st.thirst < 96 && waterSpot()){ B.mode = 'seekWater'; B.seekT = 0; }
     }
   }
   if (badWeather() && BG.house && ['idle','walk'].includes(B.mode)) goHouse(false);
@@ -2841,8 +2913,11 @@ function think(dt){
         root.rotation.y += clamp(wrapA(Math.atan2(fx_-pos.x, fz_-pos.z) - root.rotation.y), -2.6*dt, 2.6*dt);
         const back = V3(-Math.sin(root.rotation.y),0,-Math.cos(root.rotation.y)); pos.addScaledVector(back, 0.6*dt); walkVel.copy(back).multiplyScalar(0.6); moving = true;
       } else {
-        const r = walkTo(fx_, fz_, dt, sp*1.3, mouth); moving = r.moving;
-        if (r.dist < mouth + 0.1 && Math.abs(r.diff) < 0.25){ B.mode = 'eat'; B.timer = 2.6; B.nomT = 0; B.before = st.hunger; }
+        const r = walkTo(fx_, fz_, dt, sp*1.3, mouth); moving = r.moving; B.seekT = (B.seekT || 0) + dt;
+        // something in the way (a building, a tree…): if it is close enough just reach over; if not, the food rolls somewhere easier
+        const stuck = r.arrived || B.seekT > 10;
+        if ((r.dist < mouth + 0.1 && Math.abs(r.diff) < 0.25) || (stuck && r.dist < mouth + 1.6)){ B.mode = 'eat'; B.timer = 2.6; B.nomT = 0; B.before = st.hunger; B.seekT = 0; }
+        else if (B.seekT > 16){ const p = pos.clone(); p.x += Math.sin(root.rotation.y)*(mouth + 0.3); p.z += Math.cos(root.rotation.y)*(mouth + 0.3); clearSpot(p, mouth + 0.6); f.g.position.set(p.x, gy(p.x, p.z) + 1.2, p.z); f.landed = false; B.seekT = 0; }
       }
       break; }
     case 'eat': {
@@ -2867,19 +2942,22 @@ function think(dt){
       break; }
     case 'seekWater': {
       const w = waterSpot(); if (!w){ B.mode = 'idle'; B.water = null; break; }
-      const r = walkTo(w.p.x, w.p.z, dt, sp*1.2, mouth + w.r); moving = r.moving;
-      if (r.dist < mouth + w.r + 0.12 && Math.abs(r.diff) < 0.25){ B.mode = 'drink'; B.timer = 2.4; B.nomT = 0; B.before = st.thirst; }
+      const r = walkTo(w.p.x, w.p.z, dt, sp*1.2, mouth + w.r); moving = r.moving; B.seekT = (B.seekT || 0) + dt;
+      const stuck = r.arrived || B.seekT > 10;
+      if ((r.dist < mouth + w.r + 0.12 && Math.abs(r.diff) < 0.25) || (stuck && r.dist < mouth + w.r + 1.6)){ B.mode = 'drink'; B.timer = 2.4; B.nomT = 0; B.before = st.thirst; B.seekT = 0; }
+      else if (B.seekT > 16 && bowl && w.p === bowl.g.position){ const p = pos.clone(); p.x += Math.sin(root.rotation.y)*(mouth + 0.3); p.z += Math.cos(root.rotation.y)*(mouth + 0.3); clearSpot(p, mouth + 0.6); bowl.g.position.set(p.x, gy(p.x, p.z), p.z); B.seekT = 0; }
+      else if (B.seekT > 16 && !bowl){ B.seekT = 0; B.pondFail = Date.now(); spawnBowl('water'); }   // the pond can't be reached: a bowl appears instead
       break; }
     case 'drink': {
-      const di_ = foodInfo(bowl && (bowl.kind !== 'water' || !BG.pond) ? bowl.kind : 'water');
+      const di_ = foodInfo(bowl && (bowl.kind !== 'water' || !BG.pond || pondBad()) ? bowl.kind : 'water');
       st.thirst = clamp(st.thirst + di_.thirst*dt/2.4, 0, 100);
       if (B.timer <= 0) foodBonus({...di_, thirst:0});   // the thirst was already added while drinking
       B.nomT -= dt; if (B.nomT <= 0){ B.nomT = 0.45; sfx('drink'); }
-      if (bowl && (bowl.kind !== 'water' || !BG.pond)){ bowl.left -= dt/2.4; bowl.w.position.y = 0.06 + 0.11*Math.max(0, bowl.left); }
+      if (bowl && (bowl.kind !== 'water' || !BG.pond || pondBad())){ bowl.left -= dt/2.4; bowl.w.position.y = 0.06 + 0.11*Math.max(0, bowl.left); }
       if (B.timer <= 0){
         if (B.before < 90) addCoins(2, headTop());
         if (growthOK()) S.growth += 1.5;
-        if (bowl && (bowl.kind !== 'water' || !BG.pond)){ scene.remove(bowl.g); bowl = null; }
+        if (bowl && (bowl.kind !== 'water' || !BG.pond || pondBad())){ scene.remove(bowl.g); bowl = null; }
         B.water = null; B.mode = 'idle'; B.timer = 2; spawnHearts(1); track('drink');
       }
       break; }
@@ -3030,7 +3108,9 @@ function updateWorld(dt, t){
   world.update(dt, t, {night:di.n, fog:scene.fog, pet: petActive() && root.visible ? pos : null});
   updateBeach(dt, t);
   updateAmbience(dt, t, di.n > 0.6);
-  wild.update(dt, t, {cam:camTarget, pet: petActive() && root.visible ? pos : null, night:di.n, onSound: (n, at) => sfx(n, at)});
+  if (badWeather()) wetUntil = Date.now() + 600000;   // worms come up in the rain and for a while after it
+  wild.update(dt, t, {cam:camTarget, pet: petActive() && root.visible ? pos : null, night:di.n, wet: Date.now() < wetUntil, onSound: (n, at) => sfx(n, at),
+    onEvent: (e, at) => { if (e === 'eagleCatch' && Math.hypot(at.x - camTarget.x, at.z - camTarget.z) < 35){ const first = !stat('eagleCatch'); track('eagleCatch'); if (first) toast('老鷹俯衝抓到獵物了！'); } }});
   fauna.update(dt, t, {bad:badWeather(), cam:camTarget, pet: petActive() && root.visible ? pos : null, night:di.n, onScare:animalScare, onSmile: p => floatSprite(emojiTex('😊'), p.add(V3(0, 0.9, 0)), {size:0.5, vy:0.5, max:1.6}), onZzz: p => floatSprite(textTex('Z','#5d6e8f','bold 90px sans-serif','rgba(255,255,255,.85)'), p, {size:0.35, vy:0.5, vx:0.2, max:2}),
     chips: p => floatSprite(radialTex('rgba(201,160,110,1)','rgba(201,160,110,0)'), p, {size:0.12, vx:rnd(-1,1), vz:rnd(-1,1), vy:rnd(1,2), g:8, max:0.6, grow:0}), treeNear:(x, z, r) => { const tr = trees.find(t => Math.hypot(t.d.x - x, t.d.z - z) < r); return tr ? tr.d : null; }});
   flashV *= Math.exp(-5*dt); $('#flash').style.opacity = (flashV*0.8).toFixed(3);
@@ -3608,12 +3688,19 @@ const pts = new Map();
 let mode = null, downX=0, downY=0, downT=0, lastX=0, lastY=0, hitPoint=null, tapObj=null, tapPoint=null, pinchD=1, pinchZ=1;
 const setNdc = e => ndc.set(e.clientX/innerWidth*2-1, -(e.clientY/innerHeight)*2+1);
 const locked = () => !!(evo || hatching);
+// tapping food or a bowl on the ground sends the wombat over to finish it
+function callToFood(k, ref){
+  if (!petActive() || asleep() || act || ['inHouse','enter','exit','evolve','bloated','dead'].includes(B.mode)){ toast(`${S.name || '牠'}現在沒辦法過去。`); return; }
+  if (k === 'food'){ if (!foods.includes(ref)) return; B.mode = 'seek'; B.food = ref; }
+  else { B.water = true; B.mode = 'seekWater'; }
+  B.use = null; B.seekT = 0; B.path = null; showEmote(k === 'food' ? '😋' : '💧', 1);
+}
 function pickAt(e){
   setNdc(e); ray.setFromCamera(ndc, camera);
   const list = [];
   if (petActive() && root.visible) list.push(...hit);
   if (S.stage === 'egg' && eggMesh.visible) list.push(eggMesh);
-  cubes.forEach(c => list.push(c.hb)); weeds.forEach(w => list.push(w.hb));
+  cubes.forEach(c => list.push(c.hb)); weeds.forEach(w => list.push(w.hb)); foods.forEach(f => list.push(f.hb)); if (bowl) list.push(bowl.hb);
   if (BG.house) list.push(BG.house.userData.dome);
   Object.values(BG).forEach(g => g.userData.hb && list.push(g.userData.hb));
   trees.forEach(tr => list.push(tr.hb)); if (tomb && tomb.userData.hb) list.push(tomb.userData.hb);
@@ -3715,6 +3802,7 @@ function up(e){
     else if (k === 'bottle') openBottle(tapObj.userData.ref);
     else if (k === 'crab') pokeCrab(tapObj.userData.ref);
     else if (k === 'animal') pokeAnimal(tapObj.userData.ref);
+    else if (k === 'food' || k === 'bowl') callToFood(k, tapObj.userData.ref);
     else if (k === 'fish'){ const f = tapObj.userData.ref; if (world.jumpFish(f)){ sfx('splash'); for (let i=0;i<8;i++){ const a = Math.random()*Math.PI*2; floatSprite(radialTex('rgba(225,240,248,1)','rgba(225,240,248,0)'), f.g.position.clone().setY(WATER_Y + 0.1), {size:0.25, vx:Math.cos(a)*1.4, vz:Math.sin(a)*1.4, vy:rnd(2,3), g:9, max:0.7, grow:0}); }
       const first = !stat('meet:fish'); track('meet:fish'); if (first) toast('魚兒跳出水面了！'); } }
     hudDirty = true;
@@ -3850,7 +3938,7 @@ world.showFeats();
 const fauna = createFauna({scene, world, mat, hbMat, onSound: (n, at) => sfx(n, at), clone: n => animalClone(n), lod:furLOD});
 const koalaPerches = () => fauna.setPerches(trees.filter(tr => tr.d.euc && !tr.cut).map(tr => tr.d));
 koalaPerches();
-const wild = createWildlife({scene, world, clone:animalClone, hbMat, lod:furLOD, fx:{
+const wild = createWildlife({scene, world, clone:animalClone, hbMat, mat, lod:furLOD, fx:{
   splash:(p, k) => { for (let i=0;i<10*k;i++){ const a = Math.random()*Math.PI*2; floatSprite(radialTex('rgba(225,240,248,1)','rgba(225,240,248,0)'), p.clone().setY(WATER_Y + 0.1), {size:0.35*k, vx:Math.cos(a)*rnd(1,2)*k, vz:Math.sin(a)*rnd(1,2)*k, vy:rnd(2,4)*k, g:9, max:0.9, grow:0}); } },
   spout:p => { for (let i=0;i<24;i++) floatSprite(radialTex('rgba(240,248,252,0.95)','rgba(240,248,252,0)'), p.clone(), {size:rnd(0.5,0.9), vx:rnd(-0.5,0.5), vz:rnd(-0.5,0.5), vy:rnd(5,8), g:6, max:1.6, grow:0.8, delay:i*0.02}); } }});
 const wildPlaces = () => wild.setPlaces(trees.filter(tr => !tr.cut).map(tr => tr.d), world.feats.filter(f => f.d.k === 'rock' && f.d.s > 0.5).map(f => ({x:f.d.x, z:f.d.z, y:f.g.position.y + 0.85*f.d.s})));
@@ -3874,7 +3962,7 @@ if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
 if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
-if (new URLSearchParams(location.search).has('debug')) window.W = {startUse, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+if (new URLSearchParams(location.search).has('debug')) window.W = {groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   sim:(secs) => { skipRender = true; try { for (let i=0;i<secs*30;i++) step(true); } finally { skipRender = false; } clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};
@@ -4076,7 +4164,7 @@ function step(manual){
   for (let i=fxPull.length-1;i>=0;i--){ const p = fxPull[i]; p.t += dt;
     if (p.flat){ p.g.material.opacity = Math.max(0, 0.75*(1 - p.t/1.2)); if (p.t > 1.2){ scene.remove(p.g); fxPull.splice(i,1); } continue; }
     p.g.position.y = p.t*3; p.g.rotation.z += dt*8; p.g.scale.multiplyScalar(Math.exp(-3*dt)); if (p.t > 0.6){ scene.remove(p.g); fxPull.splice(i,1); } }
-  if (bowl && bowl.kind === 'water' && BG.pond){ scene.remove(bowl.g); bowl = null; }
+  if (bowl && bowl.kind === 'water' && BG.pond && !pondBad()){ scene.remove(bowl.g); bowl = null; }
   updateFormFx(dt, t); updateFx(dt); updateTools(dt); updatePests(dt); updateTrees(dt); updateButterflies(dt); updateGhost(dt);
 
   if (dragging){

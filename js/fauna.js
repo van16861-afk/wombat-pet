@@ -58,7 +58,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, lod}){
 
   // ---------- models ----------
   function frog(){
-    const fm = model('frog', m => { m.userData.sac = m.getObjectByName('frog_sac'); }); if (fm) return fm;
+    const fm = model('frog', m => { m.userData.sac = m.getObjectByName('frog_sac'); m.userData.sacMax = 1.7; }); if (fm) return fm;
     const g = new THREE.Group(), body = mat(['#5aa04a', '#6fae3c', '#4f8f52'][Math.floor(Math.random()*3)], 0.4), belly = mat('#e3e6b0', 0.5);
     const b = ball(0.16, body, 1, 0.7, 1.15); b.position.y = 0.11; g.add(b);
     const bl = ball(0.13, belly, 0.95, 0.5, 1); bl.position.set(0, 0.07, 0.04); g.add(bl);
@@ -77,7 +77,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, lod}){
     g.userData.wings = wings; return g;
   }
   function turtle(){
-    const tm = model('turtle'); if (tm) return tm;
+    const tm = model('turtle', m => { m.userData.head = m.getObjectByName('turtle_head'); m.userData.legs = ['FL', 'FR', 'BL', 'BR'].map(n => m.getObjectByName('turtle_leg' + n)).filter(Boolean); }); if (tm) return tm;
     const g = new THREE.Group(), shell = mat('#5b6b3a', 0.5), skin = mat('#7c9a52', 0.6);
     const s = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 8, 0, Math.PI*2, 0, Math.PI/2), shell); s.scale.set(1, 0.6, 1.2); g.add(s);
     const rim = cyl(0.31, 0.31, 0.04, mat('#c9b77a', 0.6), 16); rim.scale.z = 1.2; g.add(rim);
@@ -86,7 +86,8 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, lod}){
     return g;
   }
   function croc(){
-    const cm = model('croc', m => { m.userData.jaw = m.getObjectByName('croc_jaw'); m.userData.jawSign = 1; }); if (cm) return cm;
+    const cm = model('croc', m => { m.userData.jaw = m.getObjectByName('croc_jaw'); m.userData.jawSign = 1; m.userData.tail = m.getObjectByName('croc_tail');
+      m.userData.legs = ['FL', 'FR', 'BL', 'BR'].map(n => [n, m.getObjectByName('croc_leg' + n)]).filter(l => l[1]); }); if (cm) return cm;
     const g = new THREE.Group(), skin = mat('#4f5f34', 0.6), belly = mat('#a7a46a', 0.6);
     const b = ball(0.4, skin, 0.9, 0.45, 2.2); b.position.y = 0.16; g.add(b);
     const tail = new THREE.Mesh(new THREE.ConeGeometry(0.28, 1.6, 8), skin); tail.rotation.x = -Math.PI/2; tail.scale.y = 1; tail.position.set(0, 0.14, -1.6); tail.scale.set(1, 1, 0.5); g.add(tail);
@@ -171,10 +172,17 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, lod}){
   }
 
   // ---------- populate ----------
-  const padOrStone = () => Math.random() < 0.7 && pads.length ? pads[Math.floor(Math.random()*pads.length)] : null;
+  const seats = [...pads, ...stones.map(st => ({...st, stone:true}))];
+  const freeSeat = me => { const f = seats.filter(q => !q.frog || q.frog === me); return f.length ? f[Math.floor(Math.random()*f.length)] : null; };
+  const takeSeat = (a, q) => { if (a.on && a.on.frog === a) a.on.frog = null; a.on = q; if (q) q.frog = a; };
+  const seatY = q => q.stone ? WATER_Y + 0.18 : WATER_Y + 0.03;
+  const unRide = a => { if (a.ride){ a.ride.rider = null; a.ride = null; } };
   const shoreAt = (cx, cz, r) => { const a = rnd(0, 6.28); return V3(cx + Math.cos(a)*(r + 0.6), 0, cz + Math.sin(a)*(r + 0.6)); };
-  for (let i=0;i<5;i++){ const g = frog(), p = padOrStone(); g.position.set(p ? p.x : P.x + P.r + 0.6, 0, p ? p.z : P.z); add('frog', g, {hit:0.35, hitY:0.1, home:'pond', on:p}); }
-  for (let i=0;i<3;i++){ const [px, pz, r] = D.bio.pools[i % D.bio.pools.length], g = frog(); g.position.copy(shoreAt(px, pz, r)); add('frog', g, {hit:0.35, hitY:0.1, home:'swamp', pool:i % D.bio.pools.length}); }
+  for (let i=0;i<5;i++){ const g = frog(), a = add('frog', g, {hit:0.35, hitY:0.1, home:'pond', on:null}), q = freeSeat(a); takeSeat(a, q);
+    g.position.set(q ? q.x : P.x + P.r + 0.6 + i*0.5, q ? seatY(q) : 0, q ? q.z : P.z); }
+  const frogs = () => F.list.filter(a => a.kind === 'frog');
+  const swampSpot = (a, px, pz, r) => { let best = null; for (let k=0;k<12;k++){ const s_ = shoreAt(px, pz, r); if (frogs().every(b => b === a || b.g.position.distanceTo(s_.clone().setY(b.g.position.y)) > 0.55)){ best = s_; break; } best = s_; } return best; };
+  for (let i=0;i<3;i++){ const [px, pz, r] = D.bio.pools[i % D.bio.pools.length], g = frog(), a = add('frog', g, {hit:0.35, hitY:0.1, home:'swamp', pool:i % D.bio.pools.length}); g.position.copy(swampSpot(a, px, pz, r)); }
   for (let i=0;i<6;i++){ const g = dragonfly(); const [px, pz] = i < 3 ? [P.x, P.z] : D.bio.pools[i % D.bio.pools.length]; g.position.set(px, WATER_Y + 0.8, pz); add('dragonfly', g, {hit:0.3, hitY:0, cx:px, cz:pz, rad: i < 3 ? P.r : 3}); }
   for (let i=0;i<2;i++){ const g = turtle(); g.position.set(P.x + rnd(-1, 1), WATER_Y - 0.1, P.z + rnd(-1, 1)); add('turtle', g, {hit:0.5, hitY:0.1, ang:rnd(0, 6.28)}); }
   const [swx, swz] = plotC(BIO.swamp);
@@ -222,13 +230,23 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, lod}){
       const petD = pet ? Math.hypot(p.x - pet.x, p.z - pet.z) : 99;
       switch (a.kind){
         case 'frog': {
-          if (a.state === 'hop'){ if (stepHop(a, dt)){ a.state = a.dived ? 'under' : 'idle'; a.timer = a.dived ? 3 : rnd(3, 9); if (a.dived){ sound('plop', p); a.g.visible = false; } } break; }
-          if (a.state === 'under'){ a.g.visible = false; if (a.timer <= 0){ a.dived = false; a.state = 'idle'; const q = padOrStone(); if (q && a.home === 'pond'){ a.on = q; p.set(q.x, WATER_Y + 0.03, q.z); } a.g.visible = true; } break; }
-          a.g.userData.sac.scale.setScalar(1 + Math.max(0, Math.sin(a.t*9))*(a.croak > 0 ? 0.8 : 0)); a.croak = (a.croak || 0) - dt;
-          if (petD < 2.2){ a.dived = true; const to = p.clone(); to.x += rnd(-1, 1); to.z += rnd(-1, 1); to.y = WATER_Y - 0.3; hop(a, to, 0.5, 0.5); break; }
-          if (a.timer <= 0){ if (Math.random() < 0.35){ a.croak = 1.2; sound('croak', p); a.timer = rnd(2, 5); break; }
-            let to; if (a.home === 'pond'){ const q = padOrStone(); a.on = q; to = q ? V3(q.x, WATER_Y + 0.03, q.z) : V3(P.x + P.r + 0.6, 0, P.z); }
-            else { const [px, pz, r] = D.bio.pools[a.pool]; to = shoreAt(px, pz, r); }
+          const sac = a.g.userData.sac; sac.scale.setScalar(1 + Math.max(0, Math.sin(a.t*9))*(a.croak > 0 ? (a.g.userData.sacMax || 0.8) : 0)); a.croak = (a.croak || 0) - dt;
+          if (a.ride){   // sitting on another frog's back (never inside it)
+            const b = a.ride, bp = b.g.position;
+            if (!b.g.visible || b.state !== 'idle' || b.ride){ unRide(a); a.timer = 0; }
+            else { const ry = b.g.rotation.y; p.set(bp.x - Math.sin(ry)*0.03, bp.y + 0.15, bp.z - Math.cos(ry)*0.03); a.g.rotation.y = ry + 0.15; if (a.timer > 0) break; } }
+          if (a.state === 'hop'){ if (stepHop(a, dt)){ a.state = a.dived ? 'under' : 'idle'; a.timer = a.dived ? 3 : rnd(3, 9); if (a.dived){ sound('plop', p); a.g.visible = false; }
+            else if (a.climb){ const b = a.climb; a.climb = null; if (b.g.visible && b.state === 'idle' && !b.rider && !b.ride){ a.ride = b; b.rider = a; a.timer = rnd(4, 10); } else a.timer = 0; } } break; }
+          if (a.state === 'under'){ a.g.visible = false; if (a.timer <= 0){ a.dived = false; a.state = 'idle';
+            if (a.home === 'pond'){ const q = freeSeat(a); takeSeat(a, q); if (q) p.set(q.x, seatY(q), q.z); } a.g.visible = true; } break; }
+          if (petD < 2.2){ unRide(a); takeSeat(a, null); a.dived = true; const to = p.clone(); to.x += rnd(-1, 1); to.z += rnd(-1, 1); to.y = WATER_Y - 0.3; hop(a, to, 0.5, 0.5); break; }
+          if (a.timer <= 0){ if (Math.random() < 0.35 && !a.ride){ a.croak = 1.2; sound('croak', p); a.timer = rnd(2, 5); break; }
+            unRide(a); let to;
+            if (a.home === 'pond'){
+              const others = frogs().filter(b => b !== a && b.home === 'pond' && b.g.visible && b.state === 'idle' && !b.rider && !b.ride && b.on);
+              if (others.length && Math.random() < 0.15){ const b = others[Math.floor(Math.random()*others.length)]; takeSeat(a, null); a.climb = b; to = b.g.position.clone().add(V3(0, 0.15, 0)); }
+              else { const q = freeSeat(a); takeSeat(a, q); to = q ? V3(q.x, seatY(q), q.z) : V3(P.x + P.r + 0.6, 0, P.z); } }
+            else { const [px, pz, r] = D.bio.pools[a.pool]; to = swampSpot(a, px, pz, r); }
             if (to.y === 0) to.y = gy(to.x, to.z); hop(a, to, 0.6, 0.6); }
           break; }
         case 'dragonfly': {
@@ -237,6 +255,9 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, lod}){
           a.g.userData.wings.forEach((w, i) => w.rotation.z = Math.sin(t*60 + i)*0.4);
           break; }
         case 'turtle': {
+          const ud = a.g.userData, shy = petD < 2.6 || a.shy > 0; a.shy = (a.shy || 0) - dt;
+          if (ud.head){ if (ud.head.userData.z0 === undefined) ud.head.userData.z0 = ud.head.position.z; ud.head.position.z += ((ud.head.userData.z0 - (shy ? 0.13 : 0)) - ud.head.position.z)*Math.min(1, dt*6); ud.head.rotation.y = shy ? 0 : Math.sin(a.t*0.6)*0.3; }
+          if (ud.legs) ud.legs.forEach((l, i) => { l.rotation.y = a.state === 'sun' || shy ? 0 : Math.sin(a.t*3 + i*1.6)*0.45*(i % 2 ? -1 : 1); });
           if (a.state === 'sun'){ if (a.timer <= 0){ a.state = 'idle'; a.timer = rnd(8, 15); } break; }
           a.ang += dt*0.15; const r = P.r*0.55, x = P.x + Math.cos(a.ang)*r, z = P.z + Math.sin(a.ang)*r;
           const d = V3(x - p.x, 0, z - p.z); if (d.length() > 0.02){ p.addScaledVector(d.normalize(), Math.min(d.length(), dt*0.4)); face(a, d.x, d.z, dt, 2); }
@@ -244,7 +265,9 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, lod}){
           if (a.timer <= 0){ const s = stones[Math.floor(Math.random()*stones.length)]; if (s){ p.set(s.x, WATER_Y + 0.18, s.z); a.state = 'sun'; a.timer = rnd(10, 20); } else a.timer = 10; }
           break; }
         case 'croc': {
-          const [px, pz, r] = D.bio.pools[a.pool], jaw = a.g.userData.jaw;
+          const [px, pz, r] = D.bio.pools[a.pool], jaw = a.g.userData.jaw, cu = a.g.userData, wet = world.isWater(p.x, p.z), walking = a.dest && a.state !== 'bask' && Math.hypot(a.dest.x - p.x, a.dest.z - p.z) > 0.1;
+          if (cu.tail) cu.tail.rotation.y = Math.sin(a.t*(walking ? 3 : 1.2))*(walking ? 0.28 : 0.1);
+          if (cu.legs) cu.legs.forEach(([n, l]) => { l.rotation.y = walking && !wet ? Math.sin(a.t*5 + (n === 'FL' || n === 'BR' ? 0 : Math.PI))*0.45 : wet ? (n[0] === 'F' ? -0.6 : 0.6)*(n[1] === 'L' ? 1 : -1) : 0; });
           jaw.rotation.x = a.snap > 0 ? Math.abs(Math.sin(a.snap*10))*0.6*(a.g.userData.jawSign || -1) : jaw.rotation.x*0.9; a.snap = (a.snap || 0) - dt;
           if (a.state === 'bask'){ p.y = gy(p.x, p.z) + 0.02; if (a.timer <= 0 || petD < 2.5){ a.state = 'idle'; a.timer = rnd(6, 12); if (petD < 2.5){ a.snap = 0.6; sound('snap', p); o.onScare && o.onScare('croc'); } } break; }
           if (pet && petD < 4 && a.snap <= 0 && Math.random() < dt*0.8){ a.snap = 0.6; sound('snap', p); o.onScare && o.onScare('croc'); }
@@ -343,7 +366,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, lod}){
       case 'emu': a.peck = 0.8; break;
       case 'deer': a.state = 'run'; a.timer = 2.5; a.dest = p.clone().add(V3(rnd(-6, 6), 0, rnd(-6, 6))); break;
       case 'wolf': a.state = 'howl'; a.timer = 3; sound('howl', p); break;
-      case 'turtle': if (a.state === 'sun'){ a.state = 'idle'; a.timer = 10; } break;
+      case 'turtle': a.shy = 3; if (a.state === 'sun'){ a.state = 'idle'; a.timer = 10; } break;
     }
     return a.kind;
   };
