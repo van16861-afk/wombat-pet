@@ -20,6 +20,32 @@ export const PLOT_KEYS = ['-1,-1', '0,-1', '1,-1', '-1,0', '0,0', '1,0', '-1,1',
 export const plotKey = (x, z) => Math.abs(x) >= HALF || Math.abs(z) >= HALF ? null : `${Math.floor((x + HALF)/PLOT) - 1},${Math.floor((z + HALF)/PLOT) - 1}`;
 const plotCenter = k => { const [a, b] = k.split(',').map(Number); return [a*PLOT, b*PLOT]; };
 
+// ---------- see-through: anything between the camera and the wombat is drawn with a dotted cut-out ----------
+export const SEE = {a:{value:new THREE.Vector3()}, b:{value:new THREE.Vector3()}, r:{value:0}};
+export function seeThrough(m){
+  if (m.onBeforeCompile.see) return m;
+  m.onBeforeCompile = seeCompile; return m;
+}
+function seeCompile(sh){ {
+    sh.uniforms.uSeeA = SEE.a; sh.uniforms.uSeeB = SEE.b; sh.uniforms.uSeeR = SEE.r;
+    sh.vertexShader = 'varying vec3 vSeeW;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+      vec4 seeW = vec4(transformed, 1.0);
+      #ifdef USE_INSTANCING
+        seeW = instanceMatrix*seeW;
+      #endif
+      vSeeW = (modelMatrix*seeW).xyz;`);
+    sh.fragmentShader = 'uniform vec3 uSeeA, uSeeB; uniform float uSeeR; varying vec3 vSeeW;\n' + sh.fragmentShader.replace('void main() {', `void main() {
+      if (uSeeR > 0.0){
+        vec3 ab = uSeeB - uSeeA; float t = clamp(dot(vSeeW - uSeeA, ab)/dot(ab, ab), 0.0, 1.0);
+        float d = length(vSeeW - (uSeeA + ab*t));
+        if (t > 0.04 && t < 0.97 && d < uSeeR){
+          vec2 q = mod(floor(gl_FragCoord.xy), 2.0);
+          if (q.x == q.y || d < uSeeR*0.55) discard;
+        }
+      }`);
+} }
+seeCompile.see = true;
+
 // ---------- world description (saved in S.world) ----------
 export function newWorld(seed){
   const R = rng(seed), r = (a, b) => a + R()*(b - a), f = (v, d=2) => +v.toFixed(d);
@@ -157,7 +183,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFe
   }
 
   // --- shared nature models ---
-  const bark = mat('#7a5634', 0.95), leafM = new THREE.MeshLambertMaterial({flatShading:true}), rockM = new THREE.MeshLambertMaterial({flatShading:true}), bushM = new THREE.MeshLambertMaterial({flatShading:true});
+  const bark = seeThrough(mat('#7a5634', 0.95)), leafM = seeThrough(new THREE.MeshLambertMaterial({flatShading:true})), rockM = seeThrough(new THREE.MeshLambertMaterial({flatShading:true})), bushM = seeThrough(new THREE.MeshLambertMaterial({flatShading:true}));
   const trunkGeo = new THREE.CylinderGeometry(0.16, 0.27, 1.5, 7); trunkGeo.translate(0, 0.75, 0);
   const canopyGeo = mergeGeometries([[0, 2.0, 0, 0.95], [0.55, 1.75, 0.2, 0.7], [-0.5, 1.8, -0.15, 0.72], [0.1, 2.45, -0.1, 0.6], [-0.15, 1.7, 0.5, 0.6]].map(([x, y, z, r]) => { const g = new THREE.IcosahedronGeometry(r, 1); g.translate(x, y, z); return g; }));
   const pineGeo = mergeGeometries([[0, 1.4, 1.0, 1.4], [0, 2.2, 0.8, 1.2], [0, 2.9, 0.55, 1.0]].map(([x, y, r, h]) => { const g = new THREE.ConeGeometry(r, h, 7); g.translate(x, y, 0); return g; }));
@@ -241,8 +267,8 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFe
     const f = {d, g, hb}; hb.userData.ref = f; W.feats.push(f); W.pick.push(hb); return f;
   }
   const rockMats = {}, bushMats = {};
-  const rockMat = v => rockMats[v % 4] || (rockMats[v % 4] = mat(ROCK_COLS[v % 4], 0.95));
-  const bushMat = v => bushMats[v % 3] || (bushMats[v % 3] = new THREE.MeshLambertMaterial({color:BUSH_COLS[v % 3], flatShading:true}));
+  const rockMat = v => rockMats[v % 4] || (rockMats[v % 4] = seeThrough(mat(ROCK_COLS[v % 4], 0.95)));
+  const bushMat = v => bushMats[v % 3] || (bushMats[v % 3] = seeThrough(new THREE.MeshLambertMaterial({color:BUSH_COLS[v % 3], flatShading:true})));
   const berryGeo = new THREE.SphereGeometry(0.06, 8, 6), berryM = [mat('#d8423c', 0.4), mat('#f2f0ea', 0.6)];
   W.featR = d => d.k === 'rock' ? 0.85*d.s : 0.6*d.s;
   W.rockSize = d => d.s > 1.3 ? 'big' : d.s > 0.7 ? 'mid' : 'small';

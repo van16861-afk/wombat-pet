@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { cloud } from './cloud.js';
-import { createWorld, newWorld, HALF, WATER_Y, plotKey, PLOT_KEYS } from './world.js';
+import { createWorld, newWorld, HALF, WATER_Y, plotKey, PLOT_KEYS, SEE, seeThrough } from './world.js';
 
 // Keep r128-era colour handling so the hand-tuned palette and fur shader look the same.
 THREE.ColorManagement.enabled = false;
@@ -231,7 +231,9 @@ const shadow = makeShadow(2.6, 3.4);
 const PROP = {};
 try {
   const pg = await new GLTFLoader().loadAsync('assets/models/props.glb');
-  pg.scene.children.forEach(o => PROP[o.name] = o);
+  pg.scene.updateMatrixWorld(true);
+  pg.scene.children.forEach(o => {   // some props were modelled away from Blender's origin: centre each one on its own footprint
+    const c = new THREE.Box3().setFromObject(o).getCenter(V3(0,0,0)); o.position.x -= c.x; o.position.z -= c.z; PROP[o.name] = o; });
   pg.scene.traverse(o => { if (!o.isMesh) return; [].concat(o.material).forEach(m => { if (m.userData.srgb) return; m.userData.srgb = true; m.color.convertLinearToSRGB(); m.metalness = 0; }); });
 } catch(e){ console.warn('props.glb not loaded', e); }
 const propClone = name => PROP[name] ? PROP[name].clone(true) : null;
@@ -1253,7 +1255,7 @@ function cleanPoop(c){
     if (s > 0.35){ c.m.position.copy(at).addScaledVector(right, lerp(0, 0.4, (s-0.35)/0.65)); c.m.position.y = 0.1*c.sc; c.sh.g.visible = false; c.stink.visible = false; }
     if (t > 1.0){ pan.position.y = at.y + (t-1.0)*1.2; c.m.position.y = pan.position.y + 0.1*c.sc; }
     if (t > 0.6 && !this.swish){ this.swish = true; sfx('whoosh'); }
-  }, done(){ scene.remove(pan, broom); removePoop(c); addCoins(3, at.add(V3(0,0.5,0))); sfx('pop'); }});
+  }, done(){ scene.remove(pan, broom); removePoop(c); addCoins(3, at.add(V3(0,0.5,0))); sfx('pop'); track('poop'); }});
 }
 
 const weeds = [], fxPull = [];
@@ -1279,7 +1281,7 @@ function spawnWeed(){
 }
 function pullWeed(w){
   if (!weeds.includes(w)) return;
-  weeds.splice(weeds.indexOf(w),1); S.care.nature = (S.care.nature || 0) + 1; w.hb.userData.kind = null;
+  weeds.splice(weeds.indexOf(w),1); S.care.nature = (S.care.nature || 0) + 1; w.hb.userData.kind = null; track('weed');
   const hand = makeHand(), at = w.g.position.clone(), top = 0.5*w.s;
   hand.rotation.y = Math.atan2(camera.position.x - at.x, camera.position.z - at.z) + Math.PI; const base = at.y; hand.position.set(at.x, base + 1.8, at.z); scene.add(hand);
   tools.push({t:0, dur:1.25, update(t){
@@ -1344,7 +1346,7 @@ function makeTree(d){
   }
   g.position.set(d.x, gy(d.x, d.z) - 0.05, d.z); g.rotation.y = d.ry || 0; g.scale.setScalar(d.s); scene.add(g);
   const hb = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 2.6, 8), hbMat); hb.position.y = 1.3; hb.userData.kind = 'tree'; g.add(hb);
-  const fade = []; g.traverse(o => { if (o.isMesh && o !== hb) { o.material = o.material.clone(); o.material.transparent = true; fade.push(o.material); } });
+  const fade = []; g.traverse(o => { if (o.isMesh && o !== hb) { o.material = seeThrough(o.material.clone()); o.material.transparent = true; fade.push(o.material); } });
   const tr = {d, g, hb, fade, alpha:1, shake:0, sh:makeShadow(2.6*d.s, 2.6*d.s)}; tr.sh.g.position.set(d.x, gy(d.x, d.z), d.z); hb.userData.ref = tr; trees.push(tr); NAV.dirty = true; return tr;
 }
 function plantTrees(){
@@ -1367,7 +1369,7 @@ head.add(bumps); bumps.visible = false;
 const applyBumps = () => { bumps.visible = !!S.swollen; };
 function sting(){
   if (stingCd > 0 || !petActive()) return; stingCd = 20;
-  S.swollen = true; applyBumps();
+  S.swollen = true; applyBumps(); track('sting');
   S.st.happy = clamp(S.st.happy - 12, 0, 100); S.st.health = clamp(S.st.health - 8, 0, 100); S.aff = clamp(S.aff - 2, 0, 100);
   showEmote('😭', 2.5); cry('angry'); sfx('buzz'); sqv += 2;
   for (let i=0;i<7;i++){ const s = new THREE.Sprite(new THREE.SpriteMaterial({map:emojiTex('🐝'), transparent:true, depthWrite:false})); s.scale.setScalar(0.34); scene.add(s); bees.push({s, ph:i/7*Math.PI*2, life:4.5}); }
@@ -1417,7 +1419,7 @@ function removeHive(tr){
   tr.d.hive = false; const h = tr.g.userData.hive, at = h.getWorldPosition(V3(0,0,0));
   for (let i=0;i<6;i++) floatSprite(emojiTex('🐝'), at.clone().add(V3(rnd(-0.3,0.3), rnd(0,0.3), rnd(-0.3,0.3))), {size:0.3, vy:rnd(1,2), vx:rnd(-1.5,1.5), vz:rnd(-1.5,1.5), max:1.6, grow:0});
   tools.push({t:0, dur:1.0, update(t){ h.position.y = 1.3 - t*t*1.3; h.rotation.z = t*3; h.scale.setScalar(Math.max(0.01, 1 - t)); }, done(){ h.parent && h.parent.remove(h); }});
-  sfx('buzz'); toast('蜂窩清掉了，蜜蜂都飛走了。'); save();
+  sfx('buzz'); toast('蜂窩清掉了，蜜蜂都飛走了。'); track('hive'); save();
 }
 function cutTree(tr){
   if (!pay(TREE_PRICE)) return;
@@ -1429,7 +1431,7 @@ function cutTree(tr){
     if (t > 1.1 && !this.thud){ this.thud = true; sfx('thud'); leafFall(tr, 10); sqv += 0.6; }
     if (t > 1.4){ const k = Math.max(0.01, 1 - (t - 1.4)/0.6); tr.g.scale.setScalar(tr.d.s*k); tr.sh.g.scale.setScalar(k); }
   }, done(){ scene.remove(tr.g, tr.sh.g); }});
-  toast('樹砍掉了。'); save();
+  toast('樹砍掉了。'); track('tree'); track('clear'); save();
 }
 
 // ---------- expanding the territory: clearing plots, rocks and bushes, building bridges ----------
@@ -1458,7 +1460,7 @@ function featMenu(f){
   showModal(name, `<div class="bigicon">${rock ? '🪨' : '🌳'}</div><p>${rock ? (size === 'big' ? `比${S.name || '袋熊'}還大的石頭，擋住了路。` : '路邊的石頭。') : '一叢矮矮的灌木。'}花 ${price} 代幣可以${rock ? '請人搬走' : '清掉'}，空出位置蓋東西。</p>`,
     [{label:'關閉', ghost:true, onClick:()=>{}}, {label:`${rock ? '搬走' : '清掉'}（${price}）`, onClick:() => {
       if (!world.feats.includes(f) || !pay(price)) return;
-      dust(d.x, d.z, rock ? 10 : 6, d.s*0.6); sfx(rock ? 'thud' : 'whoosh'); world.removeFeat(f);
+      dust(d.x, d.z, rock ? 10 : 6, d.s*0.6); sfx(rock ? 'thud' : 'whoosh'); world.removeFeat(f); track(rock ? 'rock' : 'bush'); track('clear');
       if (!rock) leafFall({g:f.g, d:{s:1}}, 6);
       toast(`${name}清掉了。`); save(); }}]);
 }
@@ -1471,7 +1473,7 @@ function bridgeMenu(p){
     [{label:'再想想', ghost:true, onClick:()=>{}}, {label:`蓋橋（${BRIDGE_PRICE}）`, onClick:() => {
       if (!pay(BRIDGE_PRICE)) return;
       const b = world.addBridge(z); b.g.scale.set(0.01, 0.01, 0.01); tools.push({t:0, dur:0.9, update(t){ const k = ease(Math.min(1, t/0.8)); b.g.scale.set(1, Math.max(0.01, k), 1); }, done(){ b.g.scale.set(1, 1, 1); }});
-      dust(b.x, b.z, 10, 2); sfx('grow'); NAV.dirty = true; toast('橋蓋好了！袋熊可以過河了。'); save(); }}]);
+      dust(b.x, b.z, 10, 2); sfx('grow'); NAV.dirty = true; toast('橋蓋好了！袋熊可以過河了。'); track('bridge'); save(); }}]);
 }
 
 // ---------- the beach: crabs, hermit crabs, shells to pick up and the odd message in a bottle ----------
@@ -1528,14 +1530,14 @@ const LETTERS = ['「給撿到這封信的人：今天的海很藍，希望你�
 function openBottle(b){
   if (!b || b !== bottle) return;
   const coins = Math.random() < 0.65 ? 3 + Math.floor(Math.random()*13) : 0, at = b.g.position.clone().add(V3(0, 0.6, 0));
-  scene.remove(b.g); beachHit.splice(beachHit.indexOf(b.hb), 1); bottle = null; bottleT = rnd(240, 540); sfx('pop');
+  scene.remove(b.g); beachHit.splice(beachHit.indexOf(b.hb), 1); bottle = null; bottleT = rnd(240, 540); sfx('pop'); track('bottle');
   showModal('瓶中信', `<div class="bigicon">🍾</div><p>${LETTERS[Math.floor(Math.random()*LETTERS.length)]}</p><p>${coins ? `瓶子裡還有 <b>${coins} 代幣</b>！` : '瓶子裡只有這封信。'}</p>`, [{label:'收下', onClick:() => { if (coins) addCoins(coins, at); save(); }}]);
 }
 function pickShell(s){
   if (!shells.includes(s)) return;
   shells.splice(shells.indexOf(s), 1); beachHit.splice(beachHit.indexOf(s.hb), 1); const at = s.g.position.clone();
   tools.push({t:0, dur:0.5, update(t){ s.g.position.y = at.y + t*1.5; s.g.scale.setScalar(Math.max(0.01, 1 - t*1.6)); }, done(){ scene.remove(s.g); }});
-  addCoins(1, at.add(V3(0, 0.5, 0))); S.shells = (S.shells || 0) + 1;
+  addCoins(1, at.add(V3(0, 0.5, 0))); S.shells = (S.shells || 0) + 1; track('shell');
   if (S.shells === 1 || S.shells % 10 === 0) toast(`撿到貝殼了！目前一共撿了 ${S.shells} 個。`);
 }
 function pokeCrab(c){ c.hide = c.hermit ? 3 : 0; if (!c.hermit){ const a = Math.random()*6.28; c.tgt.set(c.g.position.x + Math.sin(a)*2.5, 0, c.g.position.z + Math.cos(a)*2.5); c.wait = 0; } sfx('pop'); }
@@ -1632,17 +1634,17 @@ const grassMats = ['#6f9a4a','#86b25a','#5c8540'].map(c => mat(c,0.8)), freshMat
 const leafGeo = new THREE.ConeGeometry(0.025,0.24,5); leafGeo.translate(0,0.12,0);
 // Food and drink. Grass and water are free; the rest is bought in the shop and kept in the bag (S.inv).
 const FOODS = [
-  {id:'grass',  name:'青草',   price:0,  hunger:28,             desc:'免費，吃不膩的基本款。'},
-  {id:'carrot', name:'紅蘿蔔', price:6,  hunger:32, happy:6,    desc:'脆脆甜甜。'},
-  {id:'apple',  name:'蘋果',   price:8,  hunger:24, happy:8, thirst:8, desc:'多汁，還能補一點水分。'},
-  {id:'clover', name:'苜蓿',   price:9,  hunger:30, happy:10,   desc:'香香嫩嫩的草。'},
-  {id:'potato', name:'地瓜',   price:10, hunger:45, energy:6,   desc:'很有飽足感。'},
-  {id:'root',   name:'樹根',   price:12, hunger:34, health:6,   desc:'野生袋熊愛啃的根，對身體好。'}
+  {id:'grass',  name:'青草',   price:0,  hunger:22,             desc:'免費，吃不膩的基本款，但不太會飽。'},
+  {id:'carrot', name:'紅蘿蔔', price:40, hunger:32, happy:6,    desc:'脆脆甜甜。'},
+  {id:'apple',  name:'蘋果',   price:50, hunger:26, happy:8, thirst:10, desc:'多汁，還能補一點水分。'},
+  {id:'clover', name:'苜蓿',   price:60, hunger:36, happy:12,   desc:'香香嫩嫩的草，吃了心情好。'},
+  {id:'potato', name:'地瓜',   price:80, hunger:60, energy:6,   desc:'超有飽足感，一條就飽。'},
+  {id:'root',   name:'樹根',   price:90, hunger:45, health:8,   desc:'野生袋熊愛啃的根，對身體好。'}
 ];
 const DRINKS = [
   {id:'water', name:'清水',   price:0,  thirst:45,             color:'#6fa8c9', desc:'免費。'},
-  {id:'milk',  name:'牛奶',   price:8,  thirst:32, happy:8, health:3, color:'#f4f1ea', desc:'喝了心情好。'},
-  {id:'coco',  name:'椰子水', price:12, thirst:55, energy:10,  color:'#e7efe3', desc:'解渴又補體力。'}
+  {id:'milk',  name:'牛奶',   price:50, thirst:35, happy:8, health:3, color:'#f4f1ea', desc:'喝了心情好。'},
+  {id:'coco',  name:'椰子水', price:70, thirst:60, energy:10,  color:'#e7efe3', desc:'超解渴又補體力。'}
 ];
 // Health products work straight away (no bowl). Some help one stat but cost another.
 const CARE = [
@@ -1684,7 +1686,7 @@ function giveFood(id){
   if (isFood && foods.length >= 3){ toast('地上已經有食物了。'); return; }
   if (!isFood && S.st.thirst > 92){ toast('牠現在不渴。'); return; }
   if (!isFood && bowl){ toast('碗裡還有喝的。'); return; }
-  if (f.price){ if (!inv(id)){ toast(`背包裡沒有${f.name}了，到商店買吧。`); return; } invAdd(id, -1); }
+  if (f.price){ if (buyOnce(f)){ if (!hasFood(f)){ toast(`還沒買下${f.name}，到商店買斷吧。`); return; } } else { if (!inv(id)){ toast(`背包裡沒有${f.name}了，到商店買吧。`); return; } invAdd(id, -1); } }
   if (B.mode === 'inHouse') exitHouse(); else if (B.mode === 'sleep') wake(true);
   if (isFood){ const a = root.rotation.y + rnd(-1.1,1.1), d = 1.9*petS + rnd(1.2,2); spawnFood(pos.x + Math.sin(a)*d, pos.z + Math.cos(a)*d, id); }
   else { if (id !== 'water' || !BG.pond) spawnBowl(id); B.water = true; if (id === 'water' && BG.pond) toast('牠走去水池喝水。'); }
@@ -1898,6 +1900,12 @@ const ACTS = {
   shake:{name:'抖抖毛',   dur:1.3, price:0},
   dance:{name:'跳舞',     dur:5.2, price:80},
   ballroll:{name:'滾成一顆球', dur:2.8, price:70},
+  dig:     {name:'挖洞',     dur:4.2, price:50},
+  zoomies: {name:'暴衝繞圈', dur:3.6, price:60},
+  wave:    {name:'揮揮手',   dur:2.8, price:40},
+  bow:     {name:'鞠躬',     dur:2.2, price:40},
+  hop:     {name:'連續跳跳', dur:2.6, price:50},
+  stretch: {name:'伸懶腰',   dur:3.2, price:30},
   snowman:  {name:'堆雪人',   dur:7.5, price:60, special:true, need:() => weatherNow() === 'snow' || snowCover > 0.3, why:'下雪天才能堆雪人。', desc:'滾兩顆雪球堆成雪人，代幣 +5'},
   puddle:   {name:'踩水窪',   dur:4.6, price:50, special:true, need:() => weatherNow() === 'rain', why:'下雨天（不打雷）才有水窪可以踩。', desc:'跳進水窪濺水花，心情 +15'},
   fireflies:{name:'看螢火蟲', dur:6.5, price:60, special:true, need:() => nightF > 0.6 && ['sunny','cloudy'].includes(weatherNow()), why:'晴朗或多雲的晚上才有螢火蟲。', desc:'安靜地看螢火蟲，心情和體力都會回復'},
@@ -1951,7 +1959,7 @@ function endAct(){
   act = null; actG.rotation.set(0,0,0); actY = 0;
   const gain = {sit:[-2,6], ballroll:[6,12], dance:[8,14], snowman:[10,20], puddle:[6,15], fireflies:[-6,15], moonview:[-5,22]}[k] || [6,10];
   st.energy = clamp(st.energy - gain[0], 0, 100); st.happy = clamp(st.happy + gain[1], 0, 100); st.thirst = clamp(st.thirst - 3, 0, 100);
-  S.care.plays++; if (growthOK()) S.growth += 1; S.aff = clamp(S.aff + 4, 0, 100);
+  S.care.plays++; if (growthOK()) S.growth += 1; S.aff = clamp(S.aff + 4, 0, 100); track('play'); track('trick:' + k); if (k === 'dig') track('dig');
   if (k === 'flip' || k === 'spin'){ sqv += 2.6; sfx('thud'); }
   if (k === 'puddle'){ puddles.forEach(m => fxPull.push({g:m, t:0, flat:true})); puddles.length = 0; addCoins(2); }
   spawnHearts(2); cry('happy'); hudDirty = true;
@@ -1960,7 +1968,7 @@ function updateAct(dt){
   const inBelly = act && act.key === 'belly' && act.t/ACTS.belly.dur > 0.2 && act.t/ACTS.belly.dur < 0.8;
   wiggleW += ((inBelly?1:0) - wiggleW) * Math.min(1, dt*8);
   danceW += ((act && act.key === 'dance' ? 1 : 0) - danceW) * Math.min(1, dt*8);
-  sitW += ((act && (act.key === 'fireflies' || act.key === 'sit' || act.key === 'moonview')) || (B.mode === 'beg' && B.begSit) || B.mode === 'scratch' ? 1 - sitW : -sitW) * Math.min(1, dt*3);
+  sitW += ((act && (act.key === 'fireflies' || act.key === 'sit' || act.key === 'moonview' || act.key === 'wave')) || (B.mode === 'beg' && B.begSit) || B.mode === 'scratch' ? 1 - sitW : -sitW) * Math.min(1, dt*3);
   if (!act){ return {shake:0, walk:false}; }
   act.t += dt;
   const A = ACTS[act.key], p = Math.min(act.t/A.dur, 1), s = petS; let shakeF = 0, walk = false;
@@ -1983,6 +1991,26 @@ function updateAct(dt){
       pos.addScaledVector(V3(Math.sin(root.rotation.y), 0, Math.cos(root.rotation.y)), delta); actG.rotation.x = 4*Math.PI*r;
       const k = Math.floor(r*4); if (k > act.rolls && u < 1){ act.rolls = k; sfx('whoosh'); } break; }
     case 'shake': { const w = Math.sin(p*Math.PI*16)*(1-p); actG.rotation.z = w*0.28; shakeF = w; break; }
+    case 'dig': {   // nose down, front paws scrabbling, dirt flying out behind; sometimes turns up a coin
+      const k = Math.min(1, p*5, (1-p)*5); actG.rotation.x = 0.22*k; actY = -0.04*s*k;
+      if (act.t > act.noteT && p > 0.1 && p < 0.9){ act.noteT = act.t + 0.12; sfx('scratch');
+        const back = V3(-Math.sin(root.rotation.y), 0, -Math.cos(root.rotation.y)), at = pos.clone().addScaledVector(back, 0.3*s); at.y = petGY + 0.2;
+        floatSprite(radialTex('rgba(120,88,58,1)','rgba(120,88,58,0)'), at, {size:0.18, vx:back.x*rnd(1,2.2) + rnd(-0.6,0.6), vz:back.z*rnd(1,2.2) + rnd(-0.6,0.6), vy:rnd(1.5,2.6), g:9, max:0.7, grow:0}); }
+      if (!act.found && p > 0.85){ act.found = true; if (Math.random() < 0.4){ addCoins(1 + Math.floor(Math.random()*3)); showEmote('🪙', 1.4); } else showEmote('🤔', 1.2); }
+      break; }
+    case 'zoomies': {   // a burst of running in a tight circle
+      walk = true; if (!act.c){ const side = V3(Math.cos(root.rotation.y), 0, -Math.sin(root.rotation.y)); act.c = pos.clone().addScaledVector(side, 1.3*s); act.a0 = Math.atan2(pos.x - act.c.x, pos.z - act.c.z); }
+      const ang = act.a0 + ease(p)*Math.PI*4, nx = act.c.x + Math.sin(ang)*1.3*s, nz = act.c.z + Math.cos(ang)*1.3*s;
+      if (groundOK(nx, nz)){ root.rotation.y = Math.atan2(nx - pos.x, nz - pos.z) || root.rotation.y; pos.x = nx; pos.z = nz; }
+      actG.rotation.z = -0.18*Math.sin(p*Math.PI); actY = Math.abs(Math.sin(act.t*14))*0.06*s;
+      if (Math.random() < dt*10) floatSprite(radialTex('rgba(214,196,160,0.8)','rgba(214,196,160,0)'), V3(pos.x, petGY + 0.1, pos.z), {size:0.5, vy:0.3, max:0.8, grow:1});
+      break; }
+    case 'wave': B.lookPitch = -0.2; break;
+    case 'bow': { const k = Math.sin(Math.min(1, p*1.3)*Math.PI); actG.rotation.x = 0.4*k; actY = -0.06*s*k; break; }
+    case 'hop': { const n = 3, u = (p*n) % 1, i = Math.floor(p*n); actY = 4*0.7*s*u*(1-u); if (act.step <= i && u > 0.9){ act.step = i + 1; sqv += 1.2; sfx('pop'); }
+      const fwd = V3(Math.sin(root.rotation.y), 0, Math.cos(root.rotation.y)), nx = pos.x + fwd.x*0.9*s*dt/ACTS.hop.dur*n, nz = pos.z + fwd.z*0.9*s*dt/ACTS.hop.dur*n;
+      if (groundOK(nx, nz)){ pos.x = nx; pos.z = nz; } break; }
+    case 'stretch': { const k = Math.sin(Math.min(1, p*1.2)*Math.PI); actG.rotation.x = -0.25*k; if (!act.yawned && p > 0.3){ act.yawned = true; showEmote('🥱', 1.6); cry('sleepy'); } break; }
     case 'dance': { const b = act.t*Math.PI*2*1.7, fade = Math.min(1, (1-p)*6);
       actY = Math.abs(Math.sin(b))*0.28*s*fade; actG.rotation.y = Math.sin(b*0.5)*0.6*fade; actG.rotation.z = Math.sin(b)*0.14*fade;
       if (act.t > act.noteT){ act.noteT = act.t + 0.45; floatSprite(textTex(Math.random()<.5?'♪':'♫', '#3f6b55', 'bold 96px sans-serif', 'rgba(255,255,255,.8)'), headTop(), {size:0.45, vy:1, vx:rnd(-0.6,0.6), depthTest:false}); }
@@ -2026,6 +2054,99 @@ function updateAct(dt){
   return {shake:shakeF, walk};
 }
 
+// extra leg swings for some tricks (front legs have l.front > 0; legs[1] is the right front leg)
+function actLeg(l){
+  if (!act) return 0; const k = act.key, f = l.front > 0;
+  if (k === 'dig' && f) return 0.6 + Math.sin(t*22 + l.phase*3)*0.7;
+  if (k === 'zoomies') return Math.sin(t*22 + l.phase)*0.7;
+  if (k === 'wave' && l === legs[1]) return 1.3 + Math.sin(t*10)*0.35;
+  if (k === 'stretch' && f) return 0.9*Math.sin(Math.min(1, act.t/ACTS.stretch.dur*1.2)*Math.PI);
+  return 0;
+}
+
+// ---------- daily tasks & achievements ----------
+// track() counts things the player does; daily tasks reset every day (Taiwan date), achievements are forever. Both pay coins.
+const todayKey = () => { const d = new Date(Date.now() + 8*3600000); return d.toISOString().slice(0, 10); };   // Taiwan date
+function track(ev, n = 1){
+  if (PREVIEW) return;
+  S.stats = S.stats || {}; S.stats[ev] = (S.stats[ev] || 0) + n;
+  const D_ = dailyNow(); D_.tasks.forEach(tk => { if (tk.ev === ev && !tk.done){ tk.n = Math.min(tk.goal, tk.n + n); if (tk.n >= tk.goal) finishTask(tk); } });
+  checkAch();
+}
+const stat = ev => (S.stats && S.stats[ev]) || 0;
+const DAILY_POOL = [
+  {ev:'weed', goal:3, txt:'拔 3 株雜草', coins:15}, {ev:'poop', goal:3, txt:'清 3 坨便便', coins:15}, {ev:'feed', goal:3, txt:'餵牠吃 3 次東西', coins:12},
+  {ev:'drink', goal:2, txt:'讓牠喝 2 次水', coins:10}, {ev:'pet', goal:10, txt:'摸摸牠 10 次', coins:10}, {ev:'play', goal:3, txt:'陪牠玩 3 個招式', coins:15},
+  {ev:'shell', goal:3, txt:'在海邊撿 3 個貝殼', coins:15, need:() => world.data.open.some(k => k.startsWith('1,'))},
+  {ev:'clear', goal:1, txt:'清掉 1 個石頭、樹叢或樹', coins:20}, {ev:'scratch', goal:1, txt:'看牠抓一次樹', coins:10}, {ev:'dig', goal:2, txt:'讓牠挖 2 次洞', coins:15, need:() => hasTrick('dig')}
+];
+function dailyNow(){
+  const day = todayKey();
+  if (!S.daily || S.daily.day !== day){
+    const pool = DAILY_POOL.filter(p => !p.need || p.need()), picks = [];
+    let seed = [...day].reduce((h, c) => (h*31 + c.charCodeAt(0)) >>> 0, 7);
+    while (picks.length < 3 && pool.length){ seed = (seed*1103515245 + 12345) >>> 0; picks.push(pool.splice(seed % pool.length, 1)[0]); }
+    S.daily = {day, bonus:false, tasks:picks.map(p => ({ev:p.ev, goal:p.goal, txt:p.txt, coins:p.coins, n:0, done:false}))};
+    taskBadge();
+  }
+  return S.daily;
+}
+function finishTask(tk){
+  tk.done = true; addCoins(tk.coins); sfx('happy'); toast(`每日任務完成：${tk.txt}！+${tk.coins} 代幣`);
+  const D_ = S.daily; if (!D_.bonus && D_.tasks.every(x => x.done)){ D_.bonus = true; S.stats.dailyAll = stat('dailyAll') + 1; setTimeout(() => { addCoins(30); sfx('grow'); toast('今天的每日任務全部完成！額外 +30 代幣'); }, 1600); }
+  taskBadge(); save();
+}
+const ALL_FORMS = Object.keys(FORMS);
+const ACH = [
+  {id:'poop1', icon:'💩', name:'第一次鏟屎', desc:'清掉第一坨便便', test:() => stat('poop') >= 1, coins:10},
+  {id:'poop10', icon:'🧹', name:'鏟屎小幫手', desc:'清掉 10 坨便便', test:() => stat('poop') >= 10, coins:20},
+  {id:'poop100', icon:'🏅', name:'鏟屎官', desc:'清掉 100 坨便便', test:() => stat('poop') >= 100, coins:80},
+  {id:'weed1', icon:'🌱', name:'拔草新手', desc:'拔掉第一株雜草', test:() => stat('weed') >= 1, coins:10},
+  {id:'weed20', icon:'🌿', name:'除草達人', desc:'拔掉 20 株雜草', test:() => stat('weed') >= 20, coins:25},
+  {id:'weed100', icon:'🌾', name:'雜草剋星', desc:'拔掉 100 株雜草', test:() => stat('weed') >= 100, coins:80},
+  {id:'shell1', icon:'🐚', name:'撿到貝殼', desc:'在海邊撿到第一個貝殼', test:() => stat('shell') >= 1, coins:10},
+  {id:'shell20', icon:'🦪', name:'貝殼收藏家', desc:'撿 20 個貝殼', test:() => stat('shell') >= 20, coins:40},
+  {id:'bottle1', icon:'🍾', name:'海上來的信', desc:'打開第一封瓶中信', test:() => stat('bottle') >= 1, coins:15},
+  {id:'plot1', icon:'🪓', name:'開疆闢土', desc:'第一次整理出新的土地', test:() => world.data.open.length >= 2, coins:30},
+  {id:'plotAll', icon:'🗺️', name:'領主', desc:'把所有土地都整理好', test:() => world.data.open.length >= PLOT_KEYS.length, coins:300},
+  {id:'rock1', icon:'🪨', name:'搬石頭', desc:'第一次搬走石頭', test:() => stat('rock') >= 1, coins:10},
+  {id:'rock10', icon:'⛰️', name:'大力士', desc:'搬走 10 顆石頭', test:() => stat('rock') >= 10, coins:40},
+  {id:'tree1', icon:'🪵', name:'伐木工', desc:'第一次砍樹', test:() => stat('tree') >= 1, coins:10},
+  {id:'tree10', icon:'🌲', name:'樵夫', desc:'砍掉 10 棵樹', test:() => stat('tree') >= 10, coins:40},
+  {id:'bush1', icon:'🌳', name:'修剪樹叢', desc:'第一次清掉樹叢', test:() => stat('bush') >= 1, coins:10},
+  {id:'bush10', icon:'✂️', name:'園藝高手', desc:'清掉 10 個樹叢', test:() => stat('bush') >= 10, coins:30},
+  {id:'hive', icon:'🍯', name:'跟蜜蜂說再見', desc:'清除一個蜂窩', test:() => stat('hive') >= 1, coins:15},
+  {id:'sting', icon:'🐝', name:'好痛！', desc:'袋熊被蜜蜂叮了', test:() => stat('sting') >= 1, coins:10},
+  {id:'bridge', icon:'🌉', name:'過河', desc:'蓋第一座橋', test:() => stat('bridge') >= 1, coins:20},
+  {id:'pet100', icon:'🤲', name:'摸摸大師', desc:'摸摸牠 100 次', test:() => stat('pet') >= 100, coins:30},
+  {id:'moon', icon:'🌕', name:'花前月下', desc:'和牠一起賞月', test:() => stat('trick:moonview') >= 1, coins:30},
+  {id:'tricks', icon:'🎪', name:'馬戲團', desc:'學會所有招式', test:() => Object.keys(ACTS).every(hasTrick), coins:100},
+  {id:'builds5', icon:'🏘️', name:'小鎮規劃', desc:'蓋 5 種建築', test:() => Object.values(S.builds).filter(Boolean).length >= 5, coins:40},
+  {id:'daily7', icon:'📅', name:'每天報到', desc:'完成 7 天的全部每日任務', test:() => stat('dailyAll') >= 7, coins:60},
+  ...ALL_FORMS.map(f => ({id:'form_' + f, icon:'🧬', name:`圖鑑：${FORMS[f].name}`, desc:`養出${FORMS[f].name}`, test:() => !!(S.formsSeen && S.formsSeen[f]), coins: ['golden','forestx','thunder'].includes(f) ? 120 : ['royal','forest','wind'].includes(f) ? 60 : 25})),
+  {id:'formsAll', icon:'📖', name:'袋熊圖鑑完成', desc:'養出所有型態的袋熊', test:() => ALL_FORMS.every(f => S.formsSeen && S.formsSeen[f]), coins:500}
+];
+let achBusy = false;
+function checkAch(){
+  if (PREVIEW || achBusy) return; achBusy = true;
+  S.ach = S.ach || {};
+  if (S.stage !== 'egg' && !S.dead){ S.formsSeen = S.formsSeen || {}; if (!S.formsSeen[S.form]){ S.formsSeen[S.form] = true; } }
+  const fresh = ACH.filter(a => !S.ach[a.id] && a.test());
+  fresh.forEach((a, i) => { S.ach[a.id] = Date.now(); setTimeout(() => { addCoins(a.coins); sfx('grow'); toast(`🏆 成就達成：${a.name}！+${a.coins} 代幣`); }, i*1800); });
+  if (fresh.length){ taskBadge(); save(); }
+  achBusy = false;
+}
+function taskBadge(){ const D_ = S.daily, left = D_ ? D_.tasks.filter(x => !x.done).length : 3; const b = $('#btnTasks'); if (b) b.textContent = `📋 任務${left ? `（${left}）` : ' ✓'}`; }
+let taskTab = 'daily';
+function tasksHTML(){
+  const D_ = dailyNow();
+  if (taskTab === 'daily') return D_.tasks.map(tk => `<div class="card" style="margin-bottom:8px"><div class="row"><h3>${tk.done ? '✅' : '⬜'} ${tk.txt}</h3><span>+${tk.coins}</span></div>`
+      + `<div class="track" style="margin-top:6px"><div class="fill" style="width:${Math.round(tk.n/tk.goal*100)}%"></div></div><p>${tk.n} / ${tk.goal}</p></div>`).join('')
+    + `<p class="sec">三個都完成再加 30 代幣${D_.bonus ? '（今天已領）' : ''}。每天（台灣時間）午夜換新任務。</p>`;
+  const got = ACH.filter(a => S.ach && S.ach[a.id]).length;
+  return `<p class="sec">已達成 ${got} / ${ACH.length}</p><div class="tiles">` + ACH.map(a => { const ok = S.ach && S.ach[a.id];
+    return `<div class="tile${ok ? '' : ' dim'}" title="${a.desc}"><span class="ti">${a.icon}</span><span class="tn">${a.name}</span><span class="tn" style="color:var(--soft);font-size:11px">${a.desc}</span><span class="tb">${ok ? '✓' : '+' + a.coins}</span></div>`; }).join('') + `</div>`;
+}
 // ---------- life simulation ----------
 const STAGES = {
   baby:    {name:'幼兒期', next:'child',    age:20,      growth:25,  scale:[0.42,0.6]},
@@ -2052,7 +2173,7 @@ function sim(m, offline){
   st.hunger -= 0.7*m*k*fBaby*fOld*(S.form === 'chubby' ? 1.15 : 1);
   st.thirst -= 0.9*m*k*(w==='rain'||w==='storm' ? 0.6 : 1)*fOld;
   st.happy  -= (0.45 + (dirty?0.3:0) + (badWeather()?0.1:0))*m*k*(BG.flowers ? 0.7 : 1)*(BG.fountain ? 0.85 : 1);
-  if (BG.fruittree){ S.fruitT = (S.fruitT ?? 120) - m; if (S.fruitT <= 0){ S.fruitT = 120; if (inv('apple') < 9){ invAdd('apple', 1); if (!offline) toast('果樹結了一顆蘋果，已經放進背包。'); } } }
+  if (BG.fruittree){ S.fruitT = (S.fruitT ?? 120) - m; if (S.fruitT <= 0){ S.fruitT = 120; S.food = S.food || {}; if (!S.food.apple){ S.food.apple = true; if (!offline) toast('果樹結果了！以後蘋果隨時都能免費給牠吃。'); } else { S.coins += 3; if (!offline) toast('果樹結的蘋果賣了 3 代幣。'); } } }
   S.aff = clamp(S.aff - (0.05 + (st.hunger < 25 || dirty ? 0.04 : 0))*m*k, 0, 100);   // affection fades slowly unless you keep caring
   if (S.swollen){ st.happy -= 0.25*m*k; st.health -= 0.08*m*k; }   // bee-sting bumps hurt until treated
   if (offline) st.energy += 1.2*m;
@@ -2429,7 +2550,7 @@ function think(dt){
       B.lookPitch = -0.3; B.lookYaw = 0; B.scrT -= dt;
       if (B.scrT <= 0){ B.scrT = 0.6; tv.shake = Math.max(tv.shake, 0.45); sfx('scratch'); if (Math.random() < 0.6) leafFall(tv, 2); }
       if (B.timer <= 0){
-        B.mode = 'idle'; B.timer = rnd(2,4); B.treeVisit = null; B.scr = null; B.lookPitch = 0;
+        B.mode = 'idle'; B.timer = rnd(2,4); B.treeVisit = null; B.scr = null; B.lookPitch = 0; track('scratch');
         if (tv.d.hive && Math.random() < 0.35) sting();
         else { st.happy = clamp(st.happy + 4, 0, 100); showEmote(tv.d.hive ? '😅' : '😌', 1.4); cry('purr'); }
       }
@@ -2472,7 +2593,7 @@ function think(dt){
       B.nomT -= dt; if (B.nomT <= 0){ B.nomT = 0.38; sfx('nom'); }
       if (f.eat <= 0){
         scene.remove(f.g, f.sh.g); foods.splice(foods.indexOf(f),1); B.food = null;
-        S.care.meals++; if (B.before > 80) S.care.overfed++;
+        S.care.meals++; if (B.before > 80) S.care.overfed++; track('feed');
         if (B.before < 90) addCoins(2, headTop());
         S.growth += growthOK() ? 4 : 0.5; st.happy = clamp(st.happy+3, 0, 100);
         foodBonus(fi);
@@ -2498,7 +2619,7 @@ function think(dt){
         if (B.before < 90) addCoins(2, headTop());
         if (growthOK()) S.growth += 1.5;
         if (bowl && (bowl.kind !== 'water' || !BG.pond)){ scene.remove(bowl.g); bowl = null; }
-        B.water = null; B.mode = 'idle'; B.timer = 2; spawnHearts(1);
+        B.water = null; B.mode = 'idle'; B.timer = 2; spawnHearts(1); track('drink');
       }
       break; }
     case 'goHouse': {
@@ -2748,10 +2869,10 @@ function showModal(title, bodyHTML, actions){
 }
 function closeModal(){ $('#modal').hidden = true; canvas.focus({preventScroll:true}); }
 function renamePet(){
-  showModal('使用改名券', `<p>幫${S.name || '牠'}取個新名字。</p><input id="renameIn" maxlength="8" value="${esc(S.name || '')}" aria-label="新名字">`,
+  showModal(S.renamedOnce ? '使用改名券' : '改名（第一次免費）', `<p>幫${S.name || '牠'}取個新名字。</p><input id="renameIn" maxlength="8" value="${esc(S.name || '')}" aria-label="新名字">`,
     [{label:'取消', ghost:true, onClick:()=>{}}, {label:'改名', onClick:() => {
       const v = ($('#renameIn').value || '').trim(); if (!v || v === S.name){ toast('名字沒有變，改名券先留著。'); return; }
-      S.name = v; S.renameTicket = 0; refreshSign(); save(); hudDirty = true; spawnHearts(2); toast(`以後牠就叫「${v}」了！`); }}]);
+      S.name = v; if (S.renamedOnce) S.renameTicket = 0; S.renamedOnce = true; refreshSign(); save(); hudDirty = true; spawnHearts(2); toast(`以後牠就叫「${v}」了！`); }}]);
 }
 function askName(){
   showModal('孵出來了！', `<p>是一隻袋熊寶寶。幫牠取個名字吧。</p><input id="nameIn" maxlength="8" value="小袋" aria-label="名字">`, [{label:'就叫這個', onClick:()=>{
@@ -2779,8 +2900,8 @@ function closeSheet(){ sheet.hidden = true; sheetKind = null; }
 $('#sheetClose').onclick = closeSheet;
 function md(d){ return `${d.getMonth()+1}/${d.getDate()}`; }
 // ---------- icon-tile catalogues (shop, feeding, tricks) ----------
-const TRICK_ICON = {sit:'🐾', flip:'🤸', roll:'🌀', spin:'⭐', belly:'🙃', shake:'💨', dance:'💃', ballroll:'🎳', snowman:'⛄', puddle:'💦', fireflies:'✨', moonview:'🌕'};
-const TRICK_DESC = {sit:'乖乖坐下，看著你。心情 +6', flip:'原地一個後空翻！體力 -6，心情 +10', roll:'連續側翻滾三圈。體力 -6，心情 +10', spin:'跳起來轉一圈。體力 -6，心情 +10',
+const TRICK_ICON = {sit:'🐾', flip:'🤸', roll:'🌀', spin:'⭐', belly:'🙃', shake:'💨', dance:'💃', ballroll:'🎳', snowman:'⛄', puddle:'💦', fireflies:'✨', moonview:'🌕', dig:'⛏️', zoomies:'💨', wave:'👋', bow:'🙇', hop:'🐇', stretch:'🥱'};
+const TRICK_DESC = {dig:'用前腳拚命挖土，偶爾會挖到代幣！', zoomies:'突然興奮地繞圈暴衝。體力 -6，心情 +10', wave:'坐著舉起前腳跟你揮手。', bow:'低下頭鞠個躬。', hop:'往前跳三下。', stretch:'前腳往前伸，打個大哈欠。', sit:'乖乖坐下，看著你。心情 +6', flip:'原地一個後空翻！體力 -6，心情 +10', roll:'連續側翻滾三圈。體力 -6，心情 +10', spin:'跳起來轉一圈。體力 -6，心情 +10',
   belly:'翻過來露出肚子扭扭。體力 -6，心情 +10', shake:'甩甩全身的毛。體力 -6，心情 +10', dance:'跟著音樂跳舞。體力 -8，心情 +14', ballroll:'縮成一顆球往前滾。體力 -6，心情 +12'};
 const CLOTH_ICON = {party:'🥳', straw:'👒', glasses:'👓', bow:'🎀', scarf:'🧣', sweater:'🧶', nyband:'🎊', caishen:'🧧', heartgl:'😍', propeller:'🚁', sachet:'🎐', bunny:'🐰', witch:'🧙', santa:'🎅'};
 const BUILD_ICON = {bench:'🪑', swing:'🎠', sandbox:'🏖️', well:'🪣', windmill:'🌬️', mailbox:'📮', scarecrow:'🌾', mushroom:'🍄', fruittree:'🍎', fountain:'⛲', house:'🏠', pond:'🐟', lamp:'💡', flowers:'🌷', fence:'🪵', fireworks:'🎆', lanterns:'🏮', heartarch:'💗', slide:'🎢', dragonboat:'🐉', moonlamp:'🌕', pumpkins:'🎃', xmastree:'🎄'};
@@ -2804,16 +2925,26 @@ function buyConsumable(f, n){ if (S.coins < f.price*n){ toast('代幣不夠。')
 function buyTrick(k){ const a = ACTS[k]; if (S.coins < a.price){ toast('代幣不夠。'); return false; } S.coins -= a.price; S.tricks = S.tricks || {}; S.tricks[k] = true; sfx('happy'); toast(`${S.name || '牠'}學會「${a.name}」了！`); afterBuy(); return true; }
 function buyCloth(c){ if (S.coins < c.price){ toast('代幣不夠。'); return; } S.coins -= c.price; S.owned[c.id] = true; wear(c.id, true); sfx('happy'); toast(`買了${c.name}，已經幫牠穿上。到衣櫥可以換顏色。`); afterBuy(); }
 function buyBuild(b){ if (S.coins < b.price){ toast('代幣不夠。'); return; } S.coins -= b.price; S.builds[b.id] = true; build(b.id); refreshSign(); sfx('grow'); toast(`${b.name}蓋好了！`); afterBuy(); }
+// Food and drinks are bought once and then free forever; health products and medicine are used up one at a time.
+const buyOnce = f => FOODS.includes(f) || DRINKS.includes(f);
+const hasFood = f => !f.price || !!(S.food && S.food[f.id]);
+function unlockFood(f){ if (S.coins < f.price){ toast('代幣不夠。'); return false; } S.coins -= f.price; S.food = S.food || {}; S.food[f.id] = true; sfx('happy'); toast(`買下${f.name}了！以後隨時都能免費給牠。`); hudDirty = true; return true; }
 function consumableEntry(f, mode){
-  const n = inv(f.id), free = !f.price, L = S.likes || {known:{}};
+  const n = inv(f.id), free = !f.price, L = S.likes || {known:{}}, once = buyOnce(f), own = once && hasFood(f);
   const taste = L.known && L.known.fav && L.fav === f.id ? '（牠的最愛！）' : L.known && L.known.hate && L.hate === f.id ? '（牠不太喜歡）' : '';
-  const body = `<p>${f.desc}${taste}</p><p><b>${foodStats(f)}</b></p><p>${free ? '免費，隨時都有。' : `${f.price} 代幣・背包裡有 ${n} 個`}</p>`;
-  if (mode === 'shop') return {icon:f.icon, name:f.name, badge: n ? `×${n}` : `${f.price}`, price:f.price, qty:true, body,
-    actions:[{label:'關閉', ghost:true, onClick:()=>{}}, {label:'購買', onClick:() => buyConsumable(f, detailQty)}]};
+  const body = `<p>${f.desc}${taste}</p><p><b>${foodStats(f)}</b></p><p>${free ? '免費，隨時都有。' : once ? (own ? '已經買下，隨時都能免費給牠。' : `買斷 ${f.price} 代幣，之後永遠免費。`) : `${f.price} 代幣・背包裡有 ${n} 個`}</p>`;
+  if (mode === 'shop'){
+    if (once) return {icon:f.icon, name:f.name, badge: own ? '已擁有' : `${f.price}`, body,
+      actions: own ? [{label:'關閉', ghost:true, onClick:()=>{}}] : [{label:'關閉', ghost:true, onClick:()=>{}}, {label:`買斷（${f.price}）`, onClick:() => { if (unlockFood(f)) afterBuy(); }}]};
+    return {icon:f.icon, name:f.name, badge: n ? `×${n}` : `${f.price}`, price:f.price, qty:true, body,
+      actions:[{label:'關閉', ghost:true, onClick:()=>{}}, {label:'購買', onClick:() => buyConsumable(f, detailQty)}]};
+  }
   const isCare = CARE.includes(f) || MEDS.includes(f);
   const go = () => { closeSheet(); (isCare ? useCare : giveFood)(f.id); save(); hudDirty = true; };
-  return {icon:f.icon, name:f.name, dim: !free && !n, badge: free ? '免費' : n ? `×${n}` : `${f.price}`, body,
-    actions: free || n ? [{label:'關閉', ghost:true, onClick:()=>{}}, {label:'給牠', onClick:go}]
+  const have = once ? own : free || n;
+  return {icon:f.icon, name:f.name, dim: !have, badge: free ? '免費' : once ? (own ? '' : `${f.price}`) : n ? `×${n}` : `${f.price}`, body,
+    actions: have ? [{label:'關閉', ghost:true, onClick:()=>{}}, {label:'給牠', onClick:go}]
+      : once ? [{label:'關閉', ghost:true, onClick:()=>{}}, {label:`買斷並給牠（${f.price}）`, onClick:() => { if (unlockFood(f)) go(); }}]
       : [{label:'關閉', ghost:true, onClick:()=>{}}, {label:`買一份給牠（${f.price}）`, onClick:() => { if (S.coins < f.price){ toast('代幣不夠。'); return; } S.coins -= f.price; invAdd(f.id, 1); go(); }}]};
 }
 function trickEntry(k){
@@ -2836,7 +2967,7 @@ function shopEntries(tab){
     .concat(S.dye != null ? [{icon:'🫧', name:'褪色劑', badge:`${UNDYE_PRICE}`, body:`<p>變回天生的${(FURS[S.fur] || FURS[0]).name}色。</p><p>${UNDYE_PRICE} 代幣</p>`,
       actions:[...no, {label:'褪色', onClick:() => { if (S.coins < UNDYE_PRICE){ toast('代幣不夠。'); return; } S.coins -= UNDYE_PRICE; S.dye = null; applyFur(); sfx('grow'); toast('變回天生的顏色了。'); afterBuy(); }}]}] : []);
   if (tab === 'item') return [
-    {icon:'🏷️', name:'改名券', badge: S.renameTicket ? '持有中' : '50', body:'<p>幫牠換一個名字，一張用一次。一次只能持有一張，到衣櫥使用。</p><p>50 代幣</p>',
+    {icon:'🏷️', name:'改名券', badge: S.renameTicket ? '持有中' : '50', body:'<p>幫牠換一個名字，一張用一次。一次只能持有一張，到衣櫥使用。</p><p class="note">第一次改名免費，直接到衣櫥按「改名」。</p><p>50 代幣</p>',
       actions: S.renameTicket ? no : [...no, {label:'購買', onClick:() => { if (S.coins < 50){ toast('代幣不夠。'); return; } S.coins -= 50; S.renameTicket = 1; sfx('coin'); toast('買了改名券，到「衣櫥」使用。'); afterBuy(); }}]},
     {icon:'🧹', name:'一鍵清理', badge: S.autoClean ? '已擁有' : '300', body:'<p>按一下「清理」，就把便便和雜草一次清光。永久有效。</p><p>300 代幣</p>',
       actions: S.autoClean ? no : [...no, {label:'購買', onClick:() => { if (S.coins < 300){ toast('代幣不夠。'); return; } S.coins -= 300; S.autoClean = true; sfx('happy'); toast('有了一鍵清理！以後按「清理」就能一次清光。'); afterBuy(); }}]}];
@@ -2855,9 +2986,10 @@ function shopEntries(tab){
 const SHOP_TABS = [['food','食物'],['drink','飲料'],['care','保健'],['med','藥品'],['trick','招式'],['dye','染劑'],['item','道具'],['cloth','服裝'],['build','建築']];
 function renderSheet(){
   if (!sheetKind) return;
-  $('#sheetTitle').textContent = {play:'玩耍', shop:'商店', wardrobe:'衣櫥', settings:'設定', feed:'餵食', water:'喝水'}[sheetKind];
+  $('#sheetTitle').textContent = {play:'玩耍', shop:'商店', wardrobe:'衣櫥', settings:'設定', feed:'餵食', water:'喝水', tasks:'任務與成就'}[sheetKind];
   let h = '';
-  if (sheetKind === 'feed' || sheetKind === 'water'){
+  if (sheetKind === 'tasks') h = tabsHTML([['daily','每日任務'],['ach','成就']], taskTab, 'ttab') + tasksHTML();
+  else if (sheetKind === 'feed' || sheetKind === 'water'){
     const list = feedTab === 'food' ? FOODS : feedTab === 'drink' ? DRINKS : [...CARE, ...MEDS];
     tiles = list.filter(f => !f.price || inv(f.id) || feedTab !== 'care').map(f => consumableEntry(f, 'use'));
     h = tabsHTML([['food','食物'],['drink','飲料'],['care','保健・藥品']], feedTab, 'ftab')
@@ -2879,7 +3011,7 @@ function renderSheet(){
     const L = S.likes || {known:{}}, taste = [L.known.fav && `最愛吃${foodInfo(L.fav).name}`, L.known.hate && `不愛吃${foodInfo(L.hate).name}`].filter(Boolean).join('，');
     h = `<p class="sec">毛色：${coatName()}。想換顏色，到商店買染劑。</p>`
       + (taste ? `<p class="sec">口味：${taste}。</p>` : '')
-      + (S.renameTicket ? `<div class="card"><div class="row"><h3>改名券 ×1</h3><button class="btn" data-rename>使用</button></div></div>` : '');
+      + (S.renameTicket || !S.renamedOnce ? `<div class="card"><div class="row"><h3>${S.renamedOnce ? "改名券 ×1" : "改名（第一次免費）"}</h3><button class="btn" data-rename>${S.renamedOnce ? "使用" : "改名"}</button></div></div>` : `<p class="sec">想再改名字，到商店「道具」買改名券。</p>`);
     h += `<div class="row" style="margin-top:14px"><p class="sec" style="margin:0">衣服（同一個位置一次只能穿一件）</p>${owned.length ? `<button class="btn ghost" data-naked>脫光光</button>` : ''}</div>`;
     if (!owned.length) h += `<p style="color:var(--soft)">還沒有衣服。清大便、拔雜草賺代幣，去商店買吧。</p>`;
     else h += owned.map(c => `<div class="card" style="margin-top:10px"><div class="row"><h3>${c.name}</h3><button class="btn ${S.worn[c.id] ? '' : 'ghost'}" data-wear="${c.id}">${S.worn[c.id] ? '脫下' : '穿上'}</button></div><div class="swrow" role="radiogroup" aria-label="${c.name}顏色">` + PALETTE.map(p => `<button class="sw" role="radio" aria-checked="${(S.colors[c.id]||c.def)===p}" aria-label="${p}" data-col="${c.id}|${p}" style="background:${p}"></button>`).join('') + `</div></div>`).join('');
@@ -2925,6 +3057,7 @@ sheetBody.addEventListener('click', e => {
   const d = b.dataset;
   if (d.stab){ shopTab = d.stab; renderSheet(); return; }
   if (d.ftab){ feedTab = d.ftab; renderSheet(); return; }
+  if (d.ttab){ taskTab = d.ttab; renderSheet(); return; }
   if (d.tile !== undefined){ const e = tiles[+d.tile]; if (e) detail(e); return; }
   if (d.act){ closeSheet(); startAct(d.act); return; }
   if (d.use || d.usebuy){ const id = d.use || d.usebuy, f = foodInfo(id);
@@ -3094,6 +3227,7 @@ const GUIDE = [
       <li><b>環境太髒</b>：便便和雜草太多會有蒼蠅飛、蟑螂爬，快清乾淨！手動清理時會出現掃把畚箕和小手；想一鍵清光，到商店買「一鍵清理」。</li>
       <li><b>吃太撐</b>：已經很飽還硬餵，牠會肚子鼓鼓、四腳朝天躺一分鐘動不了。</li>
       <li><b>蓋建築</b>：在商店選好建築後，會進入擺放模式：拖曳選位置、按「旋轉」換方向，綠色可以蓋、紅色不行。蓋好後點建築可以再「移動」。</li>
+      <li><b>任務與成就</b>：右邊的「📋 任務」每天有三個小任務，完成就有代幣，三個全做完再加 30。還有幾十個成就（拔草、撿貝殼、開拓土地、養出每一種型態……），達成時自動拿代幣。</li>
       <li><b>告別</b>：牠離開後魂魄會在墳上飄，點墳墓就能送牠去天堂，然後出現新的蛋。</li></ul>`},
   {title:'擴張領地：河流、高台和海邊', svg:svgWrap(`
     <rect x="0" y="0" width="320" height="180" fill="#a9c98a"/>
@@ -3169,6 +3303,7 @@ function unlockAudio(){ if (SND.fx || SND.on){ const c = audio(); if (c && c.sta
 addEventListener('pointerdown', unlockAudio); addEventListener('keydown', unlockAudio);
 $('#btnSfx').onclick = () => { S.sfx = !SND.fx; SND.fx = S.sfx; if (SND.fx) unlockAudio(); $('#btnSfx').setAttribute('aria-pressed', SND.fx ? 'true' : 'false'); save(); toast(SND.fx ? '音效和叫聲打開了。' : '音效和叫聲關掉了。'); };
 $('#btnSettings').onclick = () => sheetKind === 'settings' ? closeSheet() : openSheet('settings');
+$('#btnTasks').onclick = () => sheetKind === 'tasks' ? closeSheet() : openSheet('tasks');
 $('#btnShow').onclick = () => { S.uiHidden = false; hudDirty = true; save(); };
 // Quick view switch (top right): fixed 45° (drag to pan) → straight down (drag to pan) → follow the wombat (drag to orbit).
 const camMode = () => S.camMode || 'iso';
@@ -3231,7 +3366,7 @@ function endGrab(){ dragging = false; rope.visible = handle.visible = false; B.t
 function petTap(){
   if (!petActive() || B.mode === 'evolve') return;
   if (asleep()){ wake(true); return; }
-  sqv += 1.2; blinkT = 0.16; ears.forEach(e => e.v += rnd(-7,7)); spawnHearts(2); strokeHand();
+  sqv += 1.2; blinkT = 0.16; ears.forEach(e => e.v += rnd(-7,7)); spawnHearts(2); strokeHand(); track('pet');
   const now = performance.now(); B.petTimes = B.petTimes.filter(t => now - t < 10000); B.petTimes.push(now);
   S.st.happy = clamp(S.st.happy + (B.petTimes.length > 5 ? 1 : 8), 0, 100);
   S.aff = clamp(S.aff + (B.petTimes.length > 5 ? 0 : 2), 0, 100);
@@ -3347,7 +3482,7 @@ function save(force){
   } catch(e){}
   cloud.save(S, force === true);
 }
-setInterval(save, 5000);
+setInterval(() => { checkAch(); save(); }, 5000);
 document.addEventListener('visibilitychange', () => { if (document.hidden) save(true); });
 addEventListener('pagehide', () => save(true));
 
@@ -3418,6 +3553,8 @@ function importSave(){
 }
 
 // ---------- restore ----------
+// foods and drinks became buy-once: anything already in the bag counts as bought
+[...FOODS, ...DRINKS].forEach(f => { if (f.price && inv(f.id) > 0){ S.food = S.food || {}; S.food[f.id] = true; S.inv[f.id] = 0; } });
 const worldIsNew = !S.world || S.world.v !== 1;
 if (worldIsNew) S.world = newWorld(Math.floor(Math.random()*2147483647));
 world = createWorld({scene, mobile, renderer, grassTex, mat, hbMat, onFeatGone:() => { NAV.dirty = true; }});
@@ -3434,7 +3571,7 @@ setupBeach();
 if (S.petPos){ pos.set(S.petPos[0], 0, S.petPos[1]); root.rotation.y = S.petPos[2]; }
 applyForm();
 petS = stageScale();
-refreshViewBtn();
+refreshViewBtn(); if (!PREVIEW){ dailyNow(); taskBadge(); }
 if (camMode() === 'iso'){ yaw = 0.785; pitch = 0.79; } else if (camMode() === 'top'){ yaw = 0; pitch = 1.42; }
 if (S.stage === 'egg'){ root.visible = false; shadow.g.visible = false; }
 else { eggG.visible = false; eggShadow.g.visible = false; }
@@ -3446,7 +3583,7 @@ if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
 if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
-if (new URLSearchParams(location.search).has('debug')) window.W = {ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+if (new URLSearchParams(location.search).has('debug')) window.W = {track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   sim:(secs) => { skipRender = true; try { for (let i=0;i<secs*30;i++) step(true); } finally { skipRender = false; } clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};
@@ -3570,7 +3707,7 @@ function step(manual){
     CLIP.idle.setEffectiveWeight(Math.max(0, 1 - sum));
     CLIP.walk.timeScale = 0.6 + gaitW*0.9*clamp(petSpeed()/0.9, 0.6, 1.6);
     mixer.update(dt);
-    legs.forEach(l => turnBone(l.bone, -(liftW*(0.3 + Math.sin(t*9+l.phase)*0.4) + bloatW*Math.sin(t*3+l.phase)*0.35 + wiggleW*Math.sin(t*16+l.phase)*0.6 + danceW*Math.sin(t*11+l.phase)*0.3 + (B.mode === 'scratch' && l.front > 0 ? 0.5 + Math.sin(t*14 + l.phase*2)*0.55 : 0)), 0, 0));
+    legs.forEach(l => turnBone(l.bone, -(liftW*(0.3 + Math.sin(t*9+l.phase)*0.4) + bloatW*Math.sin(t*3+l.phase)*0.35 + wiggleW*Math.sin(t*16+l.phase)*0.6 + danceW*Math.sin(t*11+l.phase)*0.3 + (B.mode === 'scratch' && l.front > 0 ? 0.5 + Math.sin(t*14 + l.phase*2)*0.55 : 0) + actLeg(l)), 0, 0));
     const fv = V3(-(vel.x+walkVel.x), -vel.y, -(vel.z+walkVel.z)).multiplyScalar(0.012); fv.y -= 0.012;
     if (ar.shake) fv.add(V3(1,0,0).applyQuaternion(tmpQ).multiplyScalar(ar.shake*0.07));
     if (fv.length() > 0.08) fv.setLength(0.08);
@@ -3652,6 +3789,8 @@ function step(manual){
   }
 
   hudT -= dt; if (hudDirty || hudT <= 0){ hudT = 0.5; renderHUD(); }
+  // trees, bushes and rocks between the camera and the wombat get a see-through hole
+  { const see = petActive() && root.visible; SEE.b.value.copy(camera.position); SEE.a.value.set(see ? pos.x : camTarget.x, (see ? petGY + pos.y + 0.7*petS : camTarget.y), see ? pos.z : camTarget.z); SEE.r.value = see ? 1.6*Math.max(petS, 0.7) : 0; }
   if (!skipRender) renderer.render(scene, camera);
   if (!manual) requestAnimationFrame(step);
 }
