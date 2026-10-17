@@ -1031,14 +1031,49 @@ function audio(){
   const master = c.createGain(); master.gain.value = 0.5;
   const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 7000; master.connect(lp); lp.connect(c.destination);
   const music = c.createGain(); music.gain.value = 0; music.connect(master);
-  const dly = c.createDelay(1); dly.delayTime.value = 0.43; const fb = c.createGain(); fb.gain.value = 0.25; const wet = c.createGain(); wet.gain.value = 0.2;
-  music.connect(dly); dly.connect(fb); fb.connect(dly); dly.connect(wet); wet.connect(master);
+  // a soft room reverb (generated impulse) gives the sampled instruments some air
+  const rev = c.createConvolver(), ir = c.createBuffer(2, Math.floor(c.sampleRate*2.6), c.sampleRate);
+  for (let ch=0; ch<2; ch++){ const d = ir.getChannelData(ch); for (let i=0;i<d.length;i++) d[i] = (Math.random()*2 - 1)*Math.pow(1 - i/d.length, 3.2); }
+  rev.buffer = ir; const wet = c.createGain(); wet.gain.value = 0.32; music.connect(rev); rev.connect(wet); wet.connect(master);
   const sfxBus = c.createGain(); sfxBus.gain.value = 0.6; sfxBus.connect(master);
   const mk = sec => { const b = c.createBuffer(1, Math.floor(c.sampleRate*sec), c.sampleRate), d = b.getChannelData(0); for (let i=0;i<d.length;i++) d[i] = Math.random()*2-1; return b; };
   Object.assign(SND, {master, music, sfx:sfxBus, noise:mk(0.1), noiseLong:mk(2.5)});
   return c;
 }
 const mtof = m => 440*Math.pow(2,(m-69)/12);
+// ---------- sampled instruments (FluidR3 soundfont notes in assets/music, see tools/make_samples.py) ----------
+// Each instrument has a recording every minor third; other notes are the nearest recording played a little faster/slower.
+const INST_NOTES = {acoustic_grand_piano:[2,6], ocarina:[4,6], flute:[4,6], orchestral_harp:[3,6], marimba:[3,6], acoustic_guitar_nylon:[2,5],
+  string_ensemble_1:[3,5], acoustic_bass:[1,3], music_box:[4,7], pizzicato_strings:[3,5], seashore:null, bird_tweet:null};
+const INST = {}, NOTE_PC = {C:0, Eb:3, Gb:6, A:9};
+function loadInst(name){
+  if (INST[name]) return INST[name].ready;
+  const I = INST[name] = {buf:{}, ready:null}, c = SND.ctx, range = INST_NOTES[name], names = [];
+  if (range) for (let o=range[0]; o<=range[1]; o++) for (const n of ['C','Eb','Gb','A']) names.push([n + o, 12*(o + 1) + NOTE_PC[n]]);
+  else if (name === 'seashore') names.push(['C4', 60]); else names.push(['C5', 72], ['A5', 81]);
+  I.ready = Promise.all(names.map(([file, midi]) => fetch(`assets/music/${name}/${file}.mp3`).then(r => r.ok ? r.arrayBuffer() : null)
+    .then(ab => ab && new Promise(res => c.decodeAudioData(ab, res, () => res(null)))).then(b => { if (b) I.buf[midi] = b; }).catch(() => {})));
+  return I.ready;
+}
+// play one note; returns false if the instrument isn't loaded yet (the caller then falls back to the synth)
+function playI(name, midi, t, vel, dur, dest){
+  const I = INST[name]; if (!I) { loadInst(name); return false; }
+  const keys = Object.keys(I.buf); if (!keys.length) return false;
+  let best = +keys[0]; for (const k of keys) if (Math.abs(k - midi) < Math.abs(best - midi)) best = +k;
+  const c = SND.ctx, s = c.createBufferSource(), g = c.createGain();
+  s.buffer = I.buf[best]; s.playbackRate.value = Math.pow(2, (midi - best)/12);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vel, t + 0.012);
+  g.gain.setValueAtTime(vel, t + Math.max(0.02, dur*0.7)); g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.5);
+  s.connect(g); g.connect(dest || SND.music); s.start(t); s.stop(t + dur + 0.6); return true;
+}
+// which instruments play each tune: lead melody, plus harp/guitar-style arpeggios or a sustained string pad
+const SONG_INST = {morning:{lead:'flute', arp:'orchestral_harp'}, day:{lead:'marimba', arp:'acoustic_guitar_nylon'}, evening:{lead:'ocarina', pad:'string_ensemble_1'},
+  night:{lead:'music_box', arp:'orchestral_harp'}, rain:{lead:'acoustic_grand_piano', arp:'acoustic_grand_piano'}, storm:{lead:'pizzicato_strings', pad:'string_ensemble_1'},
+  snow:{lead:'music_box', arp:'pizzicato_strings'}, newyear:{lead:'marimba', arp:'acoustic_guitar_nylon'}, cny:{lead:'orchestral_harp', arp:'marimba'},
+  valentine:{lead:'acoustic_grand_piano', pad:'string_ensemble_1'}, children:{lead:'marimba', arp:'pizzicato_strings'}, dragon:{lead:'flute', arp:'orchestral_harp'},
+  midautumn:{lead:'ocarina', arp:'orchestral_harp'}, halloween:{lead:'pizzicato_strings', arp:'music_box'}, christmas:{lead:'music_box', pad:'string_ensemble_1'}};
+const songInst = id => SONG_INST[id] || SONG_INST.day;
+function loadSong(id){ const s = songInst(id); return Promise.all([s.lead, s.arp, s.pad, 'acoustic_bass'].filter(Boolean).map(loadInst)); }
 function tone(type, f, t, peak, dec, dest, att=0.006){
   const c = SND.ctx, o = c.createOscillator(), g = c.createGain();
   o.type = type; o.frequency.setValueAtTime(f,t);
@@ -1091,13 +1126,19 @@ function perc(kind, i, bar, t){
   if (kind === 'gong' && bar === 0 && i === 0){ tone('sine',98,t,0.2,2.6,out); tone('sine',147.5,t,0.08,1.8,out); noiseHit(t, 1.2, 0.05, 'bandpass', 900, out, SND.noiseLong, 3); }
 }
 function schedule(step, t){
-  const g = SND.song, i = step%8, bar = Math.floor(step/8)%4, m = g.mel[step % g.mel.length];
-  if (m) voice(g.lead, m, t, 0.15);
-  const bs = g.bass[bar];
-  if (i === 0) tone('sine', mtof(bs[0]), t, 0.2, g.sparse ? 1.8 : 0.5, SND.music);
-  if (i === 4 && !g.sparse) tone('sine', mtof(bs[1]), t, 0.14, 0.5, SND.music);
-  if (!g.sparse && (i === 2 || i === 6)) g.ch[bar].forEach(n => tone('triangle', mtof(n), t, 0.04, 0.25, SND.music));
-  if (g.sparse && i === 0) g.ch[bar].forEach((n,k) => tone('sine', mtof(n), t + k*0.3, 0.035, 1.4, SND.music));
+  const g = SND.song, i = step%8, bar = Math.floor(step/8)%4, m = g.mel[step % g.mel.length], ins = songInst(SND.songId), sp = 60/g.bpm/2;
+  // real instruments when their samples are loaded; the old synth voices fill in until then
+  // tiny timing and loudness differences make it sound played rather than programmed
+  const hum = () => t + Math.random()*0.012, vel = v => v*(0.85 + Math.random()*0.3);
+  if (m && !playI(ins.lead, m, hum(), vel(0.5), sp*(g.sparse ? 3 : 1.7))) voice(g.lead, m, t, 0.15);
+  const bs = g.bass[bar], b0 = bs[0] - 12, b1 = bs[1] - 12;
+  if (i === 0 && !playI('acoustic_bass', b0, t, 0.5, sp*(g.sparse ? 7 : 3.5))) tone('sine', mtof(bs[0]), t, 0.2, g.sparse ? 1.8 : 0.5, SND.music);
+  if (i === 4 && !g.sparse && !playI('acoustic_bass', b1, t, 0.38, sp*3)) tone('sine', mtof(bs[1]), t, 0.14, 0.5, SND.music);
+  const ch = g.ch[bar];
+  if (ins.pad && i === 0) ch.forEach(n => playI(ins.pad, n - 12, hum(), 0.16, sp*7.5));
+  if (ins.arp){ const seq = [ch[0] - 12, ch[1] - 12, ch[0], ch[1], ch[0] + 12, ch[1], ch[0], ch[1] - 12];
+    if ((!g.sparse || i % 2 === 0) && !playI(ins.arp, seq[i], hum(), vel(g.sparse ? 0.2 : 0.16), sp*2.5) && !g.sparse && (i === 2 || i === 6)) ch.forEach(n => tone('triangle', mtof(n), t, 0.04, 0.25, SND.music)); }
+  else if (!ins.pad && !g.sparse && (i === 2 || i === 6)) ch.forEach(n => tone('triangle', mtof(n), t, 0.04, 0.25, SND.music));
   perc(g.perc, i, bar, t);
 }
 function wantedSong(){
@@ -1108,7 +1149,7 @@ function wantedSong(){
 function tick(){
   const c = SND.ctx;
   while (SND.next < c.currentTime + 0.15){
-    if (SND.step % 8 === 0){ const w = wantedSong(); if (w !== SND.songId){ SND.songId = w; SND.song = SONGS[w]; SND.step = 0; } }
+    if (SND.step % 8 === 0){ const w = wantedSong(); if (w !== SND.songId){ SND.songId = w; SND.song = SONGS[w]; SND.step = 0; loadSong(w); } }
     schedule(SND.step, SND.next); SND.next += 60/SND.song.bpm/2; SND.step++;
   }
 }
@@ -1116,7 +1157,7 @@ function duck(on){ if (SND.ctx && SND.on) SND.music.gain.setTargetAtTime(on ? 0.
 function setSound(on){
   const c = audio(); if (!c){ toast('這個瀏覽器不支援播放聲音。'); return; }
   c.resume(); SND.on = on;
-  if (on){ SND.songId = wantedSong(); SND.song = SONGS[SND.songId]; SND.next = c.currentTime + 0.08; SND.step = 0;
+  if (on){ SND.songId = wantedSong(); SND.song = SONGS[SND.songId]; SND.next = c.currentTime + 0.08; SND.step = 0; loadSong(SND.songId);
     SND.music.gain.cancelScheduledValues(c.currentTime); SND.music.gain.setTargetAtTime(0.9, c.currentTime, 0.05); clearInterval(SND.timer); SND.timer = setInterval(tick, 30); }
   else { clearInterval(SND.timer); SND.music.gain.setTargetAtTime(0, c.currentTime, 0.08); rainSound(false); }
   $('#btnMusic').setAttribute('aria-pressed', on ? 'true' : 'false');
@@ -1133,9 +1174,46 @@ function rainSound(on){
     const s = SND.rainSrc; SND.rainGain.gain.setTargetAtTime(0.0001, SND.ctx.currentTime, 0.4); setTimeout(()=>{ try{ s.stop(); }catch(e){} }, 2000); SND.rainSrc = null;
   }
 }
-function sfx(name){
+// ---------- ambience: the sounds of whatever place the camera is looking at ----------
+// Waves rolling in at the coast, running water by the river, wind, birdsong in the day, frogs and crickets at night.
+// Uses the 音效 switch. Volumes follow the camera, so panning to the beach brings up the surf.
+const AMB = {};
+function ambienceInit(){
+  const c = SND.ctx; if (AMB.ready) return; AMB.ready = true;
+  const loop = (type, freq, q) => { const s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain(); s.buffer = SND.noiseLong; s.loop = true; s.playbackRate.value = 0.7 + Math.random()*0.3;
+    f.type = type; f.frequency.value = freq; f.Q.value = q; g.gain.value = 0; s.connect(f); f.connect(g); g.connect(SND.sfx); s.start(); return {g, f}; };
+  AMB.surf = loop('lowpass', 700, 0.5); AMB.foam = loop('bandpass', 2600, 0.6); AMB.river = loop('bandpass', 1200, 0.8); AMB.ripple = loop('highpass', 3800, 0.4); AMB.wind = loop('lowpass', 380, 0.6);
+  AMB.t = {bird:2, frog:3, cricket:0.5, wave:3}; loadInst('seashore'); loadInst('bird_tweet');
+}
+function updateAmbience(dt, t, night){
+  if (!SND.ctx) return;
+  const c = SND.ctx, now = c.currentTime;
+  if (!SND.fx){ if (AMB.ready) [AMB.surf, AMB.foam, AMB.river, AMB.ripple, AMB.wind].forEach(a => a.g.gain.setTargetAtTime(0, now, 0.3)); return; }
+  ambienceInit();
+  const x = camTarget.x, z = camTarget.z, k = clamp(1.5 - zoom*0.3, 0.35, 1.2), near = (d, r) => clamp(1 - d/r, 0, 1), w = weatherNow();
+  const sea = near(Math.abs(world.shoreX(z) + 1.5 - x), 15)*k, swell = Math.pow(0.5 + 0.5*Math.sin(t*1.05), 2);
+  AMB.surf.g.gain.setTargetAtTime(sea*0.16*(0.35 + 0.65*swell), now, 0.15); AMB.foam.g.gain.setTargetAtTime(sea*0.05*swell, now, 0.2);
+  const riv = near(world.riverDist(x, z), 11)*k;
+  AMB.river.g.gain.setTargetAtTime(riv*0.07, now, 0.3); AMB.ripple.g.gain.setTargetAtTime(riv*0.025*(0.7 + 0.3*Math.sin(t*3.1)), now, 0.2);
+  AMB.wind.g.gain.setTargetAtTime((0.012 + (w === 'storm' ? 0.05 : w === 'rain' ? 0.02 : 0))*k*(0.7 + 0.3*Math.sin(t*0.37)), now, 0.5);
+  for (const key in AMB.t) AMB.t[key] -= dt;
+  if (sea > 0.25 && AMB.t.wave <= 0 && swell > 0.9){ AMB.t.wave = 5; const out = c.createGain(); out.gain.value = sea*0.55; out.connect(SND.sfx); playI('seashore', 60 + rnd(-2, 1), now, 0.9, 2.5, out); }
+  // birds sing by day near trees; frogs near the pond and swamp (and anywhere at night); crickets on warm nights
+  if (!night && w !== 'rain' && w !== 'storm' && AMB.t.bird <= 0){ AMB.t.bird = rnd(2, 6);
+    const treesNear = trees.filter(tr => Math.hypot(tr.d.x - x, tr.d.z - z) < 14).length + (world.isOpen(x, z) ? 0 : 6);
+    if (treesNear){ const out = c.createGain(); out.gain.value = clamp(treesNear*0.04, 0.05, 0.3)*k; out.connect(SND.sfx); const n = 1 + Math.floor(Math.random()*3);
+      for (let i=0;i<n;i++) playI('bird_tweet', 70 + Math.floor(rnd(-4, 7)), now + i*rnd(0.15, 0.35), 0.8, 0.5, out); } }
+  const wet = Math.max(near(Math.hypot(x - world.data.bio.pond.x, z - world.data.bio.pond.z), 16), world.swampW(x, z));
+  if (AMB.t.frog <= 0){ AMB.t.frog = rnd(1.2, 4); if (wet > 0.1 || (night && Math.random() < 0.3)) sfx('croak', V3(x + rnd(-4, 4), 0, z + rnd(-4, 4))); }
+  if (night && w !== 'rain' && w !== 'storm' && AMB.t.cricket <= 0){ AMB.t.cricket = rnd(0.35, 1.2);
+    for (let i=0;i<3;i++) tone('sine', 4200 + Math.random()*400, now + i*0.06, 0.012*k, 0.04, SND.sfx, 0.004); }
+}
+function sfx(name, at){   // `at`: where the sound comes from — quieter the further it is from where the camera looks
   if (!SND.fx || !SND.ctx) return;
-  const c = SND.ctx, t = c.currentTime, out = SND.sfx; let o;
+  const c = SND.ctx, t = c.currentTime; let out = SND.sfx, o;
+  if (at){ const v = clamp(1 - Math.hypot(at.x - camTarget.x, at.z - camTarget.z)/(26*Math.max(0.8, zoom)), 0, 1); if (v < 0.03) return; out = c.createGain(); out.gain.value = v*v; out.connect(SND.sfx); }
+
+
   switch(name){
     case 'boing': o = tone('sine',260,t,0.35,0.3,out); o.frequency.exponentialRampToValueAtTime(720,t+0.18); break;
     case 'thud':  o = tone('sine',150,t,0.45,0.22,out); o.frequency.exponentialRampToValueAtTime(55,t+0.15); break;
@@ -2889,7 +2967,8 @@ function updateWorld(dt, t){
   updateSky(di);
   world.update(dt, t, {night:di.n, fog:scene.fog, pet: petActive() && root.visible ? pos : null});
   updateBeach(dt, t);
-  wild.update(dt, t, {cam:camTarget, pet: petActive() && root.visible ? pos : null, night:di.n, onSound: n => sfx(n)});
+  updateAmbience(dt, t, di.n > 0.6);
+  wild.update(dt, t, {cam:camTarget, pet: petActive() && root.visible ? pos : null, night:di.n, onSound: (n, at) => sfx(n, at)});
   fauna.update(dt, t, {cam:camTarget, pet: petActive() && root.visible ? pos : null, night:di.n, onScare:animalScare, onSmile: p => floatSprite(emojiTex('😊'), p.add(V3(0, 0.9, 0)), {size:0.5, vy:0.5, max:1.6}), onZzz: p => floatSprite(textTex('Z','#5d6e8f','bold 90px sans-serif','rgba(255,255,255,.85)'), p, {size:0.35, vy:0.5, vx:0.2, max:2}),
     chips: p => floatSprite(radialTex('rgba(201,160,110,1)','rgba(201,160,110,0)'), p, {size:0.12, vx:rnd(-1,1), vz:rnd(-1,1), vy:rnd(1,2), g:8, max:0.6, grow:0}), treeNear:(x, z, r) => { const tr = trees.find(t => Math.hypot(t.d.x - x, t.d.z - z) < r); return tr ? tr.d : null; }});
   flashV *= Math.exp(-5*dt); $('#flash').style.opacity = (flashV*0.8).toFixed(3);
@@ -3382,7 +3461,7 @@ const GUIDE = [
     ${ICON.cloud(36,118)}<path d="M28 132 l-3 8 M38 132 l-3 8 M48 132 l-3 8" stroke="#7fa3c0" stroke-width="2"/>${T(40,165,'雨：踩水窪',11)}
     <circle cx="140" cy="140" r="15" fill="#f7f9fb" stroke="#cfd6db"/><circle cx="140" cy="116" r="10" fill="#f7f9fb" stroke="#cfd6db"/><path d="M140 117 l9 2 -9 2z" fill="#e8833a"/>${T(140,170,'雪：堆雪人',11)}
     ${[0,1,2,3,4].map(i=>`<circle cx="${225+i*13}" cy="${125+(i%2)*10}" r="3" fill="#e9f59a"/>`).join('')}${T(255,165,'晴朗夜晚：看螢火蟲',11)}`),
-    html:`<ul><li><b>晝夜</b>：預設每一小時切換一次——偶數整點（0、2、4…點）是白天，奇數整點是晚上，交界的前 5 分鐘是日出或日落。設定裡也可以改成跟現實時間同步。</li><li><b>天氣</b>：晴、多雲、雨、雪、雷雨會自己輪替。下雨打雷時牠會躲進小窩，打雷會害怕。</li><li><b>音樂</b>：早上、午後、傍晚、夜晚、雨天、雷雨、雪天，各有不同的曲子。</li><li><b>特別活動</b>（玩耍 → 特別活動）：下雪天堆雪人，下雨天踩水窪，晴朗的晚上看螢火蟲。雪人在雪停以後會慢慢融化。</li><li><b>太陽和月亮</b>：太陽從東邊的海上升起、往西邊落下；月亮的形狀跟著台灣真實的月相變化（狀態面板會顯示今天的月相）。<b>滿月</b>的晴朗夜晚可以「賞月」。</li></ul>`},
+    html:`<ul><li><b>晝夜</b>：預設每一小時切換一次——偶數整點（0、2、4…點）是白天，奇數整點是晚上，交界的前 5 分鐘是日出或日落。設定裡也可以改成跟現實時間同步。</li><li><b>天氣</b>：晴、多雲、雨、雪、雷雨會自己輪替。下雨打雷時牠會躲進小窩，打雷會害怕。</li><li><b>音樂</b>：用真實樂器的錄音演奏（鋼琴、陶笛、長笛、豎琴、木琴、吉他、弦樂、音樂盒……），早上、午後、傍晚、夜晚、雨天、雷雨、雪天和節日各有不同的樂器和曲子。樂器音色來自 FluidR3 音色庫（MIT 授權）。</li><li><b>環境音</b>（音效開關）：鏡頭移到海邊會聽到浪花，河邊有流水聲，白天樹林有鳥叫，池塘沼澤有蛙鳴，夜晚有蟲鳴；動物的叫聲越遠越小聲。</li><li><b>特別活動</b>（玩耍 → 特別活動）：下雪天堆雪人，下雨天踩水窪，晴朗的晚上看螢火蟲。雪人在雪停以後會慢慢融化。</li><li><b>太陽和月亮</b>：太陽從東邊的海上升起、往西邊落下；月亮的形狀跟著台灣真實的月相變化（狀態面板會顯示今天的月相）。<b>滿月</b>的晴朗夜晚可以「賞月」。</li></ul>`},
   {title:'商店、衣櫥和節日', svg:svgWrap(`
     ${wbSvg(70,110,0.75,{acc:'hat'})}${T(70,160,'買衣服、換顏色',12)}
     <path d="M150 128 a40 34 0 0 1 80 0z" fill="#7f8f5b"/><path d="M180 128 a10 12 0 0 1 20 0z" fill="#1a1410"/><rect x="203" y="92" width="8" height="16" fill="#a35e46"/>${T(190,160,'蓋建設',12)}
@@ -3702,7 +3781,7 @@ if (!S.world.trim){ S.world.trim = 1; const keep = id => (id*2654435761 >>> 0) %
 seedWorldNature();   // fills any plot that has no rocks, bushes or trees yet (new worlds, and the plots added when the world grew to 4 × 4)
 S.trees.filter(d => world.isOpenKey(d.p || '0,0')).forEach(makeTree); applyBumps();
 world.showFeats();
-const fauna = createFauna({scene, world, mat, hbMat, onSound: n => sfx(n), clone: n => animalClone(n), lod:furLOD});
+const fauna = createFauna({scene, world, mat, hbMat, onSound: (n, at) => sfx(n, at), clone: n => animalClone(n), lod:furLOD});
 const koalaPerches = () => fauna.setPerches(trees.filter(tr => tr.d.euc && !tr.cut).map(tr => tr.d));
 koalaPerches();
 const wild = createWildlife({scene, world, clone:animalClone, hbMat, lod:furLOD, fx:{
@@ -3729,7 +3808,7 @@ if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
 if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
-if (new URLSearchParams(location.search).has('debug')) window.W = {wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+if (new URLSearchParams(location.search).has('debug')) window.W = {songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   sim:(secs) => { skipRender = true; try { for (let i=0;i<secs*30;i++) step(true); } finally { skipRender = false; } clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};

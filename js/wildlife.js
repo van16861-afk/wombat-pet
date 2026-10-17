@@ -68,7 +68,7 @@ export function createWildlife({scene, world, clone, hbMat, fx, lod}){
         whaleG.position.set(w.x, WATER_Y - 1.9 + rise*1.35 - dive*2.5, w.z + (w.ry ? -1 : 1)*T*0.5);
         whaleG.rotation.set(dive*0.6, w.ry, 0, 'YXZ');
         const tail = part(whaleG, 'whale_tail'); if (tail) tail.rotation.x = -dive*1.2 + Math.sin(T)*0.1;
-        if (T > 3 && T < 12 && Math.floor(T/2.6) !== w.lastSpout){ w.lastSpout = Math.floor(T/2.6); const head = whaleG.position.clone().add(V3(0, 1.0, (w.ry ? 1 : -1)*-2.4)); fx.spout(head); o.onSound && o.onSound('spout'); }
+        if (T > 3 && T < 12 && Math.floor(T/2.6) !== w.lastSpout){ w.lastSpout = Math.floor(T/2.6); const head = whaleG.position.clone().add(V3(0, 1.0, (w.ry ? 1 : -1)*-2.4)); fx.spout(head); o.onSound && o.onSound('spout', whaleG.position); }
         if (T > 17){ whaleRun = null; whaleT = rnd(120, 240); whaleG.visible = false; } } }
     for (const a of L.list){
       const p = a.g.position; a.t += dt; a.timer -= dt;
@@ -79,13 +79,13 @@ export function createWildlife({scene, world, clone, hbMat, fx, lod}){
         case 'gull': {
           a.g.visible = true;
           if (a.state === 'land'){ fold(a); a.g.rotation.z = 0;
-            if (a.timer <= 0 || petD < 3){ a.state = 'idle'; a.timer = rnd(10, 25); if (petD < 3) o.onSound && o.onSound('gull'); }
+            if (a.timer <= 0 || petD < 3){ a.state = 'idle'; a.timer = rnd(10, 25); if (petD < 3) o.onSound && o.onSound('gull', p); }
             else if (Math.random() < dt*0.4){ a.g.rotation.y += rnd(-1, 1); } break; }
           a.ang += a.dir*dt*0.35; const x = shore(a.cz) + Math.cos(a.ang)*a.rad - 1, z = a.cz + Math.sin(a.ang)*a.rad*1.5;
           if (a.state === 'down'){ const tx = shore(p.z) - rnd(1, 3); p.x += (tx - p.x)*dt; p.y += (gy(p.x, p.z) - p.y)*dt*1.5; flap(a, 9, 0.5); if (p.y - gy(p.x, p.z) < 0.08){ a.state = 'land'; a.timer = rnd(6, 14); } break; }
           const nx = x - p.x, nz = z - p.z; p.x += nx*dt*2; p.z += nz*dt*2; p.y += (a.h + Math.sin(a.t*0.7)*0.6 - p.y)*dt; faceDir(a, nx, nz, dt, 4);
           a.g.rotation.z = -a.dir*0.3; flap(a, 7, 0.55, (Math.sin(a.t*0.5) > 0.2) ? 1 : 0);
-          if (Math.random() < dt*0.05) o.onSound && o.onSound('gull');
+          if (Math.random() < dt*0.05) o.onSound && o.onSound('gull', p);
           if (a.timer <= 0){ a.timer = rnd(12, 30); if (Math.random() < 0.4 && world.isOpen(shore(p.z) - 2, p.z)) { a.state = 'down'; a.g.rotation.z = 0; } }
           break; }
         case 'seafish': {
@@ -100,25 +100,25 @@ export function createWildlife({scene, world, clone, hbMat, fx, lod}){
           if (!a.g.visible) break;
           const tr = a.perch; p.set(tr.x + Math.sin(tr.ry || 0)*0.25*tr.s, gy(tr.x, tr.z) + (tr.euc ? 3.25 : 2.85)*tr.s, tr.z + Math.cos(tr.ry || 0)*0.25*tr.s);   // on the treetop
           a.g.rotation.y = Math.atan2(cam.x - p.x, cam.z - p.z);   // owls keep an eye on you
-          const head = part(a.g, 'owl_head'); if (head){ if (a.timer <= 0){ a.timer = rnd(2, 6); a.look = rnd(-1.6, 1.6); if (Math.random() < 0.3) o.onSound && o.onSound('hoot'); } head.rotation.y += ((a.look || 0) - head.rotation.y)*Math.min(1, dt*4); }
+          const head = part(a.g, 'owl_head'); if (head){ if (a.timer <= 0){ a.timer = rnd(2, 6); a.look = rnd(-1.6, 1.6); if (Math.random() < 0.3) o.onSound && o.onSound('hoot', p); } head.rotation.y += ((a.look || 0) - head.rotation.y)*Math.min(1, dt*4); }
           break; }
         case 'eagle': {
           a.g.visible = !night;
           if (a.state === 'perch'){ const tr = a.perch; if (!tr || !trees.includes(tr)){ a.state = 'idle'; break; }
             p.set(tr.x, gy(tr.x, tr.z) + (tr.euc ? 3.4 : 2.9)*tr.s + 0.45, tr.z); fold(a); a.g.rotation.x = 0; a.g.rotation.z = 0;
-            if (a.timer <= 0 || petD < 4){ a.state = 'idle'; a.timer = rnd(20, 40); o.onSound && o.onSound('eagle'); } break; }
+            if (a.timer <= 0 || petD < 4){ a.state = 'idle'; a.timer = rnd(20, 40); o.onSound && o.onSound('eagle', p); } break; }
           if (a.state === 'toTree'){ const tr = a.perch, top = V3(tr.x, gy(tr.x, tr.z) + (tr.euc ? 3.4 : 2.9)*tr.s, tr.z), d = top.clone().sub(p);
             if (d.length() < 0.3){ a.state = 'perch'; a.timer = rnd(10, 22); break; } p.addScaledVector(d.normalize(), Math.min(d.length(), dt*4)); faceDir(a, d.x, d.z, dt, 3); flap(a, 5, 0.4); break; }
           a.ang += dt*0.22; const x = a.cx + Math.cos(a.ang)*a.rad, z = a.cz + Math.sin(a.ang)*a.rad, nx = x - p.x, nz = z - p.z;
           p.x += nx*dt*1.5; p.z += nz*dt*1.5; p.y += (a.h - p.y)*dt*0.5; faceDir(a, nx, nz, dt, 2); a.g.rotation.z = -0.35; flap(a, 3, 0.25, Math.sin(a.t*0.3) > -0.3 ? 1 : 0);
           if (a.timer <= 0){ a.timer = rnd(25, 50); if (trees.length && Math.random() < 0.5){ a.perch = trees[Math.floor(Math.random()*trees.length)]; a.state = 'toTree'; a.g.rotation.z = 0; } else { a.cx = rnd(X0 + 8, X1 - 8); a.cz = rnd(Z0 + 8, Z1 - 8); } }
-          if (Math.random() < dt*0.03) o.onSound && o.onSound('eagle');
+          if (Math.random() < dt*0.03) o.onSound && o.onSound('eagle', p);
           break; }
         case 'lizard': {
           const r = a.rock; a.g.visible = !night && !!r && a.state !== 'hidden';
           if (!r) break;
           if (a.state === 'hidden'){ if (a.timer <= 0){ a.state = 'idle'; } break; }
-          if (petD < 2.5 && a.state !== 'flee'){ a.state = 'flee'; a.timer = 0.8; o.onSound && o.onSound('scurry'); }
+          if (petD < 2.5 && a.state !== 'flee'){ a.state = 'flee'; a.timer = 0.8; o.onSound && o.onSound('scurry', p); }
           const top = V3(r.x + (a.off || 0.2), r.y, r.z); if (!a.off){ a.off = rnd(-0.3, 0.3); }
           if (a.state === 'flee'){ p.x += Math.sin(a.g.rotation.y)*dt*4; p.z += Math.cos(a.g.rotation.y)*dt*4; if (a.timer <= 0){ a.state = 'hidden'; a.timer = rnd(8, 15); } break; }
           p.copy(top); if (a.timer <= 0){ a.timer = rnd(2, 6); a.g.rotation.y += rnd(-1.2, 1.2); }
