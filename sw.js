@@ -2,7 +2,7 @@
 // - Game files (same origin): network first, so updates show up right away; cache when offline.
 // - Libraries and fonts (versioned CDN URLs): cache first.
 // - Firebase sign-in and database traffic is never cached.
-const CACHE = 'wombat-v15';
+const CACHE = 'wombat-v16';
 const SHELL = ['./', 'index.html', 'css/style.css', 'js/game.js', 'js/cloud.js', 'js/firebase-config.js', 'js/world.js', 'js/fauna.js', 'js/wildlife.js',
   'manifest.webmanifest', 'assets/models/wombat.glb', 'assets/models/props.glb', 'assets/models/animals.glb', 'assets/models/trees.glb', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 const LIBS = ['https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js',

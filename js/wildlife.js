@@ -273,7 +273,7 @@ export function createWildlife({scene, world, clone, hbMat, fx, lod, mat}){
         if ((podRun.dir > 0 && podRun.z > Z1 + 14) || (podRun.dir < 0 && podRun.z < Z0 - 14)){ podRun = null; podT = rnd(60, 120); pod.forEach(a => a.g.visible = false); } } }
     // the whale: rises, spouts a few times, then dives showing its tail
     if (whale){ whaleT -= dt;
-      if (!whaleRun && whaleT <= 0){ const z = rnd(Z0 + 5, Z1 - 5); whaleRun = {t:0, x:shore(z) + rnd(22, 30), z, ry:Math.random() < 0.5 ? 0 : Math.PI}; whaleG.visible = true; }
+      if (!whaleRun && whaleT <= 0){ const z = rnd(Z0 + 5, Z1 - 5); whaleRun = {t:0, x:shore(z) + rnd(22, 30), z, ry:Math.random() < 0.5 ? 0 : Math.PI}; whaleG.visible = true; o.onSound && o.onSound('whale', V3(whaleRun.x - 14, 0, z)); }
       if (whaleRun){ const w = whaleRun; w.t += dt; const T = w.t;
         const rise = T < 3 ? T/3 : T < 12 ? 1 : 0, dive = T >= 12 ? Math.min(1, (T - 12)/4) : 0;
         whaleG.position.set(w.x, WATER_Y - 1.9 + rise*1.35 - dive*2.5, w.z + (w.ry ? -1 : 1)*T*0.5);

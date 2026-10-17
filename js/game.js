@@ -847,7 +847,9 @@ function build(id){
 }
 function unbuildAll(){ Object.keys(BG).forEach(id => { scene.remove(BG[id]); delete BG[id]; }); nightGlow.length = 0; }
 function obstacles(){ return BUILDS.filter(b => b.r && BG[b.id]).map(b => ({c:SPOTS[b.id], r:b.r})).concat(trees.map(tr => ({c:tr.g.position, r:0.55*tr.d.s})), world ? world.feats.map(f => ({c:f.g.position, r:world.featR(f.d)})) : []); }
-function houseDoor(){ const h = SPOTS.house, ry = BG.house ? BG.house.rotation.y : Math.atan2(-h.x, -h.z), d = V3(Math.sin(ry), 0, Math.cos(ry)); return h.clone().addScaledVector(d, 2.2 + 1.6*petS + 0.3); }
+// the spot in front of the door; always outside the ring the house keeps the wombat out of (else it walks on the spot there)
+function houseDoor(){ const h = SPOTS.house, ry = BG.house ? BG.house.rotation.y : Math.atan2(-h.x, -h.z), d = V3(Math.sin(ry), 0, Math.cos(ry)), hb = bdef('house');
+  return h.clone().addScaledVector(d, Math.max(2.2 + 1.6*petS + 0.3, ((hb && hb.r) || 0) + 0.9*petS + 0.3)); }
 // ---------- building placement on a 1×1 grid ----------
 // S.place[id] = {i, j, rot}: the footprint covers cells [i, i+w) × [j, j+d) (w/d swap when rot is odd); rot × 90° turns
 // the building, whose front faces +z before turning.
@@ -1290,10 +1292,24 @@ function updateAmbience(dt, t, night){
   if (night && w !== 'rain' && w !== 'storm' && AMB.t.cricket <= 0){ AMB.t.cricket = rnd(0.35, 1.2);
     for (let i=0;i<3;i++) tone('sine', 4200 + Math.random()*400, now + i*0.06, 0.012*k, 0.04, SND.sfx, 0.004); }
 }
+// Real animal recordings (assets/sounds, credits in assets/sounds/CREDITS.md): each sound name has one or two short clips.
+// Until they have loaded (or if they fail) the synthesised versions below are used.
+const ANIMAL_CLIPS = {howl:['wolf1', 'wolf2'], croak:['frog1', 'frog2'], bellow:['croc1', 'croc2'], neigh:['horse1'], roar:['tiger1', 'tiger2'], peacock:['peacock1', 'peacock2'],
+  hoot:['owl1', 'owl2'], eagle:['eagle1'], gull:['gull1', 'gull2'], heron:['heron1'], deer:['deer1', 'deer2'], whale:['whale1'], emu:['emu1']};
+const ACLIP = {}, clipBusy = {}; let aclipLoading = false;
+function loadAnimalClips(){
+  if (aclipLoading || !SND.ctx) return; aclipLoading = true;
+  for (const n of Object.values(ANIMAL_CLIPS).flat()) fetch(`assets/sounds/${n}.mp3`).then(r => r.ok ? r.arrayBuffer() : null)
+    .then(ab => ab && new Promise(res => SND.ctx.decodeAudioData(ab, res, () => res(null)))).then(b => { if (b) ACLIP[n] = b; }).catch(() => {});
+}
 function sfx(name, at){   // `at`: where the sound comes from — quieter the further it is from where the camera looks
   if (!SND.fx || !SND.ctx) return;
   const c = SND.ctx, t = c.currentTime; let out = SND.sfx, o;
   if (at){ const v = clamp(1 - Math.hypot(at.x - camTarget.x, at.z - camTarget.z)/(26*Math.max(0.8, zoom)), 0, 1); if (v < 0.03) return; out = c.createGain(); out.gain.value = v*v; out.connect(SND.sfx); }
+  if (ANIMAL_CLIPS[name]){ loadAnimalClips(); const have = ANIMAL_CLIPS[name].filter(n => ACLIP[n]);
+    if (have.length){ if ((clipBusy[name] || 0) > t) return;   // one call of a kind at a time
+      const b = ACLIP[have[Math.floor(Math.random()*have.length)]], s = c.createBufferSource(), g = c.createGain();
+      s.buffer = b; s.playbackRate.value = rnd(0.94, 1.06); g.gain.value = 0.85; s.connect(g); g.connect(out); s.start(t); clipBusy[name] = t + b.duration*0.75; return; } }
 
 
   switch(name){
@@ -2964,7 +2980,10 @@ function think(dt){
       break; }
     case 'goHouse': {
       if (!BG.house){ B.mode = 'idle'; break; }
-      const d = houseDoor(), r = walkTo(d.x, d.z, dt, sp*1.1, 0.2); moving = r.moving;
+      // at the door it only turns to face the house (walking towards the door spot at the same time made the two turns cancel out)
+      const d = houseDoor(), atDoor = Math.hypot(d.x - pos.x, d.z - pos.z) < 0.35, r = atDoor ? {dist:Math.hypot(d.x - pos.x, d.z - pos.z), moving:true} : walkTo(d.x, d.z, dt, sp*1.1, 0.2); moving = r.moving;
+      B.houseT = (B.houseT || 0) + dt; const ld = B.houseLast ? pos.distanceTo(B.houseLast) : 1; if (ld > 0.3){ B.houseLast = pos.clone(); B.houseT = 0; }
+      if (B.houseT > 4 && pos.distanceTo(SPOTS.house) < 9){ B.houseT = 0; B.mode = 'enter'; B.anim = 0; B.from.copy(pos); break; }   // stuck near the house: just go in
       if (r.dist < 0.35){
         const diff = wrapA(Math.atan2(SPOTS.house.x-pos.x, SPOTS.house.z-pos.z) - root.rotation.y);
         root.rotation.y += clamp(diff, -2.6*dt, 2.6*dt); moving = true;
@@ -3598,7 +3617,7 @@ const GUIDE = [
       <li><b>特別的區域</b>：北邊的<b>荷花池塘</b>（青蛙、蜻蜓、烏龜）、西邊的<b>沼澤</b>（鱷魚、蒼鷺）、河上游的<b>河狸溪</b>（河狸的水壩和小屋）、西南的<b>澳洲草原</b>（袋鼠、微笑袋鼠、鴯鶓、尤加利樹上的無尾熊）、西邊的<b>鹿的森林</b>（梅花鹿會在樹林間奔跑）、西北的<b>狼的高地</b>（高台上有山洞，狼晚上會嚎叫，下雨打雷時會躲進山洞）。點一下動物會有反應，第一次遇見每種動物都有成就。</li>
       <li><b>海邊和天空</b>：海鷗在沙灘上空盤旋、偶爾停在沙灘上；海豚會成群游過、跳出水面翻轉；鯨魚不時浮上來噴水再潛下去；淺海有熱帶魚。白天有老鷹在高空盤旋、會停在樹頂；晚上樹頂有貓頭鷹盯著你看；石頭上常有蜥蜴曬太陽，靠近就溜走。</li>
       <li><b>游泳圈</b>（商店「道具」）：有了它袋熊就能下水，走進水裡自動套上、上岸就脫下。</li>
-      <li>地形有小山丘、低窪的泥巴地、斜坡和大高台。右上角「視角」可以切換，拖曳畫面移動鏡頭，「🐾 找牠」把鏡頭移回袋熊身上。</li></ul>`},
+      <li>地形有小山丘、低窪的泥巴地、斜坡和大高台。右上角「視角」可以切換（45°、俯視、跟隨、自由；自由視角可以自己旋轉和傾斜鏡頭），拖曳畫面移動鏡頭，「🐾 找牠」把鏡頭移回袋熊身上。</li></ul>`},
   {title:'天氣、晝夜和特別活動', svg:svgWrap(`
     <rect x="0" y="0" width="160" height="90" fill="#d9e1d2"/><rect x="160" y="0" width="160" height="90" fill="#1a2130"/>
     ${ICON.sun(80,40)}${ICON.moon(240,40)}${T(80,78,'整點偶數小時：白天',11,'middle','#2c3a31')}${T(240,78,'奇數小時：晚上',11,'middle','#e2e9de')}
@@ -3615,7 +3634,7 @@ const GUIDE = [
     <rect x="40" y="40" width="70" height="80" rx="8" fill="var(--chip)" stroke="var(--ink)" stroke-width="2"/><rect x="52" y="40" width="46" height="26" fill="var(--ink)" opacity=".8"/><rect x="54" y="88" width="42" height="28" rx="3" fill="var(--line)"/>${T(75,145,'自動存檔',12)}
     <rect x="150" y="60" width="44" height="22" rx="11" fill="#e45b5b"/><rect x="172" y="60" width="22" height="22" rx="11" fill="#f6f3ec"/>${T(172,110,'健康低：餵藥',12)}
     <path d="M250 120 v-38 a20 20 0 0 1 40 0 v38z" fill="#a3a59d"/><circle cx="258" cy="122" r="4" fill="#e0607e"/><circle cx="282" cy="122" r="4" fill="#f3d250"/>${T(270,145,'告別後孵新蛋',12)}`),
-    html:`<ul><li>進度每 5 秒自動存在<b>這台裝置</b>裡；到「設定」用 Google 登入後，還會同步到<b>雲端</b>，電腦和手機可以接著玩。離開期間的時間也會算進去。</li><li>你不在的時候牠最多只會變得很虛弱，不會因為沒人照顧而死掉；但年紀還是會增加。</li><li>健康低於 35 會生病，按畫面下方的「餵藥」（10 代幣）。</li><li>牠走完一生或病死之後，會留下一個小墓碑。代幣、衣服、建設都會留給下一隻，再孵一顆新蛋。</li><li>設定 →「全部重新開始」會清掉所有東西，從一顆蛋重來。</li></ul><p class="note">清除瀏覽器資料或換手機，存檔就會不見。</p>`}
+    html:`<ul><li>進度每 5 秒自動存在<b>這台裝置</b>裡；到「設定」用 Google 登入後，還會同步到<b>雲端</b>，電腦和手機可以接著玩。離開期間的時間也會算進去。</li><li>你不在的時候牠最多只會變得很虛弱，不會因為沒人照顧而死掉；但年紀還是會增加。</li><li>健康低於 35 會生病，按畫面下方的「餵藥」（10 代幣）。</li><li>牠走完一生或病死之後，會留下一個小墓碑。代幣、衣服、建設都會留給下一隻，再孵一顆新蛋。</li><li>設定 →「全部重新開始」會清掉所有東西，從一顆蛋重來。</li><li><b>聲音來源</b>：音樂用 FluidR3 音色庫（MIT 授權）；動物叫聲是 Wikimedia Commons 上的真實錄音，作者和授權見<a href="assets/sounds/CREDITS.md" target="_blank">動物聲音來源</a>。</li></ul><p class="note">清除瀏覽器資料或換手機，存檔就會不見。</p>`}
 ];
 const guideEl = $('#guide'); let gPage = 0;
 function openGuide(p=0){ gPage = p; guideEl.hidden = false; renderGuide(); $('#gNext').focus(); }
@@ -3662,13 +3681,14 @@ $('#btnShow').onclick = () => { S.uiHidden = false; hudDirty = true; save(); };
 // Quick view switch (top right): fixed 45° (drag to pan) → straight down (drag to pan) → follow the wombat (drag to orbit).
 const camMode = () => S.camMode || 'iso';
 const panTarget = V3(0, 0, 0);
-const CAM_LABEL = {iso:'視角：45°', top:'視角：俯視', follow:'視角：跟隨'};
+const CAM_LABEL = {iso:'視角：45°', top:'視角：俯視', follow:'視角：跟隨', free:'視角：自由'};
 function refreshViewBtn(){ $('#btnView').textContent = CAM_LABEL[camMode()]; $('#btnFind').hidden = camMode() === 'follow'; }
 $('#btnView').onclick = () => {
-  const next = {iso:'top', top:'follow', follow:'iso'}[camMode()];
+  const next = {iso:'top', top:'follow', follow:'free', free:'iso'}[camMode()];
   if (next !== 'follow') panTarget.set(camTarget.x, 0, camTarget.z);
   S.camMode = next; refreshViewBtn(); save();
-  toast({iso:'45 度固定視角：拖曳畫面可以移動鏡頭。', top:'俯視：拖曳畫面可以移動鏡頭。', follow:'跟隨袋熊：拖曳畫面可以旋轉鏡頭。'}[next]);
+  toast({iso:'45 度固定視角：拖曳畫面可以移動鏡頭。', top:'俯視：拖曳畫面可以移動鏡頭。', follow:'跟隨袋熊：拖曳畫面可以旋轉鏡頭。',
+    free:mobile ? '自由視角：一指拖曳移動，兩指捏合縮放、轉動旋轉、一起上下滑改變角度。' : '自由視角：左鍵拖曳移動，右鍵拖曳（或按住 Ctrl）旋轉和改變角度，滾輪縮放。'}[next]);
 };
 $('#btnFind').onclick = () => { const f = S.stage === 'egg' ? V3(0,0,0) : S.dead && tomb ? tomb.position : pos; panTarget.set(f.x, 0, f.z); };
 // Drag in the fixed views slides the camera over the ground (the spot under your finger follows it).
@@ -3686,7 +3706,7 @@ const handle = new THREE.Mesh(new THREE.SphereGeometry(0.07,16,12), rope.materia
 rope.visible = handle.visible = false; scene.add(rope, handle);
 const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), hoverNdc = new THREE.Vector2(), groundPlane = new THREE.Plane(UP, 0);
 const pts = new Map();
-let mode = null, downX=0, downY=0, downT=0, lastX=0, lastY=0, hitPoint=null, tapObj=null, tapPoint=null, pinchD=1, pinchZ=1;
+let mode = null, downX=0, downY=0, downT=0, lastX=0, lastY=0, hitPoint=null, tapObj=null, tapPoint=null, pinchD=1, pinchZ=1, pinchA=0, pinchY=0, rotDrag=false;
 const setNdc = e => ndc.set(e.clientX/innerWidth*2-1, -(e.clientY/innerHeight)*2+1);
 const locked = () => !!(evo || hatching);
 // tapping food or a bowl on the ground sends the wombat over to finish it
@@ -3754,9 +3774,12 @@ function strokeHand(){
   }, done(){ scene.remove(hand); strokeT = 0; }});
 }
 function warmEgg(){ if (S.stage !== 'egg' || hatching) return; S.warm = Math.min(100, S.warm + 7); eggWob.userData.kick = 1; sfx('pop'); hudDirty = true; }
+canvas.addEventListener('contextmenu', e => { if (camMode() === 'free') e.preventDefault(); });
 canvas.addEventListener('pointerdown', e => {
   canvas.setPointerCapture(e.pointerId); pts.set(e.pointerId, {x:e.clientX, y:e.clientY});
-  if (pts.size === 2){ if (dragging) endGrab(); mode = 'pinch'; const a = [...pts.values()]; pinchD = Math.hypot(a[0].x-a[1].x, a[0].y-a[1].y) || 1; pinchZ = zoom; return; }
+  if (pts.size === 2){ if (dragging) endGrab(); mode = 'pinch'; const a = [...pts.values()]; pinchD = Math.hypot(a[0].x-a[1].x, a[0].y-a[1].y) || 1; pinchZ = zoom;
+    pinchA = Math.atan2(a[1].y - a[0].y, a[1].x - a[0].x); pinchY = (a[0].y + a[1].y)/2; return; }
+  rotDrag = camMode() === 'free' && (e.button === 2 || e.ctrlKey);   // free view on a computer: right-drag (or Ctrl-drag) turns the camera
   if (pts.size > 2) return;
   downX = lastX = e.clientX; downY = lastY = e.clientY; downT = performance.now();
   if (placing){ mode = 'place'; placePointer(e); return; }
@@ -3772,11 +3795,13 @@ canvas.addEventListener('pointermove', e => {
   if (!pts.has(e.pointerId)){ if (e.pointerType === 'mouse' && !locked()){ const h = pickAt(e); canvas.style.cursor = h ? (h.object.userData.kind === 'pet' ? 'grab' : 'pointer') : 'default'; } return; }
   pts.set(e.pointerId, {x:e.clientX, y:e.clientY});
   const moved = Math.hypot(e.clientX-downX, e.clientY-downY);
-  if (mode === 'pinch' && pts.size === 2){ const a = [...pts.values()]; zoom = clamp(pinchZ*pinchD/(Math.hypot(a[0].x-a[1].x, a[0].y-a[1].y)||1), 0.5, maxZoom()); }
+  if (mode === 'pinch' && pts.size === 2){ const a = [...pts.values()]; zoom = clamp(pinchZ*pinchD/(Math.hypot(a[0].x-a[1].x, a[0].y-a[1].y)||1), 0.5, maxZoom());
+    if (camMode() === 'free'){ const ang = Math.atan2(a[1].y - a[0].y, a[1].x - a[0].x), my = (a[0].y + a[1].y)/2;   // twist to turn, slide both fingers up/down to tilt
+      yaw += wrapA(ang - pinchA); pinchA = ang; pitch = clamp(pitch + (my - pinchY)*0.005, 0.12, 1.45); pinchY = my; } }
   else if (mode === 'place') placePointer(e);
   else if (mode === 'tap' && moved > 6) mode = 'orbit';
   else if (mode === 'orbit'){
-    if (camMode() === 'follow' || locked()){ yaw -= (e.clientX-lastX)*0.008; pitch = clamp(pitch + (e.clientY-lastY)*0.006, 0.06, 1.3); }
+    if (camMode() === 'follow' || locked() || rotDrag){ yaw -= (e.clientX-lastX)*0.008; pitch = clamp(pitch + (e.clientY-lastY)*0.006, rotDrag ? 0.12 : 0.06, rotDrag ? 1.45 : 1.3); }
     else panBy(e.clientX-lastX, e.clientY-lastY); }
   else if (mode === 'pending' && moved > 6){ if (['inHouse','enter','exit','dying','evolve'].includes(B.mode)) mode = 'orbit'; else startGrab(e); }
   else if (mode === 'grab') updatePointerWorld(e);
@@ -3825,6 +3850,7 @@ const maxZoom = () => camMode() === 'follow' ? 1.7 : 5.6;
 canvas.addEventListener('wheel', e => { e.preventDefault(); zoom = clamp(zoom*Math.exp(e.deltaY*0.001), 0.5, maxZoom()); }, {passive:false});
 canvas.addEventListener('keydown', e => {
   const fixed = camMode() !== 'follow', arrow = {ArrowLeft:[40,0], ArrowRight:[-40,0], ArrowUp:[0,40], ArrowDown:[0,-40]}[e.key];
+  if (camMode() === 'free' && 'qeQErfRF'.includes(e.key) && e.key.length === 1){ const k = e.key.toLowerCase(); if (k === 'q') yaw += 0.15; if (k === 'e') yaw -= 0.15; if (k === 'r') pitch = clamp(pitch + 0.08, 0.12, 1.45); if (k === 'f') pitch = clamp(pitch - 0.08, 0.12, 1.45); }
   if (e.key === ' ' || e.key === 'Enter'){ e.preventDefault(); S.stage === 'egg' ? warmEgg() : petTap(); }
   else if (arrow && fixed){ e.preventDefault(); panBy(arrow[0], arrow[1]); }
   else if (e.key === 'ArrowLeft'){ e.preventDefault(); yaw += 0.15; }
@@ -3963,7 +3989,7 @@ if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
 if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
-if (new URLSearchParams(location.search).has('debug')) window.W = {groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+if (new URLSearchParams(location.search).has('debug')) window.W = {houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   sim:(secs) => { skipRender = true; try { for (let i=0;i<secs*30;i++) step(true); } finally { skipRender = false; } clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};
