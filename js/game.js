@@ -1136,7 +1136,10 @@ const mtof = m => 440*Math.pow(2,(m-69)/12);
 // ---------- sampled instruments (FluidR3 soundfont notes in assets/music, see tools/make_samples.py) ----------
 // Each instrument has a recording every minor third; other notes are the nearest recording played a little faster/slower.
 const INST_NOTES = {acoustic_grand_piano:[2,6], ocarina:[4,6], flute:[4,6], orchestral_harp:[3,6], marimba:[3,6], acoustic_guitar_nylon:[2,5],
-  string_ensemble_1:[3,5], acoustic_bass:[1,3], music_box:[4,7], pizzicato_strings:[3,5], seashore:null, bird_tweet:null};
+  string_ensemble_1:[3,5], acoustic_bass:[1,3], music_box:[4,7], pizzicato_strings:[3,5], seashore:null, bird_tweet:null,
+  acoustic_guitar_steel:[2,5], electric_guitar_jazz:[2,5], overdriven_guitar:[2,5], tenor_sax:[2,5], alto_sax:[3,5], trumpet:[3,5]};
+const INST_NAME = {acoustic_grand_piano:'鋼琴', ocarina:'陶笛', flute:'長笛', orchestral_harp:'豎琴', marimba:'木琴', acoustic_guitar_nylon:'古典吉他', string_ensemble_1:'弦樂',
+  music_box:'音樂盒', pizzicato_strings:'撥奏弦樂', acoustic_guitar_steel:'民謠吉他', electric_guitar_jazz:'爵士吉他', overdriven_guitar:'電吉他', tenor_sax:'次中音薩克斯風', alto_sax:'中音薩克斯風', trumpet:'小號'};
 const INST = {}, NOTE_PC = {C:0, Eb:3, Gb:6, A:9};
 function loadInst(name){
   if (INST[name]) return INST[name].ready;
@@ -1163,9 +1166,18 @@ const SONG_INST = {morning:{lead:'flute', arp:'orchestral_harp'}, day:{lead:'mar
   night:{lead:'music_box', arp:'orchestral_harp'}, rain:{lead:'acoustic_grand_piano', arp:'acoustic_grand_piano'}, storm:{lead:'pizzicato_strings', pad:'string_ensemble_1'},
   snow:{lead:'music_box', arp:'pizzicato_strings'}, newyear:{lead:'marimba', arp:'acoustic_guitar_nylon'}, cny:{lead:'orchestral_harp', arp:'marimba'},
   valentine:{lead:'acoustic_grand_piano', pad:'string_ensemble_1'}, children:{lead:'marimba', arp:'pizzicato_strings'}, dragon:{lead:'flute', arp:'orchestral_harp'},
-  midautumn:{lead:'ocarina', arp:'orchestral_harp'}, halloween:{lead:'pizzicato_strings', arp:'music_box'}, christmas:{lead:'music_box', pad:'string_ensemble_1'}};
-const songInst = id => SONG_INST[id] || SONG_INST.day;
-function loadSong(id){ const s = songInst(id); return Promise.all([s.lead, s.arp, s.pad, 'acoustic_bass'].filter(Boolean).map(loadInst)); }
+  midautumn:{lead:'ocarina', arp:'orchestral_harp'}, halloween:{lead:'pizzicato_strings', arp:'music_box'}, christmas:{lead:'music_box', pad:'string_ensemble_1'},
+  jazz:{lead:'tenor_sax', comp:'electric_guitar_jazz', walk:true}, bossa:{lead:'alto_sax', arp:'acoustic_guitar_nylon'}, folk:{lead:'acoustic_guitar_steel', strum:'acoustic_guitar_steel'},
+  rock:{lead:'overdriven_guitar', strum:'acoustic_guitar_steel'}, fanfare:{lead:'trumpet', strum:'acoustic_guitar_steel'}};
+// the music settings ("作曲"): pick a tune and which instrument plays the melody, the accompaniment and the drums
+const COMP_STYLE = {arp:'分解和弦', strum:'刷和弦', comp:'爵士和弦', pad:'長音'};
+function songInst(id){
+  const base = SONG_INST[id] || SONG_INST.day, P = S.music || {};
+  const o = {...base}; if (P.lead && P.lead !== 'auto') o.lead = P.lead;
+  if (P.comp && P.comp !== 'auto'){ const [style, inst] = P.comp.split(':'); delete o.arp; delete o.pad; delete o.strum; delete o.comp; if (style !== 'none') o[style] = inst; }
+  return o;
+}
+function loadSong(id){ const s = songInst(id); return Promise.all([s.lead, s.arp, s.pad, s.strum, s.comp, 'acoustic_bass'].filter(Boolean).map(loadInst)); }
 function tone(type, f, t, peak, dec, dest, att=0.006){
   const c = SND.ctx, o = c.createOscillator(), g = c.createGain();
   o.type = type; o.frequency.setValueAtTime(f,t);
@@ -1195,7 +1207,15 @@ const SONGS = {
   halloween:{bpm:100, lead:'square', perc:'drum', mel:[69,72,76,75,76,0,72,0, 69,72,76,77,76,75,72,0, 71,74,77,76,77,0,74,0, 68,71,74,72,71,68,64,0], bass:[[45,52],[45,52],[38,45],[40,47]], ch:[[60,64],[60,64],[62,65],[62,68]]},
   christmas:{bpm:112, lead:'bell', perc:'sleigh', mel:[79,79,76,79,81,79,76,0, 74,76,79,76,74,72,71,0, 72,74,76,77,79,81,83,84, 79,0,0,0,0,0,0,0], bass:[[43,50],[48,55],[50,57],[43,50]], ch:[[71,74],[72,76],[74,78],[71,74]]}
 };
-const SONG_NAME = {morning:'早晨', day:'午後', evening:'黃昏', night:'夜晚', rain:'雨天', storm:'雷雨', snow:'雪天'};
+Object.assign(SONGS, {
+  jazz:   {bpm:132, swing:true, lead:'soft', perc:'swing', mel:[74,0,77,0,79,77,74,0, 76,0,72,0,70,0,72,74, 77,0,76,0,72,0,69,0, 74,72,69,0,65,0,0,0], bass:[[43,50],[48,55],[41,48],[38,45]], ch:[[65,70],[64,70],[64,69],[65,72]]},
+  bossa:  {bpm:128, lead:'soft', perc:'bossa', mel:[79,0,76,0,0,74,76,0, 77,0,74,0,72,0,69,0, 71,0,74,0,77,76,74,0, 72,0,0,0,76,0,0,0], bass:[[48,55],[50,57],[43,50],[48,55]], ch:[[64,71],[65,72],[65,71],[64,71]]},
+  folk:   {bpm:100, lead:'pluck', perc:'folk', mel:[67,0,71,0,74,0,71,74, 76,0,74,72,71,0,69,0, 69,71,72,74,78,0,76,74, 71,0,0,0,67,0,0,0], bass:[[43,50],[48,55],[50,57],[43,50]], ch:[[71,74],[72,76],[74,78],[71,74]]},
+  rock:   {bpm:128, lead:'square', perc:'rock', mel:[76,0,76,79,0,76,74,0, 72,0,72,74,76,0,0,0, 74,74,71,0,74,0,79,0, 78,0,76,0,74,0,0,0], bass:[[40,47],[36,43],[43,50],[38,45]], ch:[[67,71],[67,72],[67,71],[66,69]]},
+  fanfare:{bpm:120, lead:'square', perc:'rock', mel:[72,0,72,76,79,0,79,0, 81,79,77,76,74,0,0,0, 77,0,77,81,84,0,81,0, 79,0,76,0,72,0,0,0], bass:[[48,55],[41,48],[43,50],[48,55]], ch:[[64,67],[65,69],[62,67],[64,67]]},
+});
+const SONG_NAME = {morning:'早晨', day:'午後', evening:'黃昏', night:'夜晚', rain:'雨天', storm:'雷雨', snow:'雪天', jazz:'爵士', bossa:'巴薩諾瓦', folk:'民謠', rock:'搖滾', fanfare:'號角'};
+const MUSIC_SONGS = ['morning', 'day', 'evening', 'night', 'rain', 'snow', 'jazz', 'bossa', 'folk', 'rock', 'fanfare'];
 function voice(kind, m, t, v){
   const f = mtof(m), out = SND.music;
   switch (kind){
@@ -1207,8 +1227,21 @@ function voice(kind, m, t, v){
     case 'square':  tone('square',f,t,v*0.35,0.22,out); break;
   }
 }
+function kit(style, i, bar, t, sp){
+  const out = SND.music, kick = (v = 0.4) => { const o = tone('sine', 120, t, v, 0.28, out); o.frequency.exponentialRampToValueAtTime(42, t + 0.22); };
+  const snare = (v = 0.12) => { noiseHit(t, 0.14, v, 'bandpass', 1900, out); tone('triangle', 190, t, v*0.6, 0.08, out); };
+  const hat = (v = 0.035, open) => noiseHit(t, open ? 0.18 : 0.035, v, 'highpass', 8000, out);
+  const ride = (v = 0.03) => { noiseHit(t, 0.25, v, 'highpass', 6000, out); tone('sine', 3400, t, v*0.25, 0.3, out); };
+  const rim = (v = 0.06) => noiseHit(t, 0.03, v, 'bandpass', 3200, out, null, 4);
+  if (style === 'rock'){ if (i === 0 || i === 4 || (i === 5 && bar % 2)) kick(); if (i === 2 || i === 6) snare(0.14); hat(i % 2 ? 0.025 : 0.04, i === 7 && bar === 3); }
+  if (style === 'swing'){ if (i === 0 || i === 2 || i === 3 || i === 4 || i === 6 || i === 7) ride(i % 2 ? 0.022 : 0.032); if (i === 2 || i === 6) hat(0.03); if (i === 0) kick(0.18); if (Math.random() < 0.12) snare(0.03); }
+  if (style === 'bossa'){ if (i === 0 || i === 3 || i === 4 || i === 7) kick(0.22); if ((bar % 2 ? [2, 5] : [0, 3, 6]).includes(i)) rim(); noiseHit(t, 0.04, 0.018, 'highpass', 7000, out); }
+  if (style === 'folk'){ if (i === 0 || i === 4) kick(0.25); if (i === 2 || i === 6) noiseHit(t, 0.12, 0.05, 'bandpass', 2500, out); if (i % 2) noiseHit(t, 0.05, 0.022, 'highpass', 7000, out); }
+}
 function perc(kind, i, bar, t){
   const out = SND.music;
+  const P = S.music || {}; if (P.drums && P.drums !== 'auto'){ if (P.drums !== 'none') kit(P.drums, i, bar, t); return; }
+  if (['rock', 'swing', 'bossa', 'folk'].includes(kind)){ kit(kind, i, bar, t); return; }
   if (kind === 'shaker' && i%2 === 1) noiseHit(t, 0.05, 0.028, 'highpass', 7000, out);
   if (kind === 'sleigh'){ noiseHit(t, 0.06, i%4===0 ? 0.05 : 0.022, 'highpass', 8500, out); }
   if (kind === 'drum' || kind === 'gong'){
@@ -1219,22 +1252,32 @@ function perc(kind, i, bar, t){
 }
 function schedule(step, t){
   const g = SND.song, i = step%8, bar = Math.floor(step/8)%4, m = g.mel[step % g.mel.length], ins = songInst(SND.songId), sp = 60/g.bpm/2;
+  if (g.swing && i % 2) t += sp*0.33;   // swung eighth notes
   // real instruments when their samples are loaded; the old synth voices fill in until then
   // tiny timing and loudness differences make it sound played rather than programmed
   const hum = () => t + Math.random()*0.012, vel = v => v*(0.85 + Math.random()*0.3);
   if (m && !playI(ins.lead, m, hum(), vel(0.5), sp*(g.sparse ? 3 : 1.7))) voice(g.lead, m, t, 0.15);
   const bs = g.bass[bar], b0 = bs[0] - 12, b1 = bs[1] - 12;
+  if (ins.walk){ if (i % 2 === 0){ const nx = g.bass[(bar + 1) % 4][0] - 12, wl = [b0, b0 + 4, b1, nx + (nx > b1 ? -1 : 1)][i/2];   // walking bass: root, third, fifth, a step into the next chord
+      if (!playI('acoustic_bass', wl, t, 0.45, sp*1.8)) tone('sine', mtof(wl + 12), t, 0.16, 0.3, SND.music); } }
+  else {
   if (i === 0 && !playI('acoustic_bass', b0, t, 0.5, sp*(g.sparse ? 7 : 3.5))) tone('sine', mtof(bs[0]), t, 0.2, g.sparse ? 1.8 : 0.5, SND.music);
-  if (i === 4 && !g.sparse && !playI('acoustic_bass', b1, t, 0.38, sp*3)) tone('sine', mtof(bs[1]), t, 0.14, 0.5, SND.music);
+  if (i === 4 && !g.sparse && !playI('acoustic_bass', b1, t, 0.38, sp*3)) tone('sine', mtof(bs[1]), t, 0.14, 0.5, SND.music); }
   const ch = g.ch[bar];
   if (ins.pad && i === 0) ch.forEach(n => playI(ins.pad, n - 12, hum(), 0.16, sp*7.5));
+  if (ins.strum && (i === 0 || i === 3 || i === 4 || i === 6)){ const notes = [bs[0], ch[0] - 12, ch[1] - 12, ch[0], ch[1]], down = i !== 3;   // strummed chords (down, down-up, down)
+    (down ? notes : notes.slice().reverse()).forEach((n, k) => playI(ins.strum, n, t + k*0.014, vel(down ? 0.14 : 0.09), sp*(i === 0 ? 2.8 : 1.4))); }
+  if (ins.comp && (i === 3 || i === 7 || (i === 2 && bar % 2))) [ch[0] - 12, ch[1] - 12, ch[0]].forEach(n => playI(ins.comp, n, hum(), vel(0.12), sp*0.9));   // short jazz chord stabs
   if (ins.arp){ const seq = [ch[0] - 12, ch[1] - 12, ch[0], ch[1], ch[0] + 12, ch[1], ch[0], ch[1] - 12];
     if ((!g.sparse || i % 2 === 0) && !playI(ins.arp, seq[i], hum(), vel(g.sparse ? 0.2 : 0.16), sp*2.5) && !g.sparse && (i === 2 || i === 6)) ch.forEach(n => tone('triangle', mtof(n), t, 0.04, 0.25, SND.music)); }
   else if (!ins.pad && !g.sparse && (i === 2 || i === 6)) ch.forEach(n => tone('triangle', mtof(n), t, 0.04, 0.25, SND.music));
   perc(g.perc, i, bar, t);
 }
 function wantedSong(){
+  const P = S.music || {}; if (P.song && P.song !== 'auto' && SONGS[P.song]) return P.song;
   const h = activeHoliday(); if (h) return h.song;
+  const w0 = weatherNow(), ph = dayInfo().phase, slot = Math.floor(Date.now()/240000);   // a new tune every 4 minutes
+  if (!['rain', 'storm', 'snow'].includes(w0)){ if (ph === 'day') return ['day', 'folk', 'bossa', 'rock', 'fanfare'][slot % 5]; if (ph === 'evening') return ['evening', 'jazz'][slot % 2]; }
   const w = weatherNow(); if (w === 'rain' || w === 'storm' || w === 'snow') return w;
   return dayInfo().phase;
 }
@@ -3462,7 +3505,7 @@ function renderSheet(){
     else h += owned.map(c => `<div class="card" style="margin-top:10px"><div class="row"><h3>${c.name}</h3><button class="btn ${S.worn[c.id] ? '' : 'ghost'}" data-wear="${c.id}">${S.worn[c.id] ? '脫下' : '穿上'}</button></div><div class="swrow" role="radiogroup" aria-label="${c.name}顏色">` + PALETTE.map(p => `<button class="sw" role="radio" aria-checked="${(S.colors[c.id]||c.def)===p}" aria-label="${p}" data-col="${c.id}|${p}" style="background:${p}"></button>`).join('') + `</div></div>`).join('');
   } else if (sheetKind === 'settings'){
     const sp = [1,10,60], wx = [['auto','自動'],['sunny','晴'],['cloudy','多雲'],['rain','雨'],['snow','雪'],['storm','雷雨']];
-    h = `<p class="sec">晝夜</p><div class="opts"><button class="icon" data-day="hourly" aria-pressed="${S.dayMode==='hourly'}">每小時切換早晚</button><button class="icon" data-day="real" aria-pressed="${S.dayMode==='real'}">跟現實時間同步</button></div>`
+    h = musicHTML() + `<p class="sec">晝夜</p><div class="opts"><button class="icon" data-day="hourly" aria-pressed="${S.dayMode==='hourly'}">每小時切換早晚</button><button class="icon" data-day="real" aria-pressed="${S.dayMode==='real'}">跟現實時間同步</button></div>`
       + `<p class="sec">時間流速（只影響成長和數值，10 倍、60 倍適合想快點看牠進化）</p><div class="opts">` + sp.map(v => `<button class="icon" data-speed="${v}" aria-pressed="${S.speed===v}">${v} 倍</button>`).join('') + `</div>`
       + `<p class="sec">天氣</p><div class="opts">` + wx.map(([k,l]) => `<button class="icon" data-wx="${k}" aria-pressed="${(S.weather.forced||'auto')===k}">${l}</button>`).join('') + `</div>`
       + `<p class="sec">節日預覽（看背景和音樂，限定商品只能在真正的節日當天買）</p><div class="opts"><button class="icon" data-hol="" aria-pressed="${!previewHoliday}">關閉</button>` + HOLIDAYS.map(x => `<button class="icon" data-hol="${x.id}" aria-pressed="${previewHoliday===x.id}">${x.name}</button>`).join('') + `</div>`
@@ -3497,6 +3540,23 @@ function cloudPanel(){
   return `<p class="note">已登入：${esc(cloud.user.email || cloud.user.displayName || '')}<br>${st}</p>`
     + `<div class="opts"><button class="btn ghost" data-syncnow>立即同步</button><button class="btn ghost" data-logout>登出</button></div>`;
 }
+// the music settings: tune, melody instrument, accompaniment (style + instrument) and drums; "自動" follows the time and weather
+function musicHTML(){
+  const P = S.music || {}, sel = (key, opts) => `<select data-mus="${key}" style="font:inherit;padding:4px 6px;border-radius:8px;max-width:100%">${opts.map(([v, t]) => `<option value="${v}"${(P[key] || 'auto') === v ? ' selected' : ''}>${t}</option>`).join('')}</select>`;
+  const insts = Object.keys(INST_NAME).map(k => [k, INST_NAME[k]]);
+  const comps = [['auto', '自動'], ['none', '不要伴奏'], ...['arp', 'strum', 'comp', 'pad'].flatMap(st => insts.filter(([k]) => st !== 'pad' || /string|ocarina|flute|sax|trumpet/.test(k)).map(([k, n]) => [st + ':' + k, `${COMP_STYLE[st]}・${n}`]))];
+  return `<p class="sec">音樂（自己作曲配器）</p><div class="card" style="margin-bottom:10px;display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center">`
+    + `<span>曲子</span>${sel('song', [['auto', '自動（看時間和天氣）'], ...MUSIC_SONGS.map(k => [k, SONG_NAME[k] + '之歌'])])}`
+    + `<span>主旋律</span>${sel('lead', [['auto', '自動'], ...insts])}`
+    + `<span>伴奏</span>${sel('comp', comps)}`
+    + `<span>鼓</span>${sel('drums', [['auto', '自動'], ['none', '不要鼓'], ['rock', '搖滾鼓'], ['swing', '爵士鼓'], ['bossa', '巴薩諾瓦'], ['folk', '民謠輕鼓']])}`
+    + `</div><div class="opts"><button class="btn ghost" data-musreset>全部改回自動</button></div>`;
+}
+sheetBody.addEventListener('change', e => {
+  const k = e.target.dataset && e.target.dataset.mus; if (!k) return;
+  S.music = {...(S.music || {}), [k]:e.target.value}; save();
+  if (SND.ctx && SND.on){ if (k === 'song'){ SND.step = 0; } SND.songId = null; loadSong(wantedSong()); } else toast('打開右上角的「音樂」就能聽到。');
+});
 sheetBody.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b || b.disabled) return;
   const d = b.dataset;
@@ -3506,6 +3566,7 @@ sheetBody.addEventListener('click', e => {
   if (d.tile !== undefined){ const e = tiles[+d.tile]; if (e) detail(e); return; }
   if (d.act){ closeSheet(); startAct(d.act); return; }
   if (d.swim){ goSwim(d.swim); return; }
+  if (d.musreset !== undefined){ S.music = {}; save(); if (SND.ctx && SND.on) SND.songId = null; renderSheet(); return; }
   if (d.use || d.usebuy){ const id = d.use || d.usebuy, f = foodInfo(id);
     if (d.usebuy){ if (S.coins < f.price) return; S.coins -= f.price; invAdd(id, 1); }
     closeSheet(); giveFood(id); save(); hudDirty = true; return; }

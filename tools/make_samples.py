@@ -13,8 +13,12 @@ INSTR = {
     "acoustic_grand_piano": notes(2, 6), "ocarina": notes(4, 6), "flute": notes(4, 6), "orchestral_harp": notes(3, 6),
     "marimba": notes(3, 6), "acoustic_guitar_nylon": notes(2, 5), "string_ensemble_1": notes(3, 5), "acoustic_bass": notes(1, 3),
     "music_box": notes(4, 7), "pizzicato_strings": notes(3, 5), "seashore": ["C4"], "bird_tweet": ["C5", "A5"],
+    # band instruments (guitars, saxophones, trumpet)
+    "acoustic_guitar_steel": notes(2, 5), "electric_guitar_jazz": notes(2, 5), "overdriven_guitar": notes(2, 5),
+    "tenor_sax": notes(2, 5), "alto_sax": notes(3, 5), "trumpet": notes(3, 5),
 }
 for inst, want in INSTR.items():
+    if os.path.isdir(os.path.join(OUT, inst)) and os.listdir(os.path.join(OUT, inst)): continue   # already extracted
     txt = urllib.request.urlopen(BASE.format(inst)).read().decode("utf-8")
     body = txt[txt.index("{", txt.index("MIDI.Soundfont.")):txt.rindex("}") + 1]
     body = re.sub(r",\s*}", "}", body)
