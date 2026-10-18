@@ -3,7 +3,7 @@
 // at night, eagles by day (soaring, perching on trees, spreading their wings, diving on rabbits, beetles and worms),
 // wild rabbits round their burrows, beetles on tree trunks and rocks, earthworms after the rain and lizards on the rocks.
 import * as THREE from 'three';
-import { WATER_Y, X0, X1, Z0, Z1 } from './world.js';
+import { WATER_Y, X0, X1, Z0, Z1, plotKey } from './world.js';
 
 const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -11,7 +11,7 @@ const lerp = (a, b, t) => a + (b - a)*t;
 const rnd = (a, b) => a + Math.random()*(b - a);
 const wrapA = a => { while (a > Math.PI) a -= 2*Math.PI; while (a < -Math.PI) a += 2*Math.PI; return a; };
 const SIDES = [[1, 'L'], [-1, 'R']];
-export const WILD_NAMES = {fish:'河裡的魚', gull:'海鷗', dolphin:'海豚', whale:'鯨魚', owl:'貓頭鷹', eagle:'老鷹', lizard:'蜥蜴', seafish:'熱帶魚', rabbit:'野兔', beetle:'甲蟲', worm:'蚯蚓'};
+export const WILD_NAMES = {cicada:'蟬', mantis:'螳螂', longhorn:'天牛', grasshopper:'蚱蜢', cricket:'蟋蟀', fish:'河裡的魚', gull:'海鷗', dolphin:'海豚', whale:'鯨魚', owl:'貓頭鷹', eagle:'老鷹', lizard:'蜥蜴', seafish:'熱帶魚', rabbit:'野兔', beetle:'甲蟲', worm:'蚯蚓'};
 
 export function createWildlife({scene, world, clone, hbMat, fx, lod, mat}){
   const L = {list:[], pick:[]}, group = new THREE.Group(); scene.add(group);
@@ -78,7 +78,12 @@ export function createWildlife({scene, world, clone, hbMat, fx, lod, mat}){
   // beetles: rhinoceros and stag beetles on tree trunks, green scarabs on rocks
   const BEETLES = ['rhino', 'stag', 'rhino', 'stag', 'green', 'green', 'green'];
   BEETLES.forEach((k, i) => { const g = clone('beetle_' + k); if (!g) return; g.scale.setScalar(2.4); g.rotation.order = 'YXZ'; g.visible = false;
-    add('beetle', g, {hit:0.3, hitY:0.05, sort:k, onTree:i < 4, spot:null, state:'crawl', timer:rnd(2, 6)}); });
+    add('beetle', g, {hit:0.3, hitY:0.05, sort:k, bug:true, sp:k, hab:i < 4 ? 'tree' : 'rock', onTree:i < 4, spot:null, state:'away', timer:0}); });
+  // more insects: cicadas and longhorn beetles on trunks, praying mantises on bushes, grasshoppers and crickets in the grass.
+  // A plot never has more than two kinds of insect at once.
+  for (const [k, hab, n] of [['cicada', 'tree', 3], ['longhorn', 'tree', 2], ['mantis', 'bush', 4], ['grasshopper', 'ground', 4], ['cricket', 'ground', 3]])
+    for (let i=0;i<n;i++){ const g = clone('bug_' + k); if (!g) break; g.scale.setScalar(2.6); g.rotation.order = 'YXZ'; g.visible = false;
+      add(k, g, {hit:0.3, hitY:0.05, bug:true, sp:k, hab, onTree:hab === 'tree', spot:null, state:'away', timer:rnd(0, 3)}); }
   // earthworms come up after rain (built here: a soft tube that wriggles in the vertex shader)
   const wormGeo = new THREE.CylinderGeometry(0.022, 0.022, 0.4, 8, 24, false); wormGeo.rotateZ(Math.PI/2);
   { const p = wormGeo.attributes.position; for (let i=0;i<p.count;i++){ const x = p.getX(i), k = 1 - Math.pow(Math.abs(x)/0.2, 6)*0.8; p.setY(i, p.getY(i)*k); p.setZ(i, p.getZ(i)*k); } wormGeo.computeVertexNormals(); }
@@ -90,20 +95,27 @@ export function createWildlife({scene, world, clone, hbMat, fx, lod, mat}){
   for (let i=0;i<3;i++){ const m = wormMat(), w = new THREE.Mesh(wormGeo, m), g = new THREE.Group(); g.add(w); w.position.y = 0.02; g.visible = false;
     add('worm', g, {hit:0.3, hitY:0.05, mat:m, state:'off', timer:rnd(2, 10)}); }
 
-  let trees = [], rocks = [];
-  L.setPlaces = (treeList, rockList) => { trees = treeList; rocks = rockList;
+  let trees = [], rocks = [], bushes = [];
+  let wildTrees = [];   // trees on locked plots: insects can live there, owls and eagles keep to the yard's trees
+  L.setPlaces = (treeList, rockList, bushList, wildList) => { trees = treeList; rocks = rockList; bushes = bushList || []; wildTrees = wildList || [];
     L.list.forEach(a => { if (a.kind === 'owl' && (!a.perch || !trees.includes(a.perch))) a.perch = trees[Math.floor(Math.random()*trees.length)] || null;
       if (a.kind === 'lizard' && (!a.rock || !rocks.includes(a.rock))){   // one lizard per rock (they bask near each other in real life, but never inside each other)
         const free = rocks.filter(r => !L.list.some(b => b !== a && b.kind === 'lizard' && b.rock === r)); a.rock = free.length ? free[Math.floor(Math.random()*free.length)] : null; }
-      if (a.kind === 'beetle' && (!a.spot || !(a.onTree ? trees : rocks).includes(a.spot))) placeBeetle(a); }); };
+      if (a.bug && a.hab !== 'ground' && a.spot && !(a.hab === 'tree' ? [...trees, ...wildTrees] : a.hab === 'rock' ? rocks : bushes).includes(a.spot)) placeBeetle(a); }); };
+  // the kinds of insect in a plot right now (beetle sorts count separately)
+  const bugKinds = (k, me) => new Set(L.list.filter(b => b.bug && b !== me && b.spot && b.state !== 'away' && b.plot === k).map(b => b.sp));
   function placeBeetle(a){
-    const list = a.onTree ? trees.filter(t => !t.swamp) : rocks; a.spot = list.length ? list[Math.floor(Math.random()*list.length)] : null;
-    a.ang = rnd(0, 6.28); a.hgt = rnd(0.45, 1.1); a.state = 'crawl'; a.g.position.y = -50;
+    let list = a.hab === 'tree' ? [...trees, ...wildTrees].filter(t => !t.swamp) : a.hab === 'rock' ? rocks : a.hab === 'bush' ? bushes : null;
+    if (!list){ list = []; for (let i=0;i<30;i++){ const x = rnd(X0 + 2, X1 - 2), z = rnd(Z0 + 2, Z1 - 2); if (landOK(x, z)) list.push({x, z}); } }
+    const ok = list.filter(s => { const k = plotKey(s.x, s.z), ks = bugKinds(k, a); return k && (ks.has(a.sp) || ks.size < 2); });
+    a.spot = ok.length ? ok[Math.floor(Math.random()*ok.length)] : null; a.plot = a.spot ? plotKey(a.spot.x, a.spot.z) : null;
+    a.ang = rnd(0, 6.28); a.hgt = rnd(0.45, 1.1); a.state = a.spot ? 'crawl' : 'away'; a.timer = a.spot ? rnd(1, 4) : rnd(10, 20); a.g.position.y = -50; a.tappedOnce = false; a.hop = null;
+    if (a.spot && a.hab === 'ground') a.home = {x:a.spot.x, z:a.spot.z};
   }
   const eagleTop = tr => gy(tr.x, tr.z) + (tr.euc ? 3.4 : 2.9)*tr.s;
   const FOOT = 0.47;   // eagle hip-to-toe at its scale
   const preyList = () => L.list.filter(b => (b.kind === 'rabbit' && b.g.visible && !b.carried && !['hidden', 'gone', 'flee'].includes(b.state)) ||
-    (b.kind === 'worm' && b.state === 'out') || (b.kind === 'beetle' && !b.onTree && b.spot && b.state === 'crawl' && b.g.visible));
+    (b.kind === 'worm' && b.state === 'out') || (b.bug && !b.onTree && b.hab !== 'bush' && b.spot && b.state === 'crawl' && b.g.visible));
 
   // ---------- eagle: soar, perch, take off, land, spread its wings, and hunt ----------
   function eagle(a, dt, o){
@@ -185,7 +197,7 @@ export function createWildlife({scene, world, clone, hbMat, fx, lod, mat}){
       b.carried = a; a.carry = b; b.state = 'caught'; o.onEvent && o.onEvent('eagleCatch', a.g.position); }
     else if (b.kind !== 'rabbit') o.onEvent && o.onEvent('eagleCatch', a.g.position);
   }
-  function preyGone(b){ if (b.kind === 'worm'){ b.state = 'off'; b.g.visible = false; b.timer = rnd(20, 40); } if (b.kind === 'beetle'){ b.g.visible = false; b.state = 'away'; b.timer = rnd(40, 80); } }
+  function preyGone(b){ if (b.kind === 'worm'){ b.state = 'off'; b.g.visible = false; b.timer = rnd(20, 40); } if (b.bug){ b.g.visible = false; b.state = 'away'; b.timer = rnd(40, 80); } }
 
   // ---------- rabbits ----------
   function hopTo(a, to, dur, h){ a.hop = {from:a.g.position.clone(), to, t:0, dur, h}; }
@@ -227,8 +239,20 @@ export function createWildlife({scene, world, clone, hbMat, fx, lod, mat}){
     if (!s){ a.g.visible = false; return; }
     if (a.state === 'fly'){ p.y += dt*1.8; p.x += Math.sin(a.g.rotation.y)*dt*2.5; p.z += Math.cos(a.g.rotation.y)*dt*2.5; a.g.rotation.x = -0.5; a.g.rotation.z = Math.sin(a.t*40)*0.1;
       if (a.timer <= 0){ a.state = 'away'; a.timer = rnd(25, 50); a.g.visible = false; } return; }
-    a.g.visible = true;
-    if (a.timer <= 0){ a.timer = rnd(1.5, 5); a.dir = Math.random() < 0.35 ? 0 : (Math.random() < 0.5 ? 1 : -1); }
+    a.g.visible = a.sp === 'cicada' ? !o.night || o.night < 0.6 : true;
+    if (a.sp === 'cicada' && a.g.visible && Math.random() < dt*0.04) o.onSound && o.onSound('cicada', p);
+    if (a.sp === 'cricket' && o.night > 0.6 && Math.random() < dt*0.15) o.onSound && o.onSound('chirp', p);
+    if (a.hab === 'ground'){   // grasshoppers spring about, crickets creep
+      if (a.hop){ const h = a.hop; h.t += dt; const u = Math.min(1, h.t/h.dur); p.lerpVectors(h.from, h.to, u); p.y = lerp(h.from.y, h.to.y, u) + 4*h.h*u*(1 - u); if (u >= 1) a.hop = null; return; }
+      if (a.timer <= 0){ a.timer = a.sp === 'grasshopper' ? rnd(1.5, 4) : rnd(2, 6); const ang = rnd(0, 6.28), d = a.sp === 'grasshopper' ? rnd(0.6, 1.3) : rnd(0.1, 0.3);
+        const to = V3(p.x + Math.cos(ang)*d, 0, p.z + Math.sin(ang)*d); if (Math.hypot(to.x - a.home.x, to.z - a.home.z) > 4 || !landOK(to.x, to.z)){ to.x = a.home.x; to.z = a.home.z; }
+        to.y = gy(to.x, to.z); a.g.rotation.set(0, Math.atan2(to.x - p.x, to.z - p.z), 0);
+        if (a.sp === 'grasshopper') a.hop = {from:p.y < -10 ? to.clone() : p.clone(), to, t:0, dur:0.35, h:0.35}; else a.dest = to; }
+      if (p.y < -10){ p.set(a.home.x, gy(a.home.x, a.home.z), a.home.z); }
+      if (a.dest){ const d = V3(a.dest.x - p.x, 0, a.dest.z - p.z); if (d.length() > 0.02) p.addScaledVector(d.normalize(), dt*0.06); }
+      p.y = gy(p.x, p.z); return; }
+    if (a.hab === 'bush'){ p.set(s.x + Math.cos(a.ang)*0.18, s.y + 0.02, s.z + Math.sin(a.ang)*0.18); a.g.rotation.set(0, a.ang + Math.PI/2 + Math.sin(a.t*0.7)*0.4, Math.sin(a.t*1.3)*0.08); return; }   // sways on top of a bush
+    if (a.timer <= 0){ a.timer = rnd(1.5, 5); a.dir = Math.random() < 0.35 ? 0 : (Math.random() < 0.5 ? 1 : -1); if (a.sp === 'cicada') a.dir = 0; }
     if (a.onTree){
       a.hgt = clamp(a.hgt + (a.dir || 0)*dt*0.06, 0.4, 1.2); a.ang += Math.sin(a.t*0.7)*dt*0.15;
       const r = 0.2*s.s*(1 - 0.3*a.hgt/1.6) + 0.015, dx = Math.cos(a.ang), dz = Math.sin(a.ang);
@@ -273,7 +297,7 @@ export function createWildlife({scene, world, clone, hbMat, fx, lod, mat}){
         if ((podRun.dir > 0 && podRun.z > Z1 + 14) || (podRun.dir < 0 && podRun.z < Z0 - 14)){ podRun = null; podT = rnd(60, 120); pod.forEach(a => a.g.visible = false); } } }
     // the whale: rises, spouts a few times, then dives showing its tail
     if (whale){ whaleT -= dt;
-      if (!whaleRun && whaleT <= 0){ const z = rnd(Z0 + 5, Z1 - 5); whaleRun = {t:0, x:shore(z) + rnd(22, 30), z, ry:Math.random() < 0.5 ? 0 : Math.PI}; whaleG.visible = true; o.onSound && o.onSound('whale', V3(whaleRun.x - 14, 0, z)); }
+      if (!whaleRun && whaleT <= 0){ const z = rnd(Z0 + 5, Z1 - 5); whaleRun = {t:0, x:shore(z) + rnd(12, 16), z, ry:Math.random() < 0.5 ? 0 : Math.PI}; whaleG.visible = true; o.onSound && o.onSound('whale', V3(whaleRun.x - 6, 0, z)); }
       if (whaleRun){ const w = whaleRun; w.t += dt; const T = w.t;
         const rise = T < 3 ? T/3 : T < 12 ? 1 : 0, dive = T >= 12 ? Math.min(1, (T - 12)/4) : 0;
         whaleG.position.set(w.x, WATER_Y - 1.9 + rise*1.35 - dive*2.5, w.z + (w.ry ? -1 : 1)*T*0.5);
@@ -285,7 +309,7 @@ export function createWildlife({scene, world, clone, hbMat, fx, lod, mat}){
       const p = a.g.position; a.t += dt; a.timer -= dt;
       if (a.kind === 'dolphin' || a.kind === 'whale') continue;
       const camD = Math.hypot(p.x - cam.x, p.z - cam.z), far = camD > 70; lod && lod(a.g, camD < 24);
-      if (far && a.kind !== 'eagle' && a.kind !== 'rabbit'){ if (!['owl', 'lizard', 'beetle', 'worm'].includes(a.kind)) a.g.visible = false; continue; }
+      if (far && a.kind !== 'eagle' && a.kind !== 'rabbit'){ if (!['owl', 'lizard', 'worm'].includes(a.kind) && !a.bug) a.g.visible = false; continue; }
       const petD = pet ? Math.hypot(p.x - pet.x, p.z - pet.z) : 99;
       switch (a.kind){
         case 'gull': {
@@ -322,7 +346,7 @@ export function createWildlife({scene, world, clone, hbMat, fx, lod, mat}){
           break; }
         case 'eagle': a.g.visible = !night || a.state === 'perch'; if (!night || a.state !== 'soar') eagle(a, dt, o); break;
         case 'rabbit': rabbit(a, dt, o); break;
-        case 'beetle': beetle(a, dt, o); break;
+        case 'beetle': case 'cicada': case 'mantis': case 'longhorn': case 'grasshopper': case 'cricket': beetle(a, dt, o); break;
         case 'worm': worm(a, dt, o); break;
         case 'lizard': {
           const r = a.rock; a.g.visible = !night && !!r && a.state !== 'hidden';
@@ -349,7 +373,8 @@ export function createWildlife({scene, world, clone, hbMat, fx, lod, mat}){
     if (a.kind === 'lizard'){ a.state = 'flee'; a.timer = 0.8; }
     if (a.kind === 'gull' && a.state === 'land'){ a.state = 'up'; a.st = 0; }
     if (a.kind === 'rabbit' && !['hidden', 'gone', 'caught'].includes(a.state)){ a.state = 'flee'; a.hop = null; }
-    if (a.kind === 'beetle' && a.state === 'crawl'){ a.state = 'fly'; a.timer = 2.2; a.g.rotation.set(0, rnd(0, 6.28), 0); }
+    if (a.bug && a.state === 'crawl'){ if (a.sp === 'grasshopper'){ const ang = rnd(0, 6.28), to = V3(a.g.position.x + Math.cos(ang)*2.2, 0, a.g.position.z + Math.sin(ang)*2.2); if (landOK(to.x, to.z)){ to.y = gy(to.x, to.z); a.hop = {from:a.g.position.clone(), to, t:0, dur:0.6, h:0.8}; a.home = {x:to.x, z:to.z}; } }
+      else { a.state = 'fly'; a.timer = 2.2; a.g.rotation.set(0, rnd(0, 6.28), 0); } }
     if (a.kind === 'worm'){ a.fast = 2; }
     if (a.kind === 'eagle' && a.state === 'perch'){ a.mantle = 1.6; }
     return a.kind;

@@ -138,3 +138,14 @@ body.ui-off #hud{display:none}
 .placebar #placeHint{color:var(--soft);font-size:14px}
 .placebar .opts{justify-content:flex-end}
 body.placing .dock, body.placing .stats, body.placing .alert{display:none}
+
+/* loading screen while the models, world and save load */
+#loading{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:#e9efe3;color:#2c3a31;font-family:inherit;transition:opacity .5s}
+#loading.gone{opacity:0;pointer-events:none}
+#loading h2{margin:0;font-size:24px;letter-spacing:1px}
+#loading p{margin:0;font-size:14px;opacity:.75}
+#loading .ld-paw{font-size:44px;animation:ldHop 1s ease-in-out infinite}
+#loading .ld-bar{width:min(260px,70vw);height:8px;border-radius:4px;background:#cfd8c6;overflow:hidden}
+#loading .ld-bar i{display:block;height:100%;width:5%;background:#7a9b5c;transition:width .3s}
+@keyframes ldHop{0%,100%{transform:translateY(0) rotate(-8deg)}50%{transform:translateY(-12px) rotate(8deg)}}
+@media (prefers-color-scheme: dark){#loading{background:#1d2420;color:#e2e9de}#loading .ld-bar{background:#33402f}}

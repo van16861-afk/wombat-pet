@@ -340,7 +340,8 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
     const sign = new THREE.Sprite(new THREE.SpriteMaterial({map:signTex(), transparent:true, depthWrite:false}));
     let sx = cx, sz = cz; for (let t=0; t<20 && (W.isWater(sx, sz) || slope(sx, sz) > 0.6); t++){ sx = cx + (R() - 0.5)*10; sz = cz + (R() - 0.5)*10; }
     sign.position.set(sx, H(sx, sz) + 3.2, sz); sign.scale.set(3.4, 1.7, 1); sign.userData.kind = 'locked'; sign.userData.ref = k; sign.renderOrder = 4; g.add(sign); W.pick.push(sign);
-    W.plots[k] = {g, sign, eucs:items.filter(o => o.k === 'euc').map(o => ({x:o.x, z:o.z, s:o.s, ry:o.ry, euc:true, wild:true}))};
+    W.plots[k] = {g, sign, eucs:items.filter(o => o.k === 'euc').map(o => ({x:o.x, z:o.z, s:o.s, ry:o.ry, euc:true, wild:true})), oaks:items.filter(o => o.k === 'tree').map(o => ({x:o.x, z:o.z, s:o.s, ry:o.ry, wild:true})),
+      bushes:items.filter(o => o.k === 'bush').map(o => ({x:o.x, z:o.z, y:o.y + 0.75*o.s}))};
   }
   let signTexture = null;
   function signTex(){
@@ -411,6 +412,16 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
     else if (k === BIO.savanna){ put(1, rock(0.55 + R()*0.25)); put(2, bush); put(2, tree); }   // open grassland: just a couple of shade trees
     else { put(R() < 0.5 ? 1 : 0, rock(1.0 + R()*0.25)); put(1, rock(0.55 + R()*0.25)); put(2, rock(0.3 + R()*0.2)); put(2 + Math.floor(R()*2), bush); put(3 + Math.floor(R()*2), tree); }   // fewer and smaller than before
     return trees;
+  };
+  // top a plot up to `want` rocks + bushes (some plots ended up nearly bare after old saves were thinned out)
+  W.topUpFeats = (k, want, avoid) => {
+    const R = rng(D.seed*13 + hashKey(k) + D.nid), [cx, cz] = plotCenter(k), h = PLOT/2 - 1; let have = D.feats.filter(o => o.p === k).length;
+    for (let t=0; t<200 && have < want; t++){
+      const x = cx + (R()*2 - 1)*h, z = cz + (R()*2 - 1)*h, rock = R() < 0.5, s = rock ? 0.35 + R()*0.45 : 0.8 + R()*0.5, r = rock ? 0.85*s : 0.6*s;
+      if (k === '0,0' && Math.max(Math.abs(x), Math.abs(z)) < 3.5) continue;
+      if (W.isWater(x, z) || slope(x, z) > 0.55 || riverDist(x, z) < D.river.w/2 + 1.2 || W.isBeach(x, z) || (avoid && avoid(x, z, r)) || D.feats.some(o => Math.hypot(o.x - x, o.z - z) < W.featR(o) + r + 0.8)) continue;
+      D.feats.push({id:D.nid++, k:rock ? 'rock' : 'bush', x:+x.toFixed(2), z:+z.toFixed(2), s:+s.toFixed(2), ry:+(R()*6.28).toFixed(2), v:Math.floor(R()*12), p:k}); have++;
+    }
   };
 
   // --- river: clear flowing water over a pebbly bed, with fish ---
@@ -591,7 +602,9 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
     g.position.set(x, 0, z); g.rotation.y = Math.atan2(-az, ax); b.g = g; return b;
   }
   function makeBridge(bd){ const b = bridgeMesh(bd.z); b.d = bd; group.add(b.g); W.bridges.push(b); return b; }
-  W.lockedEucs = k => (W.plots[k] && W.plots[k].eucs) || [];   // eucalyptus in the still-wild outback (koalas sit in them)
+  W.lockedEucs = k => (W.plots[k] && W.plots[k].eucs) || [];
+  W.lockedTrees = k => (W.plots[k] && W.plots[k].oaks) || [];
+  W.lockedAll = what => Object.values(W.plots).flatMap(pl => (what === 'trees' ? [...(pl.oaks || []), ...(pl.eucs || [])] : pl.bushes) || []);   // wild trees / bushes on every locked plot   // eucalyptus in the still-wild outback (koalas sit in them)
   W.bridgeGhost = z => bridgeMesh(z).g;   // a preview while choosing where to build
   W.addBridge = z => { const bd = {z:+z.toFixed(2)}; D.bridges.push(bd); return makeBridge(bd); };
   W.bridgeWhy = z => z <= Z0 + 2.5 || z >= Z1 - 2.5 ? '太靠近世界的邊緣了。' : W.bridges.some(b => Math.abs(b.z - z) < 4.5) ? '這附近已經有橋了。'

@@ -98,5 +98,6 @@ pine("tree_pine1", 4); pine("tree_pine2", 5)
 euc("tree_euc1", 6); euc("tree_euc2", 7)
 bush("tree_bush1", 8); bush("tree_bush2", 9, 7, 0.55); bush("tree_bush3", 10, 5, 0.45)
 for o in scene.objects: o.select_set(True)
-bpy.ops.export_scene.gltf(filepath=OUT, export_format='GLB', use_selection=True, export_apply=True, export_vertex_color='ACTIVE', export_yup=True)
+bpy.ops.export_scene.gltf(filepath=OUT, export_format='GLB', use_selection=True, export_apply=True, export_vertex_color='ACTIVE', export_yup=True,
+    export_draco_mesh_compression_enable=True, export_draco_mesh_compression_level=7, export_draco_position_quantization=13, export_draco_normal_quantization=9, export_draco_color_quantization=8, export_draco_texcoord_quantization=10)   # Draco: about a quarter of the size
 print("EXPORTED", OUT, len(bpy.data.objects))
