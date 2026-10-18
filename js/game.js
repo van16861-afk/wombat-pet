@@ -1033,7 +1033,7 @@ function commitPlace(){
 }
 function cancelPlace(){
   const P = placing; if (!P) return;
-  if (P.bridge){ scene.remove(P.mesh); endPlace(); return; }
+  if (P.bridge){ scene.remove(P.mesh); if (P.movingFrom !== undefined){ world.addBridge(P.movingFrom); NAV.dirty = true; } endPlace(); return; }   // a cancelled move puts the bridge back
   if (P.isNew){ scene.remove(P.mesh); if (S.place) delete S.place[P.id]; }
   else { S.place[P.id] = P.prev; applyPlace(P.id); }
   endPlace();
@@ -1873,15 +1873,30 @@ function featMenu(f){
         if (!rock) leafFall({g:f.g, d:{s:1}}, 6); toast(`${name}清掉了。`); save(); };
       if (free) startSkill(rock ? 'bite' : 'claw', f.g.position, world.featR(d) + 0.9*Math.max(petS, 0.5) + 0.2, clear, f.g); else clear(); }}]);
 }
+function bridgeObjMenu(b){
+  showModal('木頭拱橋', `<div class="bigicon">🌉</div><p>可以把橋移到河的其他地方（免費），或拆掉退回 ${BRIDGE_PRICE} 代幣。</p>`,
+    [{label:'關閉', ghost:true, onClick:()=>{}}, {label:'移動', ghost:true, onClick:() => setTimeout(() => moveBridge(b), 50)},
+     {label:`拆掉（退回 ${BRIDGE_PRICE}）`, ghost:true, onClick:() => {
+       if (onBridge(b)){ toast(`${S.name || '牠'}正站在橋上，等牠下來再拆。`); return; }
+       dust(b.x, b.z, 16, 2.5); sfx('whoosh'); world.removeBridge(b); NAV.dirty = true; S.coins += BRIDGE_PRICE; sfx('coin'); hudDirty = true;
+       toast(`橋拆掉了，退回 ${BRIDGE_PRICE} 代幣。`); save(); }}]);
+}
+const onBridge = b => { const dx = pos.x - b.x, dz = pos.z - b.z; return Math.abs(dx*b.ax + dz*b.az) < b.len/2 + 0.3 && Math.abs(-dx*b.az + dz*b.ax) < world.BRIDGE_W/2 + 0.3; };
+function moveBridge(b){
+  if (placing) return;
+  if (onBridge(b)){ toast(`${S.name || '牠'}正站在橋上，等牠下來再移動。`); return; }
+  const oldZ = b.z; world.removeBridge(b); NAV.dirty = true;
+  bridgeMenu(V3(world.riverX(oldZ), 0, oldZ), {moving:oldZ});
+}
 // Tapping the river starts placing a bridge: a see-through preview follows your finger along the river; 確定 builds it there.
-function bridgeMenu(p){
+function bridgeMenu(p, opt = {}){
   if (!p || placing) return;
   if (!world.isOpen(p.x, p.z)){ plotMenu(plotKey(p.x, p.z)); return; }
-  if (S.coins < BRIDGE_PRICE){ toast(`蓋橋要 ${BRIDGE_PRICE} 代幣。`); return; }
+  if (opt.moving === undefined && S.coins < BRIDGE_PRICE){ toast(`蓋橋要 ${BRIDGE_PRICE} 代幣。`); return; }
   closeSheet(); $('#modal').hidden = true;
-  placing = {bridge:true, z:p.z, mesh:null, cam:{yaw, pitch, zoom}, b:{name:'木頭拱橋', price:BRIDGE_PRICE}, isNew:true};
+  placing = {bridge:true, z:p.z, mesh:null, cam:{yaw, pitch, zoom}, b:{name:'木頭拱橋', price:BRIDGE_PRICE}, isNew:true, movingFrom:opt.moving};
   document.body.classList.add('placing'); $('#placeBar').hidden = false; $('#placeRot').hidden = true;
-  $('#placeName').textContent = `蓋木頭拱橋（${BRIDGE_PRICE} 代幣）`; $('#placeView').textContent = S.buildView === 'iso' ? '視角：45 度' : '視角：俯視';
+  $('#placeName').textContent = opt.moving !== undefined ? '移動木頭拱橋（免費）' : `蓋木頭拱橋（${BRIDGE_PRICE} 代幣）`; $('#placeView').textContent = S.buildView === 'iso' ? '視角：45 度' : '視角：俯視';
   updateBridgeGhost();
 }
 function updateBridgeGhost(){
@@ -1893,10 +1908,10 @@ function updateBridgeGhost(){
 }
 function commitBridge(){
   const P = placing; if (!P.ok) return;
-  if (!pay(BRIDGE_PRICE)){ cancelPlace(); return; }
+  if (P.movingFrom === undefined && !pay(BRIDGE_PRICE)){ cancelPlace(); return; }
   scene.remove(P.mesh); const b = world.addBridge(P.z); P.mesh = b.g;
   b.g.scale.set(0.01, 0.01, 0.01); tools.push({t:0, dur:0.9, update(t){ const k = ease(Math.min(1, t/0.8)); b.g.scale.set(1, Math.max(0.01, k), 1); }, done(){ b.g.scale.set(1, 1, 1); }});
-  dust(b.x, b.z, 14, 2.5); sfx('grow'); NAV.dirty = true; toast('橋蓋好了！袋熊可以過河了。'); track('bridge');
+  dust(b.x, b.z, 14, 2.5); sfx('grow'); NAV.dirty = true; if (P.movingFrom !== undefined) toast('橋搬好了。'); else { toast('橋蓋好了！袋熊可以過河了。'); track('bridge'); }
   $('#placeRot').hidden = false; endPlace();
 }
 
@@ -4080,6 +4095,7 @@ function up(e){
     else if (k === 'rock' || k === 'bush') featMenu(tapObj.userData.ref);
     else if (k === 'locked') plotMenu(tapObj.userData.ref);
     else if (k === 'river') bridgeMenu(tapPoint);
+    else if (k === 'bridge') bridgeObjMenu(tapObj.userData.ref);
     else if (k === 'shell') pickShell(tapObj.userData.ref);
     else if (k === 'bottle') openBottle(tapObj.userData.ref);
     else if (k === 'crab') pokeCrab(tapObj.userData.ref);
@@ -4253,7 +4269,7 @@ if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
 if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
-if (new URLSearchParams(location.search).has('debug')) window.W = {startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+if (new URLSearchParams(location.search).has('debug')) window.W = {moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   sim:(secs) => { skipRender = true; try { for (let i=0;i<secs*30;i++) step(true); } finally { skipRender = false; } clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};

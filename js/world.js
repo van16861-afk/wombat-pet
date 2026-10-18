@@ -601,7 +601,10 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
     }
     g.position.set(x, 0, z); g.rotation.y = Math.atan2(-az, ax); b.g = g; return b;
   }
-  function makeBridge(bd){ const b = bridgeMesh(bd.z); b.d = bd; group.add(b.g); W.bridges.push(b); return b; }
+  function makeBridge(bd){ const b = bridgeMesh(bd.z); b.d = bd; group.add(b.g); W.bridges.push(b);
+    const hb = new THREE.Mesh(new THREE.BoxGeometry(b.len, 1.4, W.BRIDGE_W), hbMat); hb.position.y = 0.6; hb.userData.kind = 'bridge'; hb.userData.ref = b; b.g.add(hb); b.hb = hb; W.pick.push(hb);   // tap a bridge to move or remove it
+    return b; }
+  W.removeBridge = b => { group.remove(b.g); W.bridges.splice(W.bridges.indexOf(b), 1); D.bridges.splice(D.bridges.indexOf(b.d), 1); if (b.hb) W.pick.splice(W.pick.indexOf(b.hb), 1); };
   W.lockedEucs = k => (W.plots[k] && W.plots[k].eucs) || [];
   W.lockedTrees = k => (W.plots[k] && W.plots[k].oaks) || [];
   W.lockedAll = what => Object.values(W.plots).flatMap(pl => (what === 'trees' ? [...(pl.oaks || []), ...(pl.eucs || [])] : pl.bushes) || []);   // wild trees / bushes on every locked plot   // eucalyptus in the still-wild outback (koalas sit in them)
