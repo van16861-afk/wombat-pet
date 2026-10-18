@@ -951,7 +951,21 @@ function useStep(dt){   // called from think() while B.mode is 'use'
 function buildMenu(id){
   const b = bdef(id);
   showModal(b.name, `<div class="bigicon">${BUILD_ICON[id] || '🏗️'}</div><p>${b.desc}</p>`,
-    [{label:'關閉', ghost:true, onClick:()=>{}}, ...(b.size ? [{label:'移動', ghost:true, onClick:() => startPlace(id, false)}] : []), ...(PLAY_AT[id] ? [{label:PLAY_AT[id].label, onClick:() => startUse(id)}] : [])]);
+    [{label:'關閉', ghost:true, onClick:()=>{}}, ...(b.size ? [{label:'移動', ghost:true, onClick:() => startPlace(id, false)}] : []), ...(PLAY_AT[id] ? [{label:PLAY_AT[id].label, onClick:() => startUse(id)}] : []),
+     {label:`拆掉（退回 ${b.price || 0}）`, ghost:true, onClick:() => setTimeout(() => demolish(id), 50)}]);
+}
+// take a building down again: it disappears in a puff of dust and the full price comes back
+function demolish(id){
+  const b = bdef(id), g = BG[id]; if (!b || !g) return;
+  showModal(`拆掉${b.name}？`, `<div class="bigicon">${BUILD_ICON[id] || '🏗️'}</div><p>拆掉以後會退回 ${b.price || 0} 代幣，之後想要可以再到商店買來蓋。</p>`,
+    [{label:'不要', ghost:true, onClick:()=>{}}, {label:'拆掉', onClick:() => {
+      if (id === 'house' && ['inHouse', 'enter', 'exit', 'goHouse'].includes(B.mode)){ if (B.mode === 'inHouse') exitHouse(); B.mode = 'idle'; B.timer = 1; root.visible = true; shadow.g.visible = true; }
+      if (B.use && B.use.id === id){ B.use = null; B.mode = 'idle'; }
+      const at = g.position.clone(); dust(at.x, at.z, 20, 3); sfx('whoosh');
+      tools.push({t:0, dur:0.6, update(t){ g.scale.setScalar(Math.max(0.01, 1 - t/0.6)); }, done(){ scene.remove(g); }});
+      delete BG[id]; S.builds[id] = false; if (S.place) delete S.place[id]; delete SPOTS[id]; NAV.dirty = true;
+      if (b.price){ S.coins += b.price; sfx('coin'); floatSprite(textTex('+' + b.price, '#e2b53b', 'bold 76px sans-serif', '#5a4310'), at.clone().setY(gy(at.x, at.z) + 1.5), {size:0.6, vy:1.2, max:1.1, depthTest:false}); }   // a refund, not earnings
+      toast(`${b.name}拆掉了，退回 ${b.price || 0} 代幣。`); save(); hudDirty = true; }}]);
 }
 // Placement mode: a grid laid over the ground around the footprint, a green/red footprint, the camera locked to top-down or 45°.
 let placing = null;
@@ -1392,6 +1406,9 @@ function sfx(name, at){   // `at`: where the sound comes from — quieter the fu
     case 'scurry': for (let i=0;i<5;i++) noiseHit(t+i*0.04, 0.03, 0.08, 'highpass', 5000, out); break;
     case 'howl': { const g_ = c.createGain(); g_.gain.value = 1; g_.connect(out); o = tone('sine', 420, t, 0.09, 2.4, g_, 0.5); o.frequency.linearRampToValueAtTime(620, t + 0.8); o.frequency.linearRampToValueAtTime(560, t + 1.8); o.frequency.linearRampToValueAtTime(380, t + 2.6); break; }
     case 'growl': noiseHit(t, 0.7, 0.18, 'lowpass', 260, out, SND.noiseLong); o = tone('sawtooth', 70, t, 0.05, 0.6, out, 0.1); break;
+    case 'capy': for (const d of [0, 0.22]){ o = tone('sine', 620, t + d, 0.06, 0.18, out, 0.03); o.frequency.linearRampToValueAtTime(520, t + d + 0.16); } noiseHit(t, 0.5, 0.03, 'lowpass', 300, out, SND.noiseLong); break;
+    case 'hippo': o = tone('sawtooth', 85, t, 0.09, 0.6, out, 0.05); o.frequency.linearRampToValueAtTime(60, t + 0.5); noiseHit(t, 0.5, 0.06, 'lowpass', 250, out, SND.noiseLong); for (const d of [0.7, 0.95, 1.2]) tone('sawtooth', 95, t + d, 0.06, 0.15, out, 0.02); break;
+    case 'hiss': noiseHit(t, 0.9, 0.08, 'highpass', 3500, out, SND.noiseLong); break;
     case 'cicada': for (let i=0;i<14;i++) noiseHit(t + i*0.11, 0.1, 0.07*(1 - Math.abs(i - 7)/8), 'bandpass', 4600, out, null, 6); break;
     case 'chirp': for (const d of [0, 0.07, 0.14]){ o = tone('sine', 4300, t + d, 0.04, 0.045, out, 0.004); } break;
     case 'crane': for (const d of [0, 0.32]){ o = tone('sawtooth', 780, t + d, 0.05, 0.28, out, 0.02); o.frequency.linearRampToValueAtTime(1050, t + d + 0.12); } break;
@@ -1569,18 +1586,58 @@ function cleanPoop(c){
 const weeds = [], fxPull = [];
 const bladeGeo = new THREE.ConeGeometry(0.04, 0.42, 4); bladeGeo.translate(0,0.21,0);
 const weedMats = [mat('#4c6b35'), mat('#5f7f3e'), mat('#3f5c2c')];
-function makeWeed(x, z, s){
+// Litter that belongs to a special area: it grows or washes up there and can be cleared like weeds (a little more money).
+const LITTER = {
+  tumble:{name:'風滾草', where:'aus'}, branch:{name:'枯樹枝', where:'forest'}, scree:{name:'碎石堆', where:'high'}, thorn:{name:'帶刺灌木', where:'savanna'},
+  hyacinth:{name:'布袋蓮', where:'swamp', water:true}, algae:{name:'浮萍', where:'pond', water:true}, drift:{name:'漂流木', where:'beaver'}, seaweed:{name:'海草', where:'beach'},
+};
+function litterMesh(kind){
+  const g = new THREE.Group(), M = c => mat(c, 0.9), stick = (len, r, m) => { const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r*0.8, len, 5), m); c.rotation.set(rnd(-1.4, 1.4), rnd(0, 6), rnd(-1.4, 1.4)); return c; };
+  if (kind === 'tumble'){ const m = M('#b49a6a'); for (let i=0;i<22;i++){ const c = stick(rnd(0.35, 0.6), 0.012, m); c.position.set(rnd(-0.12, 0.12), 0.25 + rnd(-0.12, 0.12), rnd(-0.12, 0.12)); g.add(c); } g.userData.roll = true; }
+  if (kind === 'branch'){ const m = M('#6e5038'); for (let i=0;i<5;i++){ const c = stick(rnd(0.6, 1.0), rnd(0.025, 0.045), m); c.rotation.x = Math.PI/2 + rnd(-0.3, 0.3); c.position.set(rnd(-0.15, 0.15), 0.05 + i*0.03, rnd(-0.15, 0.15)); g.add(c); }
+    const lf = M('#8a7a3a'); for (let i=0;i<6;i++){ const l = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 4), lf); l.scale.set(1, 0.2, 1.6); l.position.set(rnd(-0.3, 0.3), 0.03, rnd(-0.3, 0.3)); g.add(l); } }
+  if (kind === 'scree'){ for (let i=0;i<6;i++){ const r = new THREE.Mesh(new THREE.DodecahedronGeometry(rnd(0.08, 0.16), 0), M(['#8f8d86', '#a3a097', '#7c7a74'][i % 3])); r.position.set(rnd(-0.22, 0.22), 0.06, rnd(-0.22, 0.22)); r.rotation.set(rnd(0, 6), rnd(0, 6), 0); g.add(r); } }
+  if (kind === 'thorn'){ const m = M('#7a6a42'), th = M('#a08a5a'); for (let i=0;i<9;i++){ const c = stick(rnd(0.3, 0.55), 0.015, m); c.position.set(rnd(-0.1, 0.1), 0.2, rnd(-0.1, 0.1)); g.add(c);
+      for (let k=0;k<3;k++){ const t_ = new THREE.Mesh(new THREE.ConeGeometry(0.012, 0.06, 4), th); t_.position.set(rnd(-0.2, 0.2), rnd(0.1, 0.4), rnd(-0.2, 0.2)); t_.rotation.set(rnd(0, 6), 0, rnd(0, 6)); g.add(t_); } } }
+  if (kind === 'hyacinth'){ for (let i=0;i<5;i++){ const l = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), M('#4f8a3a')); l.scale.set(1, 0.45, 1.2); l.position.set(rnd(-0.18, 0.18), 0.04, rnd(-0.18, 0.18)); g.add(l); }
+    const f = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), M('#a99ad8')); f.position.y = 0.16; g.add(f); }
+  if (kind === 'algae'){ for (let i=0;i<9;i++){ const l = new THREE.Mesh(new THREE.CircleGeometry(rnd(0.04, 0.08), 8), M('#7fa83a')); l.rotation.x = -Math.PI/2; l.position.set(rnd(-0.3, 0.3), 0.01, rnd(-0.3, 0.3)); g.add(l); } }
+  if (kind === 'drift' || kind === 'seaweed'){ if (kind === 'drift'){ const c = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 1.1, 7), M('#a89a86')); c.rotation.z = Math.PI/2; c.rotation.y = rnd(0, 6); c.position.y = 0.07; g.add(c); }
+    else for (let i=0;i<7;i++){ const l = new THREE.Mesh(new THREE.SphereGeometry(0.08, 6, 4), M(['#3a5a2a', '#5a6a2a', '#4a4a22'][i % 3])); l.scale.set(1.6, 0.3, 0.7); l.rotation.y = rnd(0, 6); l.position.set(rnd(-0.25, 0.25), 0.03, rnd(-0.25, 0.25)); g.add(l); } }
+  return g;
+}
+function makeWeed(x, z, s, kind){
   const g = new THREE.Group();
+  if (kind && LITTER[kind]){ g.add(litterMesh(kind)); const y = LITTER[kind].water ? WATER_Y + 0.01 : gy(x, z); g.position.set(x, y, z); g.scale.setScalar(s); g.rotation.y = rnd(0, 6.28); scene.add(g);
+    const hb = new THREE.Mesh(new THREE.SphereGeometry(0.45, 8, 6), hbMat); hb.position.y = 0.2; hb.userData.kind = 'weed'; g.add(hb);
+    const w = {g, x, z, s, hb, kind}; hb.userData.ref = w; weeds.push(w); return w; }
   for (let i=0;i<6;i++){ const b = new THREE.Mesh(bladeGeo, weedMats[i%3]); b.position.set(rnd(-0.1,0.1),0,rnd(-0.1,0.1)); b.rotation.set(rnd(-0.6,0.6),0,rnd(-0.6,0.6)); b.scale.y = rnd(0.6,1.3); g.add(b); }
   if (Math.random() < 0.35){ const f = new THREE.Mesh(new THREE.SphereGeometry(0.06,8,6), mat('#f3d250',0.6)); f.position.set(0,0.42,0); g.add(f); }
   g.position.set(x, gy(x, z), z); g.scale.setScalar(s); scene.add(g);
   const hb = new THREE.Mesh(new THREE.SphereGeometry(0.4,8,6), hbMat); hb.position.y = 0.2; hb.userData.kind = 'weed'; g.add(hb);
   const w = {g, x, z, s, hb}; hb.userData.ref = w; weeds.push(w); return w;
 }
+// tumbleweeds roll slowly across the outback in the wind
+function rollTumbleweeds(dt){
+  for (const w of weeds){ if (w.kind !== 'tumble' || !w.hb.userData.kind) continue;
+    const nx = w.g.position.x + dt*0.35, nz = w.g.position.z + Math.sin(performance.now()/2000 + w.x)*dt*0.15;
+    if (!world.inBio('aus', nx, nz) || !groundOK(nx, nz)) continue;
+    w.g.position.set(nx, gy(nx, nz), nz); w.g.rotation.z -= dt*0.35/0.3; w.x = +nx.toFixed(2); w.z = +nz.toFixed(2); }
+}
+const plotBio = k => Object.keys(BIO).find(b => BIO[b] === k);
 function spawnWeed(){
-  if (weeds.length >= 12) return;
-  for (let k=0;k<12;k++){
-    const a = Math.random()*Math.PI*2, r = Math.sqrt(Math.random())*8, x = pos.x*0.6 + Math.sin(a)*r, z = pos.z*0.6 + Math.cos(a)*r;
+  const open = world.data.open; if (weeds.length >= Math.min(26, 8 + 3*open.length)) return;
+  const k_ = open[Math.floor(Math.random()*open.length)], [px, pz] = k_.split(',').map(Number).map(v => v*18), bio = plotBio(k_);
+  // special areas grow their own litter half the time
+  const lit = Object.keys(LITTER).find(l => LITTER[l].where === bio) || (k_.startsWith('1,') && Math.random() < 0.5 ? 'seaweed' : null);
+  if (lit && (bio ? Math.random() < 0.55 : true)){
+    for (let k=0;k<20;k++){ const x = px + rnd(-8.5, 8.5), z = pz + rnd(-8.5, 8.5), L_ = LITTER[lit];
+      if (L_.water ? !world.isWater(x, z) : (!groundOK(x, z) || world.isWater(x, z))) continue;
+      if (lit === 'seaweed' && !world.isBeach(x, z)) continue;
+      if (obstacles().some(o => Math.hypot(o.c.x-x, o.c.z-z) < o.r + 0.4)) continue;
+      makeWeed(+x.toFixed(2), +z.toFixed(2), +rnd(0.85, 1.2).toFixed(2), lit); return; } }
+  for (let k=0;k<16;k++){
+    const x = px + rnd(-8.5, 8.5), z = pz + rnd(-8.5, 8.5);
     if (!groundOK(x, z) || world.isBeach(x, z) || world.isMud(x, z)) continue;
     if (obstacles().some(o => Math.hypot(o.c.x-x, o.c.z-z) < o.r + 0.4)) continue;
     if (Math.hypot(pos.x-x, pos.z-z) < 1.6) continue;
@@ -1597,7 +1654,7 @@ function pullWeed(w){
     else if (t < 0.5) hand.userData.fingers.rotation.x = lerp(0, 0.7, (t-0.35)/0.15);              // grab
     else { const u = ease(clamp((t-0.5)/0.6, 0, 1)); hand.position.y = base + lerp(top + 0.12, 1.9, u);   // yank it out
       w.g.position.y = hand.position.y - top - 0.12; w.g.rotation.z = Math.sin(t*30)*0.15*(1-u);
-      if (!this.popped){ this.popped = true; sfx('pop'); addCoins(2, at.clone().add(V3(0,0.6,0))); } }
+      if (!this.popped){ this.popped = true; sfx('pop'); addCoins(w.kind ? 3 : 2, at.clone().add(V3(0,0.6,0))); if (w.kind) track('litter'); } }
     if (t > 1.0){ const f = Math.max(0.01, 1 - (t-1.0)/0.25); hand.scale.setScalar(f); w.g.scale.setScalar(w.s*f); }
   }, done(){ scene.remove(hand, w.g); }});
 }
@@ -1734,9 +1791,47 @@ function removeHive(tr){
   tools.push({t:0, dur:1.0, update(t){ h.position.y = 1.3 - t*t*1.3; h.rotation.z = t*3; h.scale.setScalar(Math.max(0.01, 1 - t)); }, done(){ h.parent && h.parent.remove(h); }});
   sfx('buzz'); toast('蜂窩清掉了，蜜蜂都飛走了。'); track('hive'); save();
 }
+// ---------- using a learned skill on the spot ----------
+const slashTex = (() => { const cv = document.createElement('canvas'); cv.width = cv.height = 128; const x = cv.getContext('2d');
+  x.strokeStyle = 'rgba(255,255,255,0.95)'; x.lineCap = 'round'; for (let k=0;k<3;k++){ x.lineWidth = 7 - k*1.5; x.beginPath(); x.arc(64, 140 + k*10, 90 - k*14, Math.PI*1.18, Math.PI*1.82); x.stroke(); }
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t; })();
+function startSkill(type, at, reach, done, targetG){
+  if (!petActive() || asleep() || act || ['inHouse','enter','exit','evolve','bloated','dead','skillGo','skillDo'].includes(B.mode)){ toast(`${S.name || '牠'}現在沒辦法過去。`); return; }
+  closeSheet(); B.mode = 'skillGo'; B.skill = {type, at:at.clone(), reach, done, t:0, hit:0, g:targetG || null}; B.timer = 30; B.path = null; B.treeVisit = null; showEmote({bite:'💪', claw:'🐾', gnaw:'🦷'}[type], 1.2);
+}
+function skillStep(dt){
+  const k = B.skill; if (!k){ B.mode = 'idle'; return; }
+  const face = Math.atan2(k.at.x - pos.x, k.at.z - pos.z);
+  root.rotation.y += clamp(wrapA(face - root.rotation.y), -4*dt, 4*dt);
+  const prev = k.t; k.t += dt;
+  if (prev === 0){   // the cast: a golden ring spreads under the wombat and sparkles rise
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.8, 1.0, 40), new THREE.MeshBasicMaterial({color:'#ffd65a', transparent:true, opacity:0.9, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide}));
+    ring.rotation.x = -Math.PI/2; ring.position.copy(pos).setY(gy(pos.x, pos.z) + 0.06); scene.add(ring);
+    tools.push({t:0, dur:0.9, update(t){ const k = t/0.9; ring.scale.setScalar(petS*(0.6 + k*1.6)); ring.material.opacity = 0.9*(1 - k); }, done(){ scene.remove(ring); }});
+    sparkles(pos.clone().setY(gy(pos.x, pos.z) + 0.6*petS), 14, 0.8*petS); sfx('grow'); }
+  const beat = type => Math.floor((k.t - 0.5)/0.5);
+  if (k.t > 0.5 && beat() !== k.hit && beat() <= 3){ k.hit = beat(); const hitAt = k.at.clone().setY(gy(k.at.x, k.at.z) + 0.5);
+    const claw = k.type === 'claw' || (k.type === 'gnaw' && k.hit % 2 === 0);
+    if (claw){   // a swipe of the front paws: white claw arcs cut through the target
+      sqv += 0.4; root.rotation.y += (k.hit % 2 ? 0.35 : -0.35); sfx('whoosh');
+      const sl = new THREE.Sprite(new THREE.SpriteMaterial({map:slashTex, transparent:true, depthWrite:false, depthTest:false, rotation:(k.hit % 2 ? 0.6 : -0.6)}));
+      sl.position.copy(hitAt).add(V3(0, 0.2, 0)); sl.scale.setScalar(1.3); scene.add(sl);
+      tools.push({t:0, dur:0.35, update(t){ sl.material.opacity = 1 - t/0.35; sl.scale.setScalar(1.3 + t*1.5); }, done(){ scene.remove(sl); }});
+      for (let i=0;i<6;i++) floatSprite(radialTex(k.type === 'claw' ? 'rgba(110,160,70,1)' : 'rgba(180,140,90,1)', 'rgba(0,0,0,0)'), hitAt.clone(), {size:0.18, vx:rnd(-2, 2), vz:rnd(-2, 2), vy:rnd(1.5, 3), g:8, max:0.8, grow:0}); }
+    else {   // a big bite: lunge, mouth open (eating pose), crunch, stone chips fly
+      sqv += 0.8; vel.y = 1.2*petS; sfx('thud'); setTimeout(() => sfx('nom'), 120);
+      for (let i=0;i<8;i++) floatSprite(radialTex(k.type === 'bite' ? 'rgba(150,146,138,1)' : 'rgba(190,150,100,1)', 'rgba(0,0,0,0)'), hitAt.clone(), {size:0.2, vx:rnd(-2.5, 2.5), vz:rnd(-2.5, 2.5), vy:rnd(2, 4), g:9, max:0.9, grow:0});
+      if (k.g) k.g.scale.multiplyScalar(0.86); }
+    if (k.type === 'gnaw') { const tr = trees.find(t_ => t_.g.position === k.at || (Math.abs(t_.g.position.x - k.at.x) < 0.01 && Math.abs(t_.g.position.z - k.at.z) < 0.01)); if (tr) tr.shake = 1; }
+  }
+  if (k.t > 2.6){ B.skill = null; B.mode = 'idle'; B.timer = 2; k.done && k.done(); spawnHearts(1); }
+}
 function cutTree(tr){
-  if (hasSkill('gnaw')){ showEmote('🦷', 1.4); setTimeout(() => addCoins(6, headTop()), 1600); }   // learned from the beaver: free, and the wood sells
-  else if (!pay(TREE_PRICE)) return;
+  if (hasSkill('gnaw')){ startSkill('gnaw', tr.g.position, treeReach(tr) + 0.2, () => { if (!tr.cut){ fellTree(tr); addCoins(6, headTop()); } }); return; }   // learned from the beaver: free, and the wood sells
+  if (!pay(TREE_PRICE)) return;
+  fellTree(tr);
+}
+function fellTree(tr){
   tr.cut = true; tr.hb.userData.kind = null; S.trees = S.trees.filter(d => d !== tr.d); trees.splice(trees.indexOf(tr), 1); NAV.dirty = true;
   if (B.treeVisit === tr){ B.treeVisit = null; if (B.mode === 'scratch'){ B.mode = 'idle'; B.timer = 1; } }
   const dir = Math.random() < 0.5 ? 1 : -1; sfx('whoosh');
@@ -1773,10 +1868,10 @@ function featMenu(f){
   const name = rock ? {big:'大石頭', mid:'石頭', small:'小石頭'}[size] : '樹叢';
   showModal(name, `<div class="bigicon">${rock ? '🪨' : '🌳'}</div><p>${rock ? (size === 'big' ? `比${S.name || '袋熊'}還大的石頭，擋住了路。` : '路邊的石頭。') : '一叢矮矮的灌木。'}花 ${price} 代幣可以${rock ? '請人搬走' : '清掉'}，空出位置蓋東西。</p>`,
     [{label:'關閉', ghost:true, onClick:()=>{}}, {label:free ? `讓${S.name || '袋熊'}${rock ? '咬碎' : '清掉'}（免費）` : `${rock ? '搬走' : '清掉'}（${price}）`, onClick:() => {
-      if (!world.feats.includes(f) || (price && !pay(price))) return; if (free) showEmote(rock ? '💪' : '✂️', 1.4);
-      dust(d.x, d.z, rock ? 10 : 6, d.s*0.6); sfx(rock ? 'thud' : 'whoosh'); world.removeFeat(f); track(rock ? 'rock' : 'bush'); track('clear'); wildPlaces();
-      if (!rock) leafFall({g:f.g, d:{s:1}}, 6);
-      toast(`${name}清掉了。`); save(); }}]);
+      if (!world.feats.includes(f) || (price && !pay(price))) return;
+      const clear = () => { if (!world.feats.includes(f)) return; dust(d.x, d.z, rock ? 10 : 6, d.s*0.6); sfx(rock ? 'thud' : 'whoosh'); world.removeFeat(f); track(rock ? 'rock' : 'bush'); track('clear'); wildPlaces();
+        if (!rock) leafFall({g:f.g, d:{s:1}}, 6); toast(`${name}清掉了。`); save(); };
+      if (free) startSkill(rock ? 'bite' : 'claw', f.g.position, world.featR(d) + 0.9*Math.max(petS, 0.5) + 0.2, clear, f.g); else clear(); }}]);
 }
 // Tapping the river starts placing a bridge: a see-through preview follows your finger along the river; 確定 builds it there.
 function bridgeMenu(p){
@@ -2535,6 +2630,7 @@ const ACH = [
   {id:'beetle5', icon:'🪲', name:'甲蟲收集家', desc:'點一下甲蟲 5 次（樹幹上、石頭上都有）', test:() => stat('meet:beetle') >= 5, coins:30},
   {id:'worm3', icon:'🪱', name:'雨後的小客人', desc:'下雨後點一下 3 隻蚯蚓', test:() => stat('meet:worm') >= 3, coins:30},
   {id:'rabbit5', icon:'🐇', name:'兔子嚇一跳', desc:'讓野兔逃回洞裡 5 次', test:() => stat('meet:rabbit') >= 5, coins:30},
+  {id:'litter20', icon:'🧺', name:'各地清潔隊', desc:'清掉 20 個各地區特有的雜物（風滾草、枯樹枝、布袋蓮、海草…）', test:() => stat('litter') >= 20, coins:40},
   {id:'meetAll', prog:() => { const ks = Object.keys({...SPECIES, ...WILD_NAMES}); return [ks.filter(k => stat('meet:' + k) >= 1).length, ks.length]; }, icon:'🦓', name:'動物博士', desc:'遇見所有的野生動物', test:() => Object.keys({...SPECIES, ...WILD_NAMES}).every(k => stat('meet:' + k) >= 1), coins:300},
   {id:'use1', icon:'🎠', name:'院子遊樂園', desc:'第一次讓牠玩院子裡的設施', test:() => stat('use') >= 1, coins:15},
   {id:'swing10', icon:'🎡', name:'鞦韆高手', desc:'盪 10 次鞦韆', test:() => stat('use:swing') >= 10, coins:40},
@@ -2660,7 +2756,10 @@ function checkStage(){
   if (S.st.health <= 0){ die('sick'); return; }
   if (readyToEvolve() && !act && !dragging && pos.y < 0.02 && ['idle','walk','goto'].includes(B.mode)) startEvolution(STAGES[S.stage].next);
 }
-function stageScale(){
+// the wombat is drawn at 80% of its old size so that tigers, horses and hippos can be properly bigger than it
+const WOMBAT_SIZE = 0.8;
+function stageScale(){ return WOMBAT_SIZE*stageScale0(); }
+function stageScale0(){
   const sd = STAGES[S.stage]; if (!sd) return 0.45;
   if (S.stage === 'baby') return lerp(sd.scale[0], sd.scale[1], clamp(S.growth/25, 0, 1));
   if (S.stage === 'child') return lerp(sd.scale[0], sd.scale[1], clamp((S.growth-25)/95, 0, 1));
@@ -2952,7 +3051,7 @@ function think(dt){
     if (!B.sleeping && !badWeather()) exitHouse();
     return false;
   }
-  const busy = ['eat','drink','enter','exit','goHouse','use','useWalk','swimGo','swimPlay'].includes(B.mode);
+  const busy = ['eat','drink','enter','exit','goHouse','use','useWalk','swimGo','swimPlay','skillGo','skillDo'].includes(B.mode);
   const wantSleep = st.energy < 20 || (nightF > 0.6 && st.energy < 85);
   if (!busy && wantSleep){ if (BG.house) goHouse(true); else startSleep(); return false; }
   if (!busy || B.mode === 'goHouse'){
@@ -2977,6 +3076,8 @@ function think(dt){
           const d = V3(camera.position.x - camTarget.x, 0, camera.position.z - camTarget.z).normalize(), p = V3(camTarget.x, 0, camTarget.z).addScaledVector(d, 2.2);
           if (!groundOK(p.x, p.z)) p.copy(pos); B.target.copy(p); break; }
       }
+      // wombats graze: now and then it nibbles the grass where it stands (and that makes poop later too)
+      if (B.timer <= 0 && st.hunger < 92 && !swimming && Math.random() < 0.18 && !world.isBeach(pos.x, pos.z)){ B.mode = 'graze'; B.timer = rnd(4, 7); B.nomT = 0; break; }
       if (B.timer <= 0){ if (Math.random() < (st.health < 35 ? 0.3 : 0.72)){ pickWander(); B.mode = 'walk'; B.timer = 10 + Math.hypot(B.target.x - pos.x, B.target.z - pos.z)*2; B.path = null; } else B.timer = rnd(2,4); }
       break; }
     case 'walk': case 'goto': {
@@ -3080,6 +3181,17 @@ function think(dt){
         B.water = null; B.mode = 'idle'; B.timer = 2; spawnHearts(1); track('drink');
       }
       break; }
+    case 'skillGo': {
+      const k = B.skill; if (!k){ B.mode = 'idle'; break; }
+      const r = walkTo(k.at.x, k.at.z, dt, sp*1.2, k.reach); moving = r.moving;
+      if (r.dist < k.reach + 0.25 || r.arrived || B.timer <= 0){ B.mode = 'skillDo'; k.t = 0; }
+      break; }
+    case 'skillDo': skillStep(dt); moving = true; break;
+    case 'graze': {
+      st.hunger = clamp(st.hunger + dt*0.9, 0, 100); B.nomT -= dt; if (B.nomT <= 0){ B.nomT = 0.6; sfx('nom'); }
+      if (Math.random() < dt*0.4) floatSprite(radialTex('rgba(120,170,80,0.9)', 'rgba(120,170,80,0)'), headTop().add(V3(rnd(-0.3, 0.3), -0.9*petS, rnd(-0.3, 0.3))), {size:0.15, vy:0.6, max:0.6, grow:0});
+      if (B.timer <= 0){ B.mode = 'idle'; B.timer = rnd(2, 4); if (Math.random() < 0.45) S.poopQ.push(rnd(1.5, 4)); }
+      break; }
     case 'swimGo': {
       const w_ = B.swim; if (!w_){ B.mode = 'idle'; break; }
       const r = walkTo(w_.at.x, w_.at.z, dt, sp*1.2, 0.3); moving = r.moving;
@@ -3151,6 +3263,8 @@ function statusText(){
   if (B.mode === 'inHouse') return B.sleeping ? '在小窩裡睡覺' : '躲在小窩裡';
   if (B.mode === 'sleep') return '睡覺中';
   if (B.mode === 'eat') return '吃東西中';
+  if (B.mode === 'graze') return '低頭吃草';
+  if (B.mode === 'skillGo' || B.mode === 'skillDo') return '正在施展本領';
   if (B.mode === 'drink') return '喝水中';
   if (B.mode === 'seek') return '發現食物了';
   if (B.mode === 'seekWater') return '去喝水';
@@ -4008,7 +4122,7 @@ function save(force){
   if (halted || PREVIEW) return;
   try {
     S.poops = cubes.map(c => [+c.m.position.x.toFixed(2), +c.m.position.z.toFixed(2), +c.m.rotation.y.toFixed(2), +c.sc.toFixed(2)]);
-    S.weeds = weeds.map(w => [w.x, w.z, w.s]);
+    S.weeds = weeds.map(w => w.kind ? [w.x, w.z, w.s, w.kind] : [w.x, w.z, w.s]);
     S.snowmen = snowmen.map(o => [+o.x.toFixed(2), +o.z.toFixed(2), +o.ry.toFixed(2), +o.melt.toFixed(3)]);
     S.petPos = [+pos.x.toFixed(2), +pos.z.toFixed(2), +root.rotation.y.toFixed(2)];
     S.inHouse = B.mode === 'inHouse';
@@ -4120,7 +4234,7 @@ const wildPlaces = () => { wild.setPlaces(trees.filter(tr => !tr.cut).map(tr => 
   [...world.feats.filter(f => f.d.k === 'bush').map(f => ({x:f.d.x, z:f.d.z, y:f.g.position.y + 0.78*f.d.s})), ...world.lockedAll('bushes')], world.lockedAll('trees'));
   fauna.setForestTrees([...trees.filter(tr => !tr.cut && world.inBio('forest', tr.d.x, tr.d.z) && !tr.d.pine).map(tr => tr.d), ...world.lockedTrees(BIO.forest)]); };
 wildPlaces();
-(S.weeds || []).forEach(([x,z,s]) => makeWeed(x,z,s));
+(S.weeds || []).forEach(([x,z,s,k]) => makeWeed(x,z,s,k));
 (S.poops || []).forEach(([x,z,ry,sc]) => { const c = makePoop(V3(x, gy(x, z) + 0.1*(sc||1), z), null, sc||1); c.m.rotation.y = ry; });
 setupBeach();
 (S.snowmen || []).forEach(([x,z,ry,m]) => makeSnowman(x,z,ry,m));
@@ -4139,7 +4253,7 @@ if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
 if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
-if (new URLSearchParams(location.search).has('debug')) window.W = {houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+if (new URLSearchParams(location.search).has('debug')) window.W = {startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   sim:(secs) => { skipRender = true; try { for (let i=0;i<secs*30;i++) step(true); } finally { skipRender = false; } clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};
@@ -4260,7 +4374,7 @@ function step(manual){
     squashG.scale.set((1 + sq*0.55)*(1 + 0.16*bloatW), 1 - sq, (1 + sq*0.4)*(1 + 0.12*bloatW));
 
     // blend the Blender animation clips by state, then layer procedural motion on top of the bones
-    const eatOn = B.mode === 'eat' || B.mode === 'drink', curled = liftW > 0.5 || (act && ['roll','belly','flip'].includes(act.key));
+    const eatOn = B.mode === 'eat' || B.mode === 'drink' || B.mode === 'graze' || (B.mode === 'skillDo' && B.skill && B.skill.type !== 'claw' && B.skill.t > 0.4), curled = liftW > 0.5 || (act && ['roll','belly','flip'].includes(act.key));
     const rolling = act && act.key === 'ballroll' && act.t > 0.15 && act.t < ACTS.ballroll.dur - 0.2;
     const target = {walk: gaitW*(1 - liftW), eat: eatOn ? 1 : 0, sleep: sleepW, sit: sitW, happy: danceW*0.7, ball: rolling ? 1 : curled ? 0.35 : 0};
     let sum = 0;
@@ -4343,7 +4457,7 @@ function step(manual){
     if (p.flat){ p.g.material.opacity = Math.max(0, 0.75*(1 - p.t/1.2)); if (p.t > 1.2){ scene.remove(p.g); fxPull.splice(i,1); } continue; }
     p.g.position.y = p.t*3; p.g.rotation.z += dt*8; p.g.scale.multiplyScalar(Math.exp(-3*dt)); if (p.t > 0.6){ scene.remove(p.g); fxPull.splice(i,1); } }
   if (bowl && bowl.kind === 'water' && BG.pond && !pondBad()){ scene.remove(bowl.g); bowl = null; }
-  updateFormFx(dt, t); updateFx(dt); updateTools(dt); updatePests(dt); updateTrees(dt); updateButterflies(dt); updateGhost(dt);
+  rollTumbleweeds(dt); updateFormFx(dt, t); updateFx(dt); updateTools(dt); updatePests(dt); updateTrees(dt); updateButterflies(dt); updateGhost(dt);
 
   if (dragging){
     scene.updateMatrixWorld(true);

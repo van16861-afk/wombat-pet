@@ -314,7 +314,7 @@ export function createWildlife({scene, world, clone, hbMat, fx, lod, mat}){
       switch (a.kind){
         case 'gull': {
           a.g.visible = true; const legs = part(a.g, 'gull_legs');
-          if (a.state === 'land'){ wingPose(a, 0, ease(a, 'fold', 1, 4, dt)); a.g.rotation.z = 0; a.g.rotation.x = ease(a, 'px', 0, 5, dt); if (legs) legs.rotation.x = ease(a, 'lx', 0, 6, dt);
+          if (a.state === 'land'){ wingPose(a, 0, ease(a, 'fold', 1, 4, dt)); a.g.rotation.z = 0; a.g.rotation.x = ease(a, 'px', Math.sin(a.t*1.3) > 0.85 ? 0.55 : 0, 8, dt);   // pecks at the sand now and then if (legs) legs.rotation.x = ease(a, 'lx', 0, 6, dt);
             if (a.timer <= 0 || petD < 3){ a.state = 'up'; a.st = 0; a.fold = 0; if (petD < 3) o.onSound && o.onSound('gull', p); }
             else if (Math.random() < dt*0.4){ a.g.rotation.y += rnd(-1, 1); } break; }
           if (a.state === 'up'){ a.st += dt; p.y += dt*2.5; wingPose(a, Math.sin(a.t*11)*0.8, 0, Math.sin(a.t*11 - 0.7)*0.5); a.g.rotation.x = ease(a, 'px', -0.3, 5, dt);
@@ -354,7 +354,9 @@ export function createWildlife({scene, world, clone, hbMat, fx, lod, mat}){
           if (a.state === 'hidden'){ if (a.timer <= 0){ a.state = 'idle'; } break; }
           if (petD < 2.5 && a.state !== 'flee'){ a.state = 'flee'; a.timer = 0.8; o.onSound && o.onSound('scurry', p); }
           const top = V3(r.x + (a.off || 0.2), r.y, r.z); if (!a.off){ a.off = rnd(-0.3, 0.3); }
-          if (a.state === 'flee'){ p.x += Math.sin(a.g.rotation.y)*dt*4; p.z += Math.cos(a.g.rotation.y)*dt*4; if (a.timer <= 0){ a.state = 'hidden'; a.timer = rnd(8, 15); } break; }
+          const lizLegs = k => { for (const [n, ph] of [['FL', 0], ['BR', 0], ['FR', Math.PI], ['BL', Math.PI]]){ const l = part(a.g, 'lizard_leg' + n); if (l) l.rotation.y = Math.sin(a.t*28 + ph)*0.7*k*(n[1] === 'L' ? 1 : -1); } };
+          if (a.state === 'flee'){ p.x += Math.sin(a.g.rotation.y)*dt*4; p.z += Math.cos(a.g.rotation.y)*dt*4; lizLegs(1); if (a.tail) a.tail.rotation.y = Math.sin(a.t*28)*0.4; if (a.timer <= 0){ a.state = 'hidden'; a.timer = rnd(8, 15); } break; }
+          lizLegs(0);
           p.copy(top); if (a.timer <= 0){ a.timer = rnd(2, 6); a.g.rotation.y += rnd(-1.2, 1.2); }
           if (a.tail) a.tail.rotation.y = Math.sin(a.t*2)*0.25;
           break; }

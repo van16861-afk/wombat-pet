@@ -230,6 +230,20 @@ def whiskers(name, parent, root, side_dir, n=4, L=0.12, col='#e8e2d4', spread=0.
             w.add(limb(a, a + d*L*(1 - 0.12*k), r, r*0.4, seg=4), col, 0.3)
     return w.build(parent)
 
+def bird_legs(a, g, hip, heel_z, r1, r2, col, toe=0.06):
+    """Jointed bird legs: "<a>_legL/R" turns at the hip (thigh + tibia down to the heel joint) and "<a>_shinL/R" turns at the
+    heel (the long tarsus and the toes), so a walking bird lifts and folds its feet instead of sliding."""
+    for s_, side in ((1, "L"), (-1, "R")):
+        leg = empty("%s_leg%s" % (a, side), g, (hip[0]*s_, hip[1], hip[2]))
+        heel = Vector((0, 0.03, heel_z - hip[2]))
+        P1 = Painted("%s_leg%sP" % (a, side)); P1.add(limb((0, 0, 0.02), heel, r1*1.1, r1*0.9), col, 0.3).add(bm_ball(r1*1.05, at=heel, seg=8), col, 0.3); P1.build(leg)
+        sh = empty("%s_shin%s" % (a, side), leg, heel)
+        foot = Vector((0, -0.03, -heel_z))
+        P2 = Painted("%s_shin%sP" % (a, side)); P2.add(limb((0, 0, 0), foot, r1*0.85, r2), col, 0.3)
+        for dx in (-1, 0, 1): P2.add(limb(foot, foot + Vector((dx*toe*0.55, -toe, -0.002)), r2*0.7, r2*0.4), col, 0.3)
+        P2.add(limb(foot, foot + Vector((0, toe*0.45, 0.004)), r2*0.6, r2*0.35), col, 0.3)
+        P2.build(sh)
+
 # ================================================================== birds
 # ---------- seagull (common gull: white head and body, pale grey back and wings, black wingtips with white "mirrors",
 # yellow bill with a red spot, yellow legs, dark eye with a red eye-ring) ----------
@@ -383,11 +397,8 @@ def heron():
     eyes("heron", neck, n, (0.0, -0.2, 0.6), (1, -0.4, 0.1), 0.011, iris='#e8cf3a', lid=0.28, slant=0.3, low=0.1, bulge=0.35)
     bits = Painted("heron_bits")
     bits.add(bm_cone(0.025, 0.003, 0.26, rot=R(math.pi/2, 3, 'X'), at=(0, -0.37, 0.58)), '#e2b43c', 0.5)
-    for s in (1, -1): bits.add(limb((0.06*s, 0.16, 0.98), (0.07*s, 0.18, 0.0), 0.016, 0.012), '#d7b45a', 0.3)
     bits.build(n)
-    legs = Painted("heron_legs")
-    for s in (1, -1): legs.add(limb((0.06*s, 0.0, 0.98), (0.07*s, 0.02, 0.0), 0.016, 0.012), '#d7b45a', 0.3)
-    legs.build(g)
+    bird_legs("heron", g, (0.06, 0.0, 0.98), 0.5, 0.016, 0.011, '#d7b45a', toe=0.07)
     return g
 
 # ================================================================== water animals
@@ -451,14 +462,15 @@ def lizard():
         return col, 0.35
     p = Piece("lizard_body", 0.0045)
     p.add(bm_tube([(-0.2, 0.001, 0.001, 0.035), (-0.18, 0.028, 0.02, 0.035), (-0.13, 0.038, 0.028, 0.036), (-0.09, 0.026, 0.022, 0.036), (0.0, 0.05, 0.034, 0.036), (0.1, 0.045, 0.03, 0.035), (0.16, 0.028, 0.02, 0.03)], seg=18), '#6f9a3a', 0)
-    for s in (1, -1):
-        for y in (-0.06, 0.1):
-            p.add(limb((0.03*s, y, 0.03), (0.08*s, y - 0.01, 0.02), 0.012, 0.01), '#6f9a3a', 0).add(limb((0.08*s, y - 0.01, 0.02), (0.1*s, y - 0.02, 0.0), 0.01, 0.008), '#6f9a3a', 0)
     body = p.build(g, shade=shade)
+    def lleg(lp, front, s_):   # sprawled lizard legs: upper leg out to the side, lower leg down, splayed toes
+        lp.add(limb((0, 0, 0), (0.05*s_, -0.005, -0.008), 0.012, 0.01), '#6f9a3a', 0).add(limb((0.05*s_, -0.005, -0.008), (0.065*s_, -0.012, -0.03), 0.01, 0.008), '#6f9a3a', 0)
+        for k in (-1, 0, 1): lp.add(limb((0.065*s_, -0.012, -0.03), (0.075*s_ + k*0.006, -0.03 + abs(k)*0.006, -0.032), 0.004, 0.003), '#6f9a3a', 0)
+    legs4("lizard", g, [((0.03, -0.06, 0.03), "F"), ((0.03, 0.1, 0.03), "B")], lleg, shade=lambda co, c, f: (c, 0.35), voxel=0.004)
     eyes("lizard", body, g, (0.0, -0.15, 0.045), (1, -0.3, 0.45), 0.008, iris='#c99a20', lid=0.28, low=0.18, bulge=0.4)
     t = empty("lizard_tail", g, (0, 0.15, 0.03))
     tp = Piece("lizard_tailP", 0.004); tp.add(bm_tube([(0.0, 0.026, 0.019, 0), (0.12, 0.016, 0.012, 0), (0.25, 0.007, 0.005, -0.008), (0.34, 0.001, 0.001, -0.012)], seg=14), '#6f9a3a', 0)
-    tp.build(t, shade=shade)
+    tp.build(t, shade=lambda co, c, f: (mixc(lin('#d8d49a'), c, sstep(-0.012, 0.004, co.z)) if math.sin(co.y*70) < 0.6 else mixc(c, lin('#3f6a2a'), 0.6), 0.35))
     return g
 
 # ---------- frog (pond frog sitting up: pointed snout, bulging golden eyes with a horizontal pupil, eardrum, light ridges
@@ -639,8 +651,11 @@ def beaver():
     p.add(bm_ball(0.09, at=(0, -0.5, 0.31), scale=(1.15, 0.9, 0.8)), '#8e6646', 0.6)
     for s in (1, -1):
         p.add(bm_ball(0.045, at=(0.13*s, -0.3, 0.52), scale=(1, 0.6, 1)), DK, 0.4)
-        p.add(limb((0.16*s, -0.22, 0.12), (0.17*s, -0.3, 0.0), 0.05, 0.04), DK, 0.6).add(limb((0.2*s, 0.2, 0.14), (0.22*s, 0.24, 0.0), 0.07, 0.05), DK, 0.6)
     body = p.build(g)
+    def bleg(lp, front, s_):
+        if front: lp.add(limb((0, 0, 0.04), (0.01*s_, -0.06, -0.11), 0.055, 0.04), DK, 0.6).add(bm_ball(0.04, at=(0.01*s_, -0.08, -0.12), scale=(1.1, 1.3, 0.5)), DK, 0.2)
+        else: lp.add(limb((0, 0, 0.04), (0.02*s_, 0.02, -0.12), 0.075, 0.05), DK, 0.6).add(bm_ball(0.06, at=(0.02*s_, -0.04, -0.13), scale=(1.3, 2.2, 0.3)), '#3a2a20', 0.1)   # big webbed hind feet
+    legs4("beaver", g, [((0.16, -0.24, 0.12), "F"), ((0.2, 0.2, 0.14), "B")], bleg)
     solid("beaver_nose", bm_ball(0.035, scale=(1.3, 0.9, 0.8)), mat("Nose", '#1e1612', 0.15), g, (0, -0.585, 0.36), 0)
     solid("beaver_teeth", bm_ball(0.05, scale=(0.8, 0.25, 0.9)), mat("BeaverTeeth", '#f0b83a', 0.25), g, (0, -0.56, 0.24), 0)
     eyes("beaver", body, g, (0.0, -0.36, 0.38), (0.09, -0.11, 0.08), 0.021, lid=0.3, low=0.15)
@@ -702,11 +717,7 @@ def emu():
     neck = np_.build(n)
     solid("emu_beak", bm_cone(0.03, 0.006, 0.1, rot=R(math.pi/2, 3, 'X')), mat("EmuBeak", '#3b3530', 0.3), n, (0, -0.3, 0.67), 0)
     eyes("emu", neck, n, (0.0, -0.17, 0.68), (0.045, -0.05, 0.04), 0.016, iris='#a05a2a', lid=0.28, low=0.12)
-    for s, side in ((1, "L"), (-1, "R")):
-        legs = empty("emu_leg" + side, g, (0.13*s, 0.05, 0.78))
-        solid("emu_legM" + side, limb((0, 0, 0), (0, 0.06, -0.4), 0.05, 0.035), mat("EmuLeg", '#6b6158', 0.6), legs)
-        solid("emu_legL" + side, limb((0, 0.06, -0.4), (0, 0.0, -0.76), 0.035, 0.03), mat("EmuLeg", '#6b6158', 0.6), legs)
-        for k in (-1, 0, 1): solid("emu_toe%s%d" % (side, k), limb((0, 0.0, -0.76), (k*0.06, -0.12, -0.78), 0.015, 0.008), mat("EmuLeg", '#6b6158', 0.6), legs)
+    bird_legs("emu", g, (0.13, 0.05, 0.8), 0.42, 0.045, 0.03, '#6b6158', toe=0.12)
     return g
 
 def koala():
@@ -837,13 +848,13 @@ def beetle(kind):
     return g
 
 # ================================================================== the grassland and more
-def legs4(a, g, places, build, shade=None):
+def legs4(a, g, places, build, shade=None, voxel=None):
     """Four leg parts "<a>_legFL/FR/BL/BR" (joint at the hip/shoulder) built by build(piece, front, s)."""
     for s in (1, -1):
         for (x, y, z), nm in places:
             leg = empty("%s_leg%s%s" % (a, nm, "L" if s > 0 else "R"), g, (x*s, y, z))
-            fur = "_fur" if a in ("horse", "tiger", "capybara", "monkey") else ""
-            lp = Piece("%s_leg%s%sP%s" % (a, nm, "L" if s > 0 else "R", fur), 0.012 if a != "tortoise" else 0.008, target=450)
+            fur = "_fur" if a in ("horse", "tiger", "capybara", "monkey", "beaver") else ""
+            lp = Piece("%s_leg%s%sP%s" % (a, nm, "L" if s > 0 else "R", fur), voxel or (0.012 if a != "tortoise" else 0.008), target=450)
             build(lp, nm == "F", s); lp.build(leg, shade=shade)
 
 # ---------- horse (bay: red-brown coat, black mane, tail and lower legs; neck and head bend down to graze) ----------
@@ -1061,11 +1072,7 @@ def peacock():
     for k in range(-2, 3):
         a = Vector((0, -0.06, 0.34)); b = a + Vector((k*0.012, 0.01, 0.07)); bits.add(limb(a, b, 0.0025, 0.0015, seg=5), BL, 0.4).add(bm_ball(0.008, at=b, scale=(1, 0.6, 1.2), seg=6), BL, 0.6)   # crest
     bits.build(n)
-    legs = Painted("peacock_legs")
-    for s in (1, -1):
-        A = Vector((0.05*s, 0.02, 0.0)); legs.add(limb((0.05*s, 0.05, 0.62), A + Vector((0, 0, 0.01)), 0.012, 0.01), '#8a8070', 0.3)
-        for dx in (-0.025, 0, 0.025): legs.add(limb(A, A + Vector((dx*s, -0.06, 0)), 0.006, 0.004), '#8a8070', 0.3)
-    legs.build(g)
+    bird_legs("peacock", g, (0.05, 0.05, 0.64), 0.32, 0.014, 0.01, '#8a8070', toe=0.06)
     def eyespot(d, base):
         if d < 0.028: return lin('#13235e')
         if d < 0.042: return lin('#1f8fa0')
@@ -1115,11 +1122,7 @@ def crane():
     neck = np_.build(n, shade=nshade)
     eyes("crane", neck, n, (0, -0.15, 0.625), (1, -0.4, 0.1), 0.01, iris='#2a1a10', lid=0.25, low=0.1)
     bits = Painted("crane_bits"); bits.add(bm_cone(0.02, 0.003, 0.17, rot=R(math.pi/2 + 0.1, 3, 'X'), at=(0, -0.26, 0.61)), '#8a8a5a', 0.4); bits.build(n)
-    legs = Painted("crane_legs")
-    for s_ in (1, -1):
-        legs.add(limb((0.06*s_, 0.02, 0.98), (0.07*s_, 0.03, 0.0), 0.015, 0.011), '#2e2e30', 0.3)
-        for dx in (-0.04, 0, 0.04): legs.add(limb((0.07*s_, 0.03, 0.0), (0.07*s_ + dx, -0.07, 0.0), 0.007, 0.005), '#2e2e30', 0.3)
-    legs.build(g)
+    bird_legs("crane", g, (0.06, 0.02, 0.98), 0.5, 0.016, 0.011, '#2e2e30', toe=0.075)
     for s_, side in ((1, "L"), (-1, "R")):
         w = empty("crane_wing" + side, g, (0.12*s_, -0.05, 1.08))
         wp = Piece("crane_wing%s_feather" % side, 0.01, target=500)
