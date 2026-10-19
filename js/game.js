@@ -1626,7 +1626,7 @@ function rollTumbleweeds(dt){
 }
 const plotBio = k => Object.keys(BIO).find(b => BIO[b] === k);
 function spawnWeed(){
-  const open = world.data.open; if (weeds.length >= Math.min(26, 8 + 3*open.length)) return;
+  const open = world.data.open; if (weeds.length >= weedCap()) return;
   const k_ = open[Math.floor(Math.random()*open.length)], [px, pz] = k_.split(',').map(Number).map(v => v*18), bio = plotBio(k_);
   // special areas grow their own litter half the time
   const lit = Object.keys(LITTER).find(l => LITTER[l].where === bio) || (k_.startsWith('1,') && Math.random() < 0.5 ? 'seaweed' : null);
@@ -1657,6 +1657,17 @@ function pullWeed(w){
       if (!this.popped){ this.popped = true; sfx('pop'); addCoins(w.kind ? 3 : 2, at.clone().add(V3(0,0.6,0))); if (w.kind) track('litter'); } }
     if (t > 1.0){ const f = Math.max(0.01, 1 - (t-1.0)/0.25); hand.scale.setScalar(f); w.g.scale.setScalar(w.s*f); }
   }, done(){ scene.remove(hand, w.g); }});
+}
+// The clean button (without the one-tap upgrade) points out every poop and weed with a big bobbing marker for a while,
+// so they can be found even far away on other plots.
+function markMess(){
+  const P = cubes.filter(c => !c.cleaning), Wd = weeds.filter(w => !w.kind), L = weeds.filter(w => w.kind);
+  toast(`還有 ${[P.length && `便便 ${P.length} 坨`, Wd.length && `雜草 ${Wd.length} 株`, L.length && `垃圾 ${L.length} 個`].filter(Boolean).join('、')}，已經用標記標出來了，點它們就能清掉。想按一下全部清光，可以到商店買「一鍵清理」。`);
+  const add = (alive, at, e) => { const s = new THREE.Sprite(new THREE.SpriteMaterial({map:emojiTex(e), transparent:true, depthTest:false, depthWrite:false})); s.renderOrder = 999; scene.add(s);
+    tools.push({t:0, dur:15, update(t){ if (!alive()){ s.visible = false; return; } const p = at(), d = camera.position.distanceTo(p), k = Math.max(0.55, d*0.045)*Math.min(1, (15 - t)*2);
+      s.scale.setScalar(k); s.position.set(p.x, p.y + 0.9 + k*0.6 + Math.abs(Math.sin(t*4))*k*0.4, p.z); }, done(){ scene.remove(s); s.material.dispose(); }}); };
+  P.forEach(c => add(() => cubes.includes(c) && !c.cleaning, () => c.m.position, '💩'));
+  weeds.forEach(w => add(() => weeds.includes(w), () => w.g.position, w.kind ? '🗑️' : '🌿'));
 }
 // ---------- pests: flies buzz around poop when the yard gets dirty, cockroaches show up when it's filthy ----------
 const flyTex = canvasTex(64,64,(x)=>{ x.fillStyle = 'rgba(220,235,245,0.75)'; x.beginPath(); x.ellipse(22,24,12,7,-0.5,0,Math.PI*2); x.ellipse(42,24,12,7,0.5,0,Math.PI*2); x.fill();
@@ -2699,7 +2710,9 @@ const STAGES = {
 const STAGE_ORDER = ['baby','child','adult','perfect','ultimate'];
 const LIFE = 8*1440;
 const ageMin = () => S.ageMs/60000;
-const cleanVal = () => clamp(100 - cubes.length*14 - weeds.length*4, 0, 100);
+// weeds/litter spread over every open plot, so they weigh less the bigger the land is: a full load of weeds costs at most 30
+const weedCap = () => Math.min(26, 8 + 3*world.data.open.length);
+const cleanVal = () => clamp(100 - cubes.filter(c => !c.cleaning).length*12 - weeds.length*30/weedCap(), 0, 100);
 const growthOK = () => S.st.health >= 50 && S.st.hunger >= 30 && S.st.thirst >= 30;
 function weatherNow(){
   if (S.weather.forced) return S.weather.forced;
@@ -3930,7 +3943,7 @@ document.querySelector('.dock').addEventListener('click', e => {
   else if (c === 'clean'){
     const list = [...cubes.filter(x => !x.cleaning).map(x => ['p',x]), ...weeds.map(x => ['w',x])];
     if (!list.length){ toast('很乾淨，沒有東西要清。'); return; }
-    if (!S.autoClean){ toast('點便便或雜草就能一個一個清理。想按一下就全部清光，可以到商店買「一鍵清理」。'); return; }
+    if (!S.autoClean){ markMess(); return; }
     list.forEach(([k,x],i) => setTimeout(() => k === 'p' ? cleanPoop(x) : pullWeed(x), i*260));
   } else { sheetKind === c ? closeSheet() : openSheet(c); }
   hudDirty = true;
