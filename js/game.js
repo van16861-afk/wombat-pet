@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { cloud } from './cloud.js';
+import { createGhibli } from './ghibli.js';
 import { createFauna, SPECIES } from './fauna.js';
 import { createWildlife, WILD_NAMES } from './wildlife.js';
 import { createWorld, newWorld, HALF, WATER_Y, X0, X1, Z0, Z1, BIO, plotKey, PLOT_KEYS, SEE, seeThrough, leafMaterial, swaying, CANOPY_BLOBS } from './world.js';
@@ -60,6 +61,11 @@ addEventListener('resize', resize); resize();
 const L = V3(0.45, 1, 0.55).normalize();
 const hemi = new THREE.HemisphereLight(0xfff8ec, 0x6d7562, 0.8*LI); scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffffff, 0.75*LI); sun.position.copy(L).multiplyScalar(10); scene.add(sun);
+// art style: 'ghibli' (painted sky + watercolour filter, the default) or 'plain' (the original look)
+const art = createGhibli({renderer, scene, camera, mobile});
+function setArt(v){ art.set(v !== 'plain');
+  if (art.on){ hemi.color.set('#eef4ff'); hemi.groundColor.set('#55776a'); } else { hemi.color.set(0xfff8ec); hemi.groundColor.set(0x6d7562); }   // cool blue-green shade under leaves and bellies
+  if (world && world.tufts) world.tufts.material.color.set(art.on ? '#b4dc84' : '#ffffff'); }   // meadow-green grass blades instead of straw
 
 // ---------- canvas textures ----------
 function canvasTex(w, h, draw){ const cv = document.createElement('canvas'); cv.width = w; cv.height = h; draw(cv.getContext('2d'), w, h); return new THREE.CanvasTexture(cv); }
@@ -3371,6 +3377,7 @@ function updateSky(di){
   const ld = (di.n < 0.5 || moonDirNow.y < 0 ? sunDirNow : moonDirNow).clone(); ld.y = Math.max(ld.y, 0.3); ld.normalize();
   L.lerp(ld, 0.05).normalize(); sun.position.copy(L).multiplyScalar(10);
   sun.color.set(mixHex('#ffffff', '#ffc890', clamp(1 - sunDirNow.y*2.5, 0, 1)*(1 - di.n)));
+  if (art.on) sun.color.lerp(new THREE.Color('#ffe2b8'), 0.4*(1 - di.n));   // warm afternoon light
 }
 function updateWorld(dt, t){
   const di = dayInfo(); nightF = di.n;
@@ -3390,6 +3397,7 @@ function updateWorld(dt, t){
   let sky = mixHex(SKY_DAY, SKY_NIGHT, di.n); sky = mixHex(sky, SKY_DUSK, di.dusk*0.6);
   sky = mixHex(sky, '#8e979a', W.grey*(1-di.n*0.6)); if (W.white) sky = mixHex(sky, '#eef1f3', W.white*(1-di.n));
   if (hol) sky = mixHex(sky, hol.tint[0], hol.tint[1]*(1-di.n*0.5));
+  if (art.on) sky = '#' + art.update(dt, {night:di.n, dusk:di.dusk, grey:W.grey, sunDir:sunDirNow, holiday: hol ? hol.tint : null}).getHexString();
   document.documentElement.style.setProperty('--bg', sky);
   const theme = di.n > 0.5 ? 'dark' : 'light'; if (theme !== lastTheme){ lastTheme = theme; document.documentElement.dataset.theme = theme; }
   snowCover = clamp(snowCover + (w === 'snow' ? 0.015 : -0.006)*dt, 0, 0.75);
@@ -3660,7 +3668,8 @@ function renderSheet(){
     else h += owned.map(c => `<div class="card" style="margin-top:10px"><div class="row"><h3>${c.name}</h3><button class="btn ${S.worn[c.id] ? '' : 'ghost'}" data-wear="${c.id}">${S.worn[c.id] ? '脫下' : '穿上'}</button></div><div class="swrow" role="radiogroup" aria-label="${c.name}顏色">` + PALETTE.map(p => `<button class="sw" role="radio" aria-checked="${(S.colors[c.id]||c.def)===p}" aria-label="${p}" data-col="${c.id}|${p}" style="background:${p}"></button>`).join('') + `</div></div>`).join('');
   } else if (sheetKind === 'settings'){
     const sp = [1,10,60], wx = [['auto','自動'],['sunny','晴'],['cloudy','多雲'],['rain','雨'],['snow','雪'],['storm','雷雨']];
-    h = musicHTML() + `<p class="sec">晝夜</p><div class="opts"><button class="icon" data-day="hourly" aria-pressed="${S.dayMode==='hourly'}">每小時切換早晚</button><button class="icon" data-day="real" aria-pressed="${S.dayMode==='real'}">跟現實時間同步</button></div>`
+    h = `<p class="sec">畫風</p><div class="opts"><button class="icon" data-art="ghibli" aria-pressed="${S.art !== 'plain'}">吉卜力水彩（試作）</button><button class="icon" data-art="plain" aria-pressed="${S.art === 'plain'}">原本的畫風</button></div>`
+      + musicHTML() + `<p class="sec">晝夜</p><div class="opts"><button class="icon" data-day="hourly" aria-pressed="${S.dayMode==='hourly'}">每小時切換早晚</button><button class="icon" data-day="real" aria-pressed="${S.dayMode==='real'}">跟現實時間同步</button></div>`
       + `<p class="sec">時間流速（只影響成長和數值，10 倍、60 倍適合想快點看牠進化）</p><div class="opts">` + sp.map(v => `<button class="icon" data-speed="${v}" aria-pressed="${S.speed===v}">${v} 倍</button>`).join('') + `</div>`
       + `<p class="sec">天氣</p><div class="opts">` + wx.map(([k,l]) => `<button class="icon" data-wx="${k}" aria-pressed="${(S.weather.forced||'auto')===k}">${l}</button>`).join('') + `</div>`
       + `<p class="sec">節日預覽（看背景和音樂，限定商品只能在真正的節日當天買）</p><div class="opts"><button class="icon" data-hol="" aria-pressed="${!previewHoliday}">關閉</button>` + HOLIDAYS.map(x => `<button class="icon" data-hol="${x.id}" aria-pressed="${previewHoliday===x.id}">${x.name}</button>`).join('') + `</div>`
@@ -3755,6 +3764,7 @@ sheetBody.addEventListener('click', e => {
   if (d.wear){ wear(d.wear, !S.worn[d.wear]); }
   if (d.col){ const [id, col] = d.col.split('|'); S.colors[id] = col; applyClothes(); }
   if (d.bright){ S.bright = +d.bright/100; }
+  if (d.art){ S.art = d.art; setArt(S.art); }
   if (d.speed){ S.speed = +d.speed; }
   if (d.day){ S.dayMode = d.day; lastPhase = null; }
   if (d.wx){ S.weather.forced = d.wx === 'auto' ? null : d.wx; }
@@ -4282,6 +4292,7 @@ setupBeach();
 (S.snowmen || []).forEach(([x,z,ry,m]) => makeSnowman(x,z,ry,m));
 if (S.petPos){ pos.set(S.petPos[0], 0, S.petPos[1]); root.rotation.y = S.petPos[2]; }
 applyForm();
+setArt(S.art);
 petS = stageScale();
 refreshViewBtn(); if (!PREVIEW){ dailyNow(); taskBadge(); }
 if (camMode() === 'iso'){ yaw = 0.785; pitch = 0.79; } else if (camMode() === 'top'){ yaw = 0; pitch = 1.42; }
@@ -4295,7 +4306,7 @@ if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
 if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
-if (new URLSearchParams(location.search).has('debug')) window.W = {inBuild, freeNear, poopNow, spawnWeed, weedSpotOK, overBridge, moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+if (new URLSearchParams(location.search).has('debug')) window.W = {setArt, inBuild, freeNear, poopNow, spawnWeed, weedSpotOK, overBridge, moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   sim:(secs) => { skipRender = true; try { for (let i=0;i<secs*30;i++) step(true); } finally { skipRender = false; } clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};
@@ -4511,7 +4522,7 @@ function step(manual){
   hudT -= dt; if (hudDirty || hudT <= 0){ hudT = 0.5; renderHUD(); }
   // trees, bushes and rocks between the camera and the wombat get a see-through hole
   { const see = petActive() && root.visible; SEE.b.value.copy(camera.position); SEE.a.value.set(see ? pos.x : camTarget.x, (see ? petGY + pos.y + 0.7*petS : camTarget.y), see ? pos.z : camTarget.z); SEE.r.value = see ? 1.6*Math.max(petS, 0.7) : 0; }
-  if (!skipRender) renderer.render(scene, camera);
+  if (!skipRender){ if (art.on) art.render(); else renderer.render(scene, camera); }
   if (!manual) requestAnimationFrame(step);
 }
 requestAnimationFrame(step);
