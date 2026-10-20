@@ -6,7 +6,7 @@ import { cloud } from './cloud.js';
 import { createGhibli } from './ghibli.js';
 import { createFauna, SPECIES } from './fauna.js';
 import { createWildlife, WILD_NAMES } from './wildlife.js';
-import { createWorld, newWorld, HALF, WATER_Y, X0, X1, Z0, Z1, BIO, plotKey, PLOT_KEYS, SEE, seeThrough, leafMaterial, swaying, CANOPY_BLOBS, leafyCanopy, canopyTex, vines, fieldStone } from './world.js';
+import { createWorld, newWorld, HALF, PLOT, WATER_Y, X0, X1, Z0, Z1, BIO, plotKey, PLOT_KEYS, SEE, seeThrough, leafMaterial, swaying, CANOPY_BLOBS, leafyCanopy, canopyTex, vines, fieldStone } from './world.js';
 
 // Keep r128-era colour handling so the hand-tuned palette and fur shader look the same.
 THREE.ColorManagement.enabled = false;
@@ -1657,17 +1657,17 @@ const stillSpotOK = (x, z, where) => (where === 'pond' ? world.isPond(x, z) : wo
 const litterSpotOK = (x, z, k) => k && LITTER[k] && LITTER[k].still ? stillSpotOK(x, z, LITTER[k].still) : weedSpotOK(x, z);
 function spawnWeed(){
   const open = world.data.open; if (weeds.length >= weedCap()) return;
-  const k_ = open[Math.floor(Math.random()*open.length)], [px, pz] = k_.split(',').map(Number).map(v => v*18), bio = plotBio(k_);
+  const k_ = open[Math.floor(Math.random()*open.length)], [px, pz] = k_.split(',').map(Number).map(v => v*PLOT), bio = plotBio(k_), hp = PLOT/2 - 0.5;
   // special areas grow their own litter half the time
   const lit = Object.keys(LITTER).find(l => LITTER[l].where === bio) || (k_.startsWith('1,') && Math.random() < 0.5 ? 'seaweed' : null);
   if (lit && (bio ? Math.random() < 0.55 : true)){
-    for (let k=0;k<60;k++){ const x = px + rnd(-8.5, 8.5), z = pz + rnd(-8.5, 8.5);
+    for (let k=0;k<60;k++){ const x = px + rnd(-hp, hp), z = pz + rnd(-hp, hp);
       if (!litterSpotOK(x, z, lit)) continue;
       if (lit === 'seaweed' && !world.isBeach(x, z)) continue;
       if (obstacles().some(o => Math.hypot(o.c.x-x, o.c.z-z) < o.r + 0.4)) continue;
       makeWeed(+x.toFixed(2), +z.toFixed(2), +rnd(0.85, 1.2).toFixed(2), lit); return; } }
   for (let k=0;k<16;k++){
-    const x = px + rnd(-8.5, 8.5), z = pz + rnd(-8.5, 8.5);
+    const x = px + rnd(-hp, hp), z = pz + rnd(-hp, hp);
     if (!weedSpotOK(x, z) || world.isBeach(x, z) || world.isMud(x, z)) continue;
     if (obstacles().some(o => Math.hypot(o.c.x-x, o.c.z-z) < o.r + 0.4)) continue;
     if (Math.hypot(pos.x-x, pos.z-z) < 1.6) continue;
@@ -1897,7 +1897,7 @@ function plotMenu(k){
 }
 function openPlot(k){
   const price = world.price(); if (!pay(price)) return;
-  const [a, b] = k.split(',').map(Number), cx = a*18, cz = b*18;
+  const [a, b] = k.split(',').map(Number), cx = a*PLOT, cz = b*PLOT;
   world.openPlot(k);
   S.trees.filter(d => d.p === k).forEach(d => { const tr = makeTree(d); tr.g.scale.setScalar(0.01); tools.push({t:0, dur:0.8, update(t){ tr.g.scale.setScalar(Math.max(0.01, d.s*Math.min(1, t/0.6))); }, done(){ tr.g.scale.setScalar(d.s); }}); });
   dust(cx, cz, 26, 8); sfx('whoosh'); setTimeout(() => sfx('grow'), 600); koalaPerches(); wildPlaces();
@@ -2783,7 +2783,7 @@ function sim(m, offline){
   S.bushT = (S.bushT ?? 10) - m;   // now and then a bush grows back somewhere on your land (never rocks or trees)
   if (S.bushT <= 0 && !offline){ S.bushT = rnd(8, 16); const open = world.data.open;
     if (world.feats.filter(f => f.d.k === 'bush').length < open.length*2){ const k = open[Math.floor(Math.random()*open.length)], [a, b] = k.split(',').map(Number);
-      for (let i=0;i<12;i++){ const x = a*18 + rnd(-8, 8), z = b*18 + rnd(-8, 8); if (!groundOK(x, z) || world.isBeach(x, z) || world.isMud(x, z) || obstacles().some(o => Math.hypot(o.c.x - x, o.c.z - z) < o.r + 1.2) || Math.hypot(x - pos.x, z - pos.z) < 2.5) continue;
+      for (let i=0;i<12;i++){ const x = a*PLOT + rnd(-PLOT/2 + 1, PLOT/2 - 1), z = b*PLOT + rnd(-PLOT/2 + 1, PLOT/2 - 1); if (!groundOK(x, z) || world.isBeach(x, z) || world.isMud(x, z) || obstacles().some(o => Math.hypot(o.c.x - x, o.c.z - z) < o.r + 1.2) || Math.hypot(x - pos.x, z - pos.z) < 2.5) continue;
         if (Object.entries(S.place || {}).some(([id, p]) => { const bd = bdef(id); return bd && bd.size && S.builds[id] && cellsOf(bd, p).some(([cx, cz]) => Math.hypot(cx - x, cz - z) < 1.5); })) continue;
         world.addBush(x, z, k); NAV.dirty = true; break; } } }
 }
@@ -4271,8 +4271,13 @@ function importSave(){
 const worldIsNew = !S.world;
 if (worldIsNew) S.world = newWorld(Math.floor(Math.random()*2147483647));
 world = createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fishModel, treeModels:TREE_MODELS, onFeatGone:() => { NAV.dirty = true; }});
+const preV = S.world.v || 1;
 world.load(S.world);
+const grew = !worldIsNew && preV < 4;   // the save was made with 18-wide plots: spread our own things out the same way the world was
+if (grew){ const k = PLOT/18, s = v => +(v*k).toFixed(2), xz = a => { a[0] = s(a[0]); a[1] = s(a[1]); };
+  (S.trees || []).forEach(t => { t.x = s(t.x); t.z = s(t.z); }); (S.weeds || []).forEach(xz); (S.poops || []).forEach(xz); (S.snowmen || []).forEach(xz); if (S.petPos) xz(S.petPos); }
 Object.keys(S.builds).forEach(id => S.builds[id] && build(id));
+if (grew) (S.trees || []).forEach(t => { if (inBuild(t.x, t.z, 0.8)){ const q = freeNear(V3(t.x, 0, t.z), 0.8); t.x = +q.x.toFixed(2); t.z = +q.z.toFixed(2); } });   // buildings stayed put
 if (!S.trees) plantTrees();
 // thin out the wild land once (fewer rocks, bushes and trees in plots not yet cleared; all rocks a bit smaller)
 if (!S.world.trim){ S.world.trim = 1; const keep = id => (id*2654435761 >>> 0) % 100 > 40;
