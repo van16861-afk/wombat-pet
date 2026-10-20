@@ -5,10 +5,11 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
 
 const NOISE = `
-float h21(vec2 p){ p = fract(p*vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x*p.y); }
+// small, precision-safe hash (wrapped to a small range first, so phones with lower float precision don't get blocky)
+float h21(vec2 p){ p = mod(p, 289.0); vec3 q = fract(vec3(p.xyx)*0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y)*q.z); }
 float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0 - 2.0*f);
   return mix(mix(h21(i), h21(i + vec2(1, 0)), f.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), f.x), f.y); }
 float fbm(vec2 p){ float v = 0.0, a = 0.5; for (int i=0; i<5; i++){ v += a*vnoise(p); p = p*2.03 + 17.1; a *= 0.5; } return v; }`;
@@ -38,7 +39,8 @@ const skyMat = new THREE.ShaderMaterial({
 
 // --- the painting pass ---
 const PaintShader = {
-  uniforms:{tDiffuse:{value:null}, tDepth:{value:null}, uRes:{value:new THREE.Vector2(1, 1)}, uAmt:{value:0.75}, uNight:{value:0}, uTime:{value:0}, uCover:{value:0.5},
+  defines:{R:3},
+  uniforms:{tDiffuse:{value:null}, tDepth:{value:null}, uRes:{value:new THREE.Vector2(1, 1)}, uAmt:{value:0.92}, uNight:{value:0}, uTime:{value:0}, uCover:{value:0.5},
     uInvProj:{value:new THREE.Matrix4()}, uCamWorld:{value:new THREE.Matrix4()}},
   vertexShader:`varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position, 1.0); }`,
   fragmentShader:NOISE + `
@@ -46,16 +48,17 @@ const PaintShader = {
     vec3 tx(vec2 o){ return texture2D(tDiffuse, vUv + o/uRes).rgb; }
     void main(){
       vec3 src = tx(vec2(0));
-      // Kuwahara (radius 2): take the mean of whichever of the four quadrants is flattest -> flat painted patches, kept edges
+      // Kuwahara (radius R): take the mean of whichever of the four quadrants is flattest -> flat painted patches, kept edges
       vec3 m[4]; vec3 s[4];
       for (int k=0;k<4;k++){ m[k] = vec3(0); s[k] = vec3(0); }
-      for (int j=-2;j<=2;j++) for (int i=-2;i<=2;i++){
+      for (int j=-R;j<=R;j++) for (int i=-R;i<=R;i++){
         vec3 c = tx(vec2(i, j)), c2 = c*c;
         if (i <= 0 && j <= 0){ m[0] += c; s[0] += c2; } if (i >= 0 && j <= 0){ m[1] += c; s[1] += c2; }
         if (i <= 0 && j >= 0){ m[2] += c; s[2] += c2; } if (i >= 0 && j >= 0){ m[3] += c; s[3] += c2; } }
       vec3 paint = src; float best = 1e9;
-      for (int k=0;k<4;k++){ vec3 mu = m[k]/9.0, v = abs(s[k]/9.0 - mu*mu); float sv = v.r + v.g + v.b; if (sv < best){ best = sv; paint = mu; } }
-      vec3 c = mix(src, paint, uAmt);
+      float nq = float((R + 1)*(R + 1));
+      for (int k=0;k<4;k++){ vec3 mu = m[k]/nq, v = abs(s[k]/nq - mu*mu); float sv = v.r + v.g + v.b; if (sv < best){ best = sv; paint = mu; } }
+      vec3 c = clamp(mix(src, paint, uAmt), 0.0, 1.0);
       // faint ink edges where the brightness changes sharply
       float l0 = dot(tx(vec2(-1, 0)), vec3(0.33)) - dot(tx(vec2(1, 0)), vec3(0.33)), l1 = dot(tx(vec2(0, -1)), vec3(0.33)) - dot(tx(vec2(0, 1)), vec3(0.33));
       c *= 1.0 - smoothstep(0.08, 0.35, length(vec2(l0, l1)))*0.22;
@@ -71,10 +74,12 @@ const PaintShader = {
       c = pow(c, vec3(1.12));                                   // deeper mid-tones (the game's own colours are pale)
       c = mix(c, c*c*(3.0 - 2.0*c), 0.3);                         // gentle S-curve for painted contrast
       float g = max(c.g - max(c.r, c.b), 0.0); c.r += g*0.18; c.b += g*0.12; c.g -= g*0.12;   // tame neon greens toward soft sap/olive greens
-      lum = dot(c, vec3(0.299, 0.587, 0.114)); c = mix(vec3(lum), c, 1.06);
+      lum = dot(c, vec3(0.299, 0.587, 0.114)); c = clamp(mix(vec3(lum), c, 1.32), 0.0, 1.0);
       // watercolour paper: low-frequency blotches plus fine grain
       vec2 px = vUv*uRes;
-      c *= 0.975 + 0.035*fbm(px/90.0) + 0.02*(h21(px) - 0.5);
+      float bl = fbm(px/70.0), bl2 = fbm(px/18.0 + 31.0);
+      c *= 0.95 + 0.08*bl + 0.04*(bl2 - 0.5) + 0.025*(h21(px) - 0.5);
+      c = mix(c, c*c*1.25, smoothstep(0.55, 0.8, bl)*0.18);   // darker pigment pooling in places, like wet washes drying
       // soft vignette
       vec2 q = vUv - 0.5; c *= 1.0 - dot(q, q)*0.35;
       gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
@@ -89,8 +94,9 @@ export function createGhibli({renderer, scene, camera, mobile}){
     const rt = new THREE.WebGLRenderTarget(1, 1, {type:THREE.HalfFloatType}); rt.depthTexture = new THREE.DepthTexture(1, 1);
     composer = new EffectComposer(renderer, rt);
     composer.addPass(new RenderPass(scene, camera));
-    if (!mobile){ bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.18, 0.6, 0.86); composer.addPass(bloom); }
+    // (no bloom: it washed bright sand and foam out to white)
     paint = new ShaderPass(PaintShader); composer.addPass(paint);
+    if (mobile){ paint.material.defines.R = 2; paint.material.needsUpdate = true; }   // lighter painting filter on phones
     const base = paint.render.bind(paint);   // the depth texture lives on whichever buffer the scene was just drawn into
     paint.render = (r, wb, rb, dt, mask) => { const U = paint.uniforms; U.tDepth.value = rb.depthTexture; U.uInvProj.value.copy(camera.projectionMatrixInverse); U.uCamWorld.value.copy(camera.matrixWorld); base(r, wb, rb, dt, mask); };
     resize();
@@ -123,6 +129,6 @@ export function createGhibli({renderer, scene, camera, mobile}){
       if (paint){ paint.uniforms.uNight.value = night; paint.uniforms.uTime.value = U.uTime.value; paint.uniforms.uCover.value = 0.4 + grey*0.6; }
       return hor;
     },
-    render(){ composer.render(); },
+    render(){ composer.render(); }, get composer(){ return composer; }, get paint(){ return paint; },
   };
 }
