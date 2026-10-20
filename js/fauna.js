@@ -465,7 +465,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, lod}){
           if (petD < 3 && a.state !== 'walk'){ a.state = 'walk'; a.timer = 4; a.dest = p.clone().addScaledVector(V3(p.x - pet.x, 0, p.z - pet.z).normalize(), 3); }
           const dance = a.state === 'dance' ? 1 : 0; a.dk = (a.dk || 0) + (dance - (a.dk || 0))*Math.min(1, dt*4);
           const flap = a.dk*(0.4 + Math.sin(a.t*5)*0.45);
-          if (wl){ wl.rotation.set(0, 1.45*(1 - a.dk), flap); wr.rotation.set(0, -1.45*(1 - a.dk), -flap); }
+          if (wl){ wl.rotation.set(0.12*(1 - a.dk), 1.5*(1 - a.dk), flap - 0.15*(1 - a.dk)); wr.rotation.set(0.12*(1 - a.dk), -1.5*(1 - a.dk), -flap + 0.15*(1 - a.dk)); const k = 0.5 + 0.5*a.dk; wl.scale.setScalar(k); wr.scale.setScalar(k); }   // folded wings tuck in along the body; they open full size to dance
           if (neck) neck.rotation.x = a.state === 'probe' ? 1.1 + Math.sin(a.t*4)*0.1 : a.state === 'dance' ? Math.max(0, Math.sin(a.t*2.5))*0.6 : 0;
           if (a.state === 'walk' && a.dest && goTo(a, a.dest, 0.7, dt, () => true, 2.5)) a.state = 'probe';
           p.y = Math.max(gy(p.x, p.z), WATER_Y - 0.3) + (a.state === 'dance' ? Math.max(0, Math.sin(a.t*2.5))*0.35 : 0);
