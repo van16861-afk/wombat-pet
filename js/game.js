@@ -229,10 +229,12 @@ function anchor(boneName, pos, scl){
   model.add(g); model.updateMatrixWorld(true); BONE[boneName].attach(g); return g;
 }
 // `head` and `bodyFit` keep the coordinate frames the old procedural model used, so outfits line up.
-const head = anchor('head', V3(0, 1.12, 0.32), V3(1.14, 1, 1.02));   // the new head is broader than the old one
+const head = anchor('head', V3(0, 0.9, 0.52), V3(0.98, 0.92, 1.02));   // the rounder, lower-carried head (2026-10 reshape)
 const bodyFit = new THREE.Group(); anchor('spine', V3(0, 0.82, -0.04), V3(1.02, 0.97, 0.72)).add(bodyFit);
 const eyes = ['Eye', 'Eye001'].map(n => { const e = model.getObjectByName(n), w = e.getWorldPosition(V3(0,0,0));
   const g = anchor('head', model.worldToLocal(w)); g.attach(e); return g; });
+// where the eyes sit in the head's frame (+1 = the model's left eye), for glasses
+const eyeSpots = () => { const o = {}; eyes.forEach(g => { const p = head.worldToLocal(g.getWorldPosition(V3(0,0,0))); o[p.x > 0 ? 1 : -1] = p; }); return o; };
 const ears = [['earL', 1], ['earR', -1]].map(([n, s]) => ({bone:BONE[n], s, v:0, a:0}));
 const legs = [['legFL', 1], ['legFR', 1], ['legBL', -1], ['legBR', -1]].map(([n, fr], i) => ({bone:BONE[n], phase:i*1.7, front:fr}));
 // animation clips, blended by weight every frame
@@ -543,9 +545,9 @@ let propeller = null;
     const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.36,0.42,0.32,32), straw); crown.position.y = 0.17;
     const b = new THREE.Mesh(new THREE.CylinderGeometry(0.425,0.43,0.09,32), band); b.position.y = 0.06;
     g.add(brim, crown, b); g.rotation.x = -0.08; onHead('straw', g, [band], 0.66, 0.4); }
-  { const g = new THREE.Group(), m = mat('#3b3b3b',0.4);
-    for (const s of [-1,1]){ const r = new THREE.Mesh(new THREE.TorusGeometry(0.12,0.02,8,28), m); r.position.set(0.33*s,0.01,1.13); g.add(r); }
-    const br = new THREE.Mesh(new THREE.CylinderGeometry(0.016,0.016,0.42,8), m); br.rotation.z = Math.PI/2; br.position.set(0,0.06,1.16); g.add(br);
+  { const g = new THREE.Group(), m = mat('#3b3b3b',0.4), E = eyeSpots();   // lenses sit right in front of the model's eyes
+    for (const s of [-1,1]){ const r = new THREE.Mesh(new THREE.TorusGeometry(0.12,0.02,8,28), m); r.position.copy(E[s]).add(V3(0, 0, 0.05)); g.add(r); }
+    const br = new THREE.Mesh(new THREE.CylinderGeometry(0.016,0.016,Math.abs(E[1].x - E[-1].x) - 0.2,8), m); br.rotation.z = Math.PI/2; br.position.copy(E[1]).lerp(E[-1], 0.5).add(V3(0, 0.05, 0.08)); g.add(br);
     head.add(g); CL.glasses = {g, mats:[m]}; }
   { const g = new THREE.Group(), m = mat('#4f86c6',0.6);
     for (const s of [-1,1]){ const w = new THREE.Mesh(new THREE.ConeGeometry(0.13,0.24,4), m); w.rotation.z = s*Math.PI/2; w.position.x = 0.12*s; w.scale.z = 0.5; g.add(w); }
@@ -554,7 +556,7 @@ let propeller = null;
   { const g = new THREE.Group(), m = mat('#f2a541',0.95); m.map = knitTex;
     const ring = new THREE.Mesh(new THREE.TorusGeometry(0.93,0.16,14,48), m); ring.scale.set(1.04,0.9,1); g.add(ring);
     const knot = new THREE.Mesh(new THREE.SphereGeometry(0.17,14,10), m); knot.position.set(0.72,-0.4,0.12); g.add(knot);
-    g.position.set(0,0.1,0.7); g.rotation.x = 0.35; bodyFit.add(g); CL.scarf = {g, mats:[m]}; }
+    g.position.set(0,0.02,0.98); g.rotation.x = 0.4; bodyFit.add(g); CL.scarf = {g, mats:[m]}; }
   { const geo = new THREE.CylinderGeometry(1,1,1,48,12,true), p = geo.attributes.position;
     for (let i=0;i<p.count;i++){
       const a = Math.atan2(p.getZ(i), p.getX(i)), zz = -0.35 + (p.getY(i)+0.5)*1.22;   // covers the chest and front half
@@ -575,9 +577,9 @@ let propeller = null;
     const top = new THREE.Mesh(new THREE.SphereGeometry(0.07,12,10), gold); top.position.y = 0.46; g.add(top);
     for (const s of [-1,1]){ const w = new THREE.Mesh(new THREE.BoxGeometry(0.32,0.06,0.03), gold); w.position.set(0.4*s,0.3,0); w.rotation.z = -0.25*s; g.add(w); }
     onHead('caishen', g, [m]); }
-  { const g = new THREE.Group(), m = mat('#e9638c',0.4), hg = extrude(heartShape(0.13), 0.03);
-    for (const s of [-1,1]){ const h = new THREE.Mesh(hg, m); h.position.set(0.33*s,0.01,1.14); g.add(h); }
-    const br = new THREE.Mesh(new THREE.CylinderGeometry(0.016,0.016,0.48,8), m); br.rotation.z = Math.PI/2; br.position.set(0,0.06,1.17); g.add(br);
+  { const g = new THREE.Group(), m = mat('#e9638c',0.4), hg = extrude(heartShape(0.13), 0.03), E = eyeSpots();
+    for (const s of [-1,1]){ const h = new THREE.Mesh(hg, m); h.position.copy(E[s]).add(V3(0, 0, 0.06)); g.add(h); }
+    const br = new THREE.Mesh(new THREE.CylinderGeometry(0.016,0.016,Math.abs(E[1].x - E[-1].x) - 0.16,8), m); br.rotation.z = Math.PI/2; br.position.copy(E[1]).lerp(E[-1], 0.5).add(V3(0, 0.05, 0.09)); g.add(br);
     head.add(g); CL.heartgl = {g, mats:[m]}; }
   { const g = new THREE.Group(), m = mat('#4f86c6',0.6);
     const cap = new THREE.Mesh(new THREE.SphereGeometry(0.32,24,12,0,Math.PI*2,0,Math.PI/2), m); g.add(cap);
@@ -589,7 +591,7 @@ let propeller = null;
     const str = new THREE.Mesh(new THREE.TorusGeometry(0.95,0.025,6,48), mat('#e2b53b',0.5)); str.scale.set(1,0.86,1); g.add(str);
     const pouch = new THREE.Mesh(new THREE.SphereGeometry(0.15,14,10), m); pouch.scale.set(1,1.2,0.6); pouch.position.set(0,-0.92,0.12); g.add(pouch);
     const tas = new THREE.Mesh(new THREE.ConeGeometry(0.05,0.18,8), mat('#e2b53b',0.5)); tas.position.set(0,-1.15,0.12); tas.rotation.x = Math.PI; g.add(tas);
-    g.position.set(0,0.1,0.72); g.rotation.x = 0.35; bodyFit.add(g); CL.sachet = {g, mats:[m]}; }
+    g.position.set(0,0.02,1.0); g.rotation.x = 0.4; bodyFit.add(g); CL.sachet = {g, mats:[m]}; }
   { const g = new THREE.Group(), m = mat('#f2a6be',0.6);
     const band = new THREE.Mesh(new THREE.TorusGeometry(0.62,0.035,8,32,Math.PI), m); band.position.set(0,-0.5,0); g.add(band);
     for (const s of [-1,1]){ const e = new THREE.Group(); e.position.set(0.26*s,0.5,0); e.rotation.z = -0.18*s;
@@ -4306,7 +4308,7 @@ if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
 if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
-if (new URLSearchParams(location.search).has('debug')) window.W = {art, setArt, inBuild, freeNear, poopNow, spawnWeed, weedSpotOK, overBridge, moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+if (new URLSearchParams(location.search).has('debug')) window.W = {wear, art, setArt, inBuild, freeNear, poopNow, spawnWeed, weedSpotOK, overBridge, moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   sim:(secs) => { skipRender = true; try { for (let i=0;i<secs*30;i++) step(true); } finally { skipRender = false; } clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};

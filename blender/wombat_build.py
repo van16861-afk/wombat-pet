@@ -50,19 +50,24 @@ def material(name, hexc, rough=0.6):
 
 # ---------------------------------------------------------------- body
 def build_body(col):
+    # real wombat proportions (reference photo): a long low barrel that is highest over the hips, a big rounded rump,
+    # a broad rounded head carried low and forward, a long deep muzzle ending in a large leathery nose, short thick legs
     parts = [
-        blob(col, "body",   (0, 0.12, 0.82), (1.02, 1.0, 0.82), p=0.9),
-        blob(col, "chest",  (0, -0.38, 0.8), (0.92, 0.66, 0.74), p=0.9),
-        # broad, flat-topped head with a short muzzle (real wombat proportions)
-        blob(col, "head",   (0, -0.8, 1.08), (0.9, 0.62, 0.62), p=0.78),
-        blob(col, "jowlL",  (0.42, -0.95, 0.9), (0.34, 0.3, 0.27)),
-        blob(col, "jowlR",  (-0.42, -0.95, 0.9), (0.34, 0.3, 0.27)),
-        blob(col, "muzzle", (0, -1.14, 0.97), (0.44, 0.26, 0.27), p=0.85),
-        blob(col, "tail",   (0, 1.1, 0.62), (0.14, 0.14, 0.14), seg=16, ring=12),
+        blob(col, "body",   (0, 0.26, 0.86), (0.94, 1.22, 0.78), p=0.92),
+        blob(col, "rump",   (0, 0.95, 0.92), (0.88, 0.54, 0.75), p=0.9),
+        blob(col, "chest",  (0, -0.42, 0.78), (0.86, 0.62, 0.68), p=0.92),
+        blob(col, "neck",   (0, -0.72, 0.86), (0.7, 0.42, 0.56)),
+        blob(col, "head",   (0, -1.0, 0.9), (0.76, 0.6, 0.58), p=0.95),
+        blob(col, "brow",   (0, -1.12, 1.12), (0.56, 0.4, 0.3)),
+        blob(col, "jowlL",  (0.36, -1.22, 0.72), (0.32, 0.36, 0.3)),
+        blob(col, "jowlR",  (-0.36, -1.22, 0.72), (0.32, 0.36, 0.3)),
+        blob(col, "muzzle", (0, -1.46, 0.76), (0.42, 0.4, 0.34), p=0.92),
+        blob(col, "snout",  (0, -1.68, 0.78), (0.32, 0.22, 0.27)),
+        blob(col, "tail",   (0, 1.46, 0.66), (0.12, 0.12, 0.12), seg=16, ring=12),
     ]
     for sx in (1, -1):
-        parts.append(blob(col, "legF", (0.56*sx, -0.42, 0.3), (0.28, 0.3, 0.34)))
-        parts.append(blob(col, "legB", (0.6*sx, 0.62, 0.3), (0.3, 0.32, 0.34)))
+        parts.append(blob(col, "legF", (0.54*sx, -0.5, 0.3), (0.27, 0.31, 0.34)))
+        parts.append(blob(col, "legB", (0.6*sx, 0.9, 0.3), (0.3, 0.34, 0.36)))
     bpy.ops.object.select_all(action='DESELECT')
     for o in parts: o.select_set(True)
     bpy.context.view_layer.objects.active = parts[0]
@@ -82,12 +87,12 @@ def paint(b):
     me = b.data
     for a in list(me.color_attributes): me.color_attributes.remove(a)
     mask = me.color_attributes.new("Mask", 'FLOAT_COLOR', 'POINT')   # R cream, G blush, B paw
-    cheeks = [surf(b, 0.47*sx, 1.0)[0] for sx in (1, -1)]   # blush sits on the cheek surface
+    cheeks = [surf(b, 0.42*sx, 0.8)[0] for sx in (1, -1)]   # blush sits on the cheek surface
     for v in me.vertices:
         p = v.co; x, y, z = p
         belly = ss(1.0, 0.72, ell(p, (0, -0.55, 0.5), (0.55, 0.5, 0.42)))
         under = ss(0.3, 0.12, z) * ss(0.65, 0.35, abs(x)) * 0.8
-        muz = ss(1.0, 0.7, ell(p, (0, -1.3, 0.92), (0.38, 0.28, 0.24))) * 0.85
+        muz = ss(1.0, 0.7, ell(p, (0, -1.62, 0.72), (0.36, 0.3, 0.28))) * 0.6
         blush = max(ss(0.16, 0.05, (p - c).length) for c in cheeks) * 0.6
         mask.data[v.index].color = (max(belly, under, muz), blush, ss(0.16, 0.06, z), 1.0)
     me.color_attributes.active_color = mask; me.color_attributes.render_color_index = 0
@@ -114,15 +119,15 @@ def features(col, b):
     EAR, EARIN = material("Ear", '#946c49', 0.85), material("EarInner", '#d99a92', 0.7)
     TOE, MOUTH = material("Toe", '#3e2f28', 0.5), material("Mouth", '#3a2a25', 0.6)
     # big, broad, leathery nose
-    p, n = surf(b, 0, 1.0); part(col, "Nose", p + Vector((0, 0.02, 0)), (0.25, 0.12, 0.17), NOSE, shield=0.35)
+    p, n = surf(b, 0, 0.84); part(col, "Nose", p + Vector((0, 0.03, 0)), (0.31, 0.13, 0.2), NOSE, shield=0.3)
     eyes = []
     for sx in (1, -1):
-        p, n = surf(b, 0.37*sx, 1.13)
-        eyes.append(part(col, "Eye", p + n*0.012, (0.05, 0.04, 0.055), EYE, seg=16, ring=10))
-        # small rounded-triangle ears on the top corners of the flat head
-        part(col, "Ear", (0.55*sx, -0.74, 1.74), (0.21, 0.1, 0.25), EAR, rot=(0.1, -0.5*sx, 0), taper=0.45)
-        part(col, "EarIn", (0.56*sx, -0.83, 1.73), (0.13, 0.035, 0.16), EARIN, rot=(0.1, -0.5*sx, 0), taper=0.45)
-        for (fy, fx) in ((-0.7, 0.56), (0.3, 0.6)):
+        p, n = surf(b, 0.34*sx, 1.07)
+        eyes.append(part(col, "Eye", p + n*0.012, (0.048, 0.038, 0.05), EYE, seg=16, ring=10))
+        # small rounded ears, set wide on the back corners of the head
+        part(col, "Ear", (0.5*sx, -0.82, 1.42), (0.18, 0.09, 0.21), EAR, rot=(0.15, -0.55*sx, 0), taper=0.35)
+        part(col, "EarIn", (0.51*sx, -0.9, 1.41), (0.11, 0.03, 0.13), EARIN, rot=(0.15, -0.55*sx, 0), taper=0.35)
+        for (fy, fx) in ((-0.78, 0.54), (0.56, 0.6)):
             for dx in (-0.1, 0, 0.1):
                 part(col, "Toe", (fx*sx + dx, fy, 0.07), (0.055, 0.07, 0.05), TOE, seg=12, ring=8)
     def stroke(name, pts):
@@ -137,21 +142,21 @@ def features(col, b):
         mo = bpy.data.objects.new(name, me); col.objects.link(mo)
         if not me.materials: me.materials.append(MOUTH)
         return mo
-    stroke("Mouth", [(-0.13, 0.82), (-0.065, 0.775), (0, 0.815), (0.065, 0.775), (0.13, 0.82)])
-    stroke("Philtrum", [(0, 0.86), (0, 0.815)])
+    stroke("Mouth", [(-0.14, 0.6), (-0.07, 0.555), (0, 0.6), (0.07, 0.555), (0.14, 0.6)])
+    stroke("Philtrum", [(0, 0.66), (0, 0.6)])
     return eyes
 
 # ---------------------------------------------------------------- rig + weights
 BONES = [  # name, head, tail, parent, z-axis
     ("root", (0, 0, 0), (0, 0, 0.3), None, (0, 0, 1)),
-    ("spine", (0, 0.85, 0.8), (0, -0.25, 0.86), "root", (0, 0, 1)),
-    ("head", (0, -0.35, 0.98), (0, -1.3, 1.1), "spine", (0, 0, 1)),
-    ("tail", (0, 0.95, 0.66), (0, 1.3, 0.6), "spine", (0, 0, 1)),
+    ("spine", (0, 1.1, 0.86), (0, -0.3, 0.86), "root", (0, 0, 1)),
+    ("head", (0, -0.55, 0.9), (0, -1.6, 0.86), "spine", (0, 0, 1)),
+    ("tail", (0, 1.34, 0.68), (0, 1.64, 0.62), "spine", (0, 0, 1)),
 ] + [b for s, side in ((1, "L"), (-1, "R")) for b in (
-    (f"ear.{side}", (0.53*s, -0.74, 1.55), (0.62*s, -0.72, 1.95), "head", (0, -1, 0)),
-    (f"leg.F.{side}", (0.56*s, -0.42, 0.62), (0.56*s, -0.42, 0.04), "spine", (0, -1, 0)),
-    (f"leg.B.{side}", (0.6*s, 0.62, 0.62), (0.6*s, 0.62, 0.04), "spine", (0, -1, 0)))]
-LEGS = {"leg.F.L": (0.56, -0.42), "leg.F.R": (-0.56, -0.42), "leg.B.L": (0.6, 0.62), "leg.B.R": (-0.6, 0.62)}
+    (f"ear.{side}", (0.48*s, -0.82, 1.26), (0.56*s, -0.8, 1.62), "head", (0, -1, 0)),
+    (f"leg.F.{side}", (0.54*s, -0.5, 0.62), (0.54*s, -0.5, 0.04), "spine", (0, -1, 0)),
+    (f"leg.B.{side}", (0.6*s, 0.9, 0.62), (0.6*s, 0.9, 0.04), "spine", (0, -1, 0)))]
+LEGS = {"leg.F.L": (0.54, -0.5), "leg.F.R": (-0.54, -0.5), "leg.B.L": (0.6, 0.9), "leg.B.R": (-0.6, 0.9)}
 
 def build_rig(col):
     arm = bpy.data.armatures.new("WombatRig"); rig = bpy.data.objects.new("WombatRig", arm); col.objects.link(rig)
@@ -174,13 +179,13 @@ def skin(b, rig, eyes):
     for v in b.data.vertices:
         p = v.co; x, y, z = p; w = {}
         for n, (lx, ly) in LEGS.items(): w[n] = ss(0.44, 0.24, math.hypot(x - lx, y - ly)) * ss(0.58, 0.3, z)
-        w["tail"] = ss(0.9, 1.05, y) * ss(0.35, 0.2, abs(x))
-        w["head"] = ss(-0.3, -0.62, y) * ss(0.42, 0.7, z) * (1 - max(w["leg.F.L"], w["leg.F.R"]))
+        w["tail"] = ss(1.3, 1.42, y) * ss(0.35, 0.2, abs(x))
+        w["head"] = ss(-0.5, -0.85, y) * ss(0.3, 0.55, z) * (1 - max(w["leg.F.L"], w["leg.F.R"]))
         w["spine"] = max(0.0, 1.0 - sum(w.values())); tot = sum(w.values())
         for n, val in w.items():
             if val > 0.001: G[n].add([v.index], val / tot, 'REPLACE')
         # fur length: short on the muzzle, around eyes and nose, and on the soles
-        f = min(0.15 + 0.85*ss(0.85, 1.3, ell(p, (0, -1.3, 0.95), (0.42, 0.3, 0.3))), 0.3 + 0.7*ss(0.05, 0.2, z))
+        f = min(0.15 + 0.85*ss(0.85, 1.3, ell(p, (0, -1.62, 0.76), (0.38, 0.3, 0.3))), 0.3 + 0.7*ss(0.05, 0.2, z))
         for e in eyes: f = min(f, 0.05 + 0.95*ss(0.09, 0.22, (p - e.location).length))
         f = min(f, 0.05 + 0.95*ss(0.2, 0.34, (p - nose).length))
         G["FurLen"].add([v.index], f, 'REPLACE')
