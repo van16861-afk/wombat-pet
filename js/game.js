@@ -866,6 +866,12 @@ const rotSize = (b, rot) => rot % 2 ? [b.size[1], b.size[0]] : b.size;
 const placeCenter = (b, p) => { const [w, d] = rotSize(b, p.rot); return V3(p.i + w/2, 0, p.j + d/2); };
 const facingIn = (x, z) => ((Math.round(Math.atan2(-x, -z)/(Math.PI/2)) % 4) + 4) % 4;
 function cellsOf(b, p){ const [w, d] = rotSize(b, p.rot), out = []; for (let a=0;a<w;a++) for (let c=0;c<d;c++) out.push([p.i + a + 0.5, p.j + c + 0.5]); return out; }
+// is (x, z) on (or within pad of) a building's footprint? poop and litter keep off buildings
+const inBuild = (x, z, pad = 0.3) => Object.keys(BG).some(id => { const b = bdef(id), p = S.place && S.place[id]; return b && p && BG[id] && cellsOf(b, p).some(([cx, cz]) => Math.abs(x - cx) < 0.5 + pad && Math.abs(z - cz) < 0.5 + pad); });
+function freeNear(p, pad = 0.3){   // nearest open ground (no building, no water) to p
+  for (let r=0; r<6; r+=0.5) for (let i=0; i<(r ? 16 : 1); i++){ const a = i*Math.PI/8, x = p.x + Math.sin(a)*r, z = p.z + Math.cos(a)*r;
+    if (world.inWorld(x, z) && world.isOpen(x, z) && !world.isWater(x, z) && !inBuild(x, z, pad) && groundOK(x, z)) return V3(x, 0, z); }
+  return p; }
 const footY = (b, p) => { const hs = cellsOf(b, p).map(([x, z]) => gy(x, z)); return hs.reduce((s, h) => s + h, 0)/hs.length; };
 function canPlace(id, p){
   const b = bdef(id), cells = cellsOf(b, p), c = placeCenter(b, p);
@@ -1025,6 +1031,8 @@ function commitPlace(){
     S.coins -= P.b.price; S.builds[P.id] = true; BG[P.id] = P.mesh; sfx('grow'); toast(`${P.b.name}蓋好了！之後點一下建築就能再移動。`); }
   else { sfx('pop'); toast(`${P.b.name}搬好了。`); }
   S.place[P.id] = {...P.p}; applyPlace(P.id); refreshSign();
+  cubes.forEach(c => { const p = c.m.position; if (!c.cleaning && inBuild(p.x, p.z)){ const q = freeNear(p); p.set(q.x, gy(q.x, q.z) + 0.1*c.sc, q.z); } });
+  weeds.filter(w => inBuild(w.g.position.x, w.g.position.z, 0.4)).forEach(w => { const q = freeNear(w.g.position, 0.4); w.g.position.set(q.x, gy(q.x, q.z), q.z); w.x = +q.x.toFixed(2); w.z = +q.z.toFixed(2); });
   if (B.mode === 'inHouse' && BG.house) pos.copy(SPOTS.house);
   else if (cellsOf(P.b, P.p).some(([x, z]) => Math.abs(x - pos.x) < 0.9 && Math.abs(z - pos.z) < 0.9)){   // don't leave the wombat stuck inside
     const c = SPOTS[P.id], d = V3(pos.x - c.x, 0, pos.z - c.z); if (d.lengthSq() < 0.01) d.set(1, 0, 0);
@@ -1530,7 +1538,7 @@ function makePoop(p, v, sc){
   hb.userData.ref = c; cubes.push(c); return c;
 }
 function poopNow(){
-  if (!petActive() || ['inHouse','enter','exit','evolve'].includes(B.mode)) return false;
+  if (!petActive() || ['inHouse','enter','exit','goHouse','evolve'].includes(B.mode) || inBuild(pos.x, pos.z, 1.0)) return false;
   const p = offG.localToWorld(V3(0, 0.55, -1.3));
   const back = V3(0,0,-1).applyAxisAngle(UP, root.rotation.y), side = V3(1,0,0).applyAxisAngle(UP, root.rotation.y);
   const v = back.multiplyScalar(rnd(1.0,2.0)*petS).add(side.multiplyScalar(rnd(-0.8,0.8))); v.y = 0.6;
@@ -1628,7 +1636,7 @@ const plotBio = k => Object.keys(BIO).find(b => BIO[b] === k);
 // litter and weeds never grow in water or on a bridge deck; pond/swamp plants wash up on the bank instead
 const overBridge = (x, z, pad = 0.6) => world.bridges.some(b => { const dx = x - b.x, dz = z - b.z; return Math.abs(dx*b.ax + dz*b.az) < b.len/2 + pad && Math.abs(-dx*b.az + dz*b.ax) < world.BRIDGE_W/2 + pad; });
 const nearWater = (x, z, r = 1.3) => [0, 1, 2, 3, 4, 5, 6, 7].some(i => world.isWater(x + Math.sin(i*0.785)*r, z + Math.cos(i*0.785)*r));
-const weedSpotOK = (x, z) => groundOK(x, z) && !world.isWater(x, z) && !overBridge(x, z);
+const weedSpotOK = (x, z) => groundOK(x, z) && !world.isWater(x, z) && !overBridge(x, z) && !inBuild(x, z, 0.4);
 function spawnWeed(){
   const open = world.data.open; if (weeds.length >= weedCap()) return;
   const k_ = open[Math.floor(Math.random()*open.length)], [px, pz] = k_.split(',').map(Number).map(v => v*18), bio = plotBio(k_);
@@ -2806,7 +2814,7 @@ function catchUp(ms){
   S.ageMs += gameMin*60000;
   let left = Math.min(gameMin, 720);
   while (left > 0){ const c = Math.min(5, left); sim(c, true); left -= c; }
-  S.poopQ.forEach(() => { const a = Math.random()*Math.PI*2, r = rnd(1.5,3); makePoop(V3(clamp(pos.x+Math.sin(a)*r,-5,5), 0.1, clamp(pos.z+Math.cos(a)*r,-5,5)), null, 0.5+0.5*Math.min(petS,1)); });
+  S.poopQ.forEach(() => { const a = Math.random()*Math.PI*2, r = rnd(1.5,3), q = freeNear(V3(clamp(pos.x+Math.sin(a)*r,-5,5), 0, clamp(pos.z+Math.cos(a)*r,-5,5))), sc = 0.5+0.5*Math.min(petS,1); makePoop(V3(q.x, gy(q.x, q.z) + 0.1*sc, q.z), null, sc); });
   S.poopQ = [];
   hudDirty = true;
 }
@@ -4269,7 +4277,7 @@ const wildPlaces = () => { wild.setPlaces(trees.filter(tr => !tr.cut).map(tr => 
   fauna.setForestTrees([...trees.filter(tr => !tr.cut && world.inBio('forest', tr.d.x, tr.d.z) && !tr.d.pine).map(tr => tr.d), ...world.lockedTrees(BIO.forest)]); };
 wildPlaces();
 (S.weeds || []).forEach(([x,z,s,k]) => { if (weedSpotOK(x, z)) makeWeed(x,z,s,k); });   // old saves may have litter floating in water or on a bridge
-(S.poops || []).forEach(([x,z,ry,sc]) => { const c = makePoop(V3(x, gy(x, z) + 0.1*(sc||1), z), null, sc||1); c.m.rotation.y = ry; });
+(S.poops || []).forEach(([x,z,ry,sc]) => { if (inBuild(x, z)) ({x, z} = freeNear(V3(x, 0, z))); const c = makePoop(V3(x, gy(x, z) + 0.1*(sc||1), z), null, sc||1); c.m.rotation.y = ry; });
 setupBeach();
 (S.snowmen || []).forEach(([x,z,ry,m]) => makeSnowman(x,z,ry,m));
 if (S.petPos){ pos.set(S.petPos[0], 0, S.petPos[1]); root.rotation.y = S.petPos[2]; }
@@ -4287,7 +4295,7 @@ if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
 if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
-if (new URLSearchParams(location.search).has('debug')) window.W = {spawnWeed, weedSpotOK, overBridge, moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+if (new URLSearchParams(location.search).has('debug')) window.W = {inBuild, freeNear, poopNow, spawnWeed, weedSpotOK, overBridge, moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   sim:(secs) => { skipRender = true; try { for (let i=0;i<secs*30;i++) step(true); } finally { skipRender = false; } clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};
@@ -4479,7 +4487,8 @@ function step(manual){
       const cg = gy(c.m.position.x, c.m.position.z) + half; if (c.m.position.y <= cg){ c.m.position.y = cg; if (c.v.y < -1.5) c.v.y *= -0.25; else c.v.y = 0;
         const f = Math.exp(-6*dt); c.v.x *= f; c.v.z *= f; c.a.multiplyScalar(Math.exp(-8*dt)); const q = Math.PI/2;
         c.m.rotation.x += (Math.round(c.m.rotation.x/q)*q - c.m.rotation.x)*Math.min(1, dt*8); c.m.rotation.z += (Math.round(c.m.rotation.z/q)*q - c.m.rotation.z)*Math.min(1, dt*8);
-        if (Math.abs(c.v.x) + Math.abs(c.v.z) < 0.02 && c.v.y === 0 && c.a.length() < 0.05) c.v = null;
+        if (Math.abs(c.v.x) + Math.abs(c.v.z) < 0.02 && c.v.y === 0 && c.a.length() < 0.05){ c.v = null;
+          if (inBuild(c.m.position.x, c.m.position.z)){ const q = freeNear(c.m.position); c.m.position.set(q.x, gy(q.x, q.z) + 0.1*c.sc, q.z); } }
       } else { c.m.rotation.x += c.a.x*dt; c.m.rotation.z += c.a.z*dt; }
       if (c.v) c.m.rotation.y += c.a.y*dt;
       { const p = c.m.position; if (!world.inWorld(p.x, p.z) || world.isWater(p.x, p.z) || !world.isOpen(p.x, p.z)){ const q = V3(p.x, 0, p.z); snapToLand(q); p.x = q.x; p.z = q.z; if (c.v){ c.v.x *= -0.3; c.v.z *= -0.3; } } }
