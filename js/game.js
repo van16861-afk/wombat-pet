@@ -1589,7 +1589,7 @@ const weedMats = [mat('#4c6b35'), mat('#5f7f3e'), mat('#3f5c2c')];
 // Litter that belongs to a special area: it grows or washes up there and can be cleared like weeds (a little more money).
 const LITTER = {
   tumble:{name:'風滾草', where:'aus'}, branch:{name:'枯樹枝', where:'forest'}, scree:{name:'碎石堆', where:'high'}, thorn:{name:'帶刺灌木', where:'savanna'},
-  hyacinth:{name:'布袋蓮', where:'swamp', water:true}, algae:{name:'浮萍', where:'pond', water:true}, drift:{name:'漂流木', where:'beaver'}, seaweed:{name:'海草', where:'beach'},
+  hyacinth:{name:'布袋蓮', where:'swamp', shore:true}, algae:{name:'浮萍', where:'pond', shore:true}, drift:{name:'漂流木', where:'beaver'}, seaweed:{name:'海草', where:'beach'},
 };
 function litterMesh(kind){
   const g = new THREE.Group(), M = c => mat(c, 0.9), stick = (len, r, m) => { const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r*0.8, len, 5), m); c.rotation.set(rnd(-1.4, 1.4), rnd(0, 6), rnd(-1.4, 1.4)); return c; };
@@ -1608,7 +1608,7 @@ function litterMesh(kind){
 }
 function makeWeed(x, z, s, kind){
   const g = new THREE.Group();
-  if (kind && LITTER[kind]){ g.add(litterMesh(kind)); const y = LITTER[kind].water ? WATER_Y + 0.01 : gy(x, z); g.position.set(x, y, z); g.scale.setScalar(s); g.rotation.y = rnd(0, 6.28); scene.add(g);
+  if (kind && LITTER[kind]){ g.add(litterMesh(kind)); const y = gy(x, z); g.position.set(x, y, z); g.scale.setScalar(s); g.rotation.y = rnd(0, 6.28); scene.add(g);
     const hb = new THREE.Mesh(new THREE.SphereGeometry(0.45, 8, 6), hbMat); hb.position.y = 0.2; hb.userData.kind = 'weed'; g.add(hb);
     const w = {g, x, z, s, hb, kind}; hb.userData.ref = w; weeds.push(w); return w; }
   for (let i=0;i<6;i++){ const b = new THREE.Mesh(bladeGeo, weedMats[i%3]); b.position.set(rnd(-0.1,0.1),0,rnd(-0.1,0.1)); b.rotation.set(rnd(-0.6,0.6),0,rnd(-0.6,0.6)); b.scale.y = rnd(0.6,1.3); g.add(b); }
@@ -1621,10 +1621,14 @@ function makeWeed(x, z, s, kind){
 function rollTumbleweeds(dt){
   for (const w of weeds){ if (w.kind !== 'tumble' || !w.hb.userData.kind) continue;
     const nx = w.g.position.x + dt*0.35, nz = w.g.position.z + Math.sin(performance.now()/2000 + w.x)*dt*0.15;
-    if (!world.inBio('aus', nx, nz) || !groundOK(nx, nz)) continue;
+    if (!world.inBio('aus', nx, nz) || !weedSpotOK(nx, nz)) continue;
     w.g.position.set(nx, gy(nx, nz), nz); w.g.rotation.z -= dt*0.35/0.3; w.x = +nx.toFixed(2); w.z = +nz.toFixed(2); }
 }
 const plotBio = k => Object.keys(BIO).find(b => BIO[b] === k);
+// litter and weeds never grow in water or on a bridge deck; pond/swamp plants wash up on the bank instead
+const overBridge = (x, z, pad = 0.6) => world.bridges.some(b => { const dx = x - b.x, dz = z - b.z; return Math.abs(dx*b.ax + dz*b.az) < b.len/2 + pad && Math.abs(-dx*b.az + dz*b.ax) < world.BRIDGE_W/2 + pad; });
+const nearWater = (x, z, r = 1.3) => [0, 1, 2, 3, 4, 5, 6, 7].some(i => world.isWater(x + Math.sin(i*0.785)*r, z + Math.cos(i*0.785)*r));
+const weedSpotOK = (x, z) => groundOK(x, z) && !world.isWater(x, z) && !overBridge(x, z);
 function spawnWeed(){
   const open = world.data.open; if (weeds.length >= weedCap()) return;
   const k_ = open[Math.floor(Math.random()*open.length)], [px, pz] = k_.split(',').map(Number).map(v => v*18), bio = plotBio(k_);
@@ -1632,13 +1636,13 @@ function spawnWeed(){
   const lit = Object.keys(LITTER).find(l => LITTER[l].where === bio) || (k_.startsWith('1,') && Math.random() < 0.5 ? 'seaweed' : null);
   if (lit && (bio ? Math.random() < 0.55 : true)){
     for (let k=0;k<20;k++){ const x = px + rnd(-8.5, 8.5), z = pz + rnd(-8.5, 8.5), L_ = LITTER[lit];
-      if (L_.water ? !world.isWater(x, z) : (!groundOK(x, z) || world.isWater(x, z))) continue;
+      if (!weedSpotOK(x, z) || (L_.shore && !nearWater(x, z))) continue;
       if (lit === 'seaweed' && !world.isBeach(x, z)) continue;
       if (obstacles().some(o => Math.hypot(o.c.x-x, o.c.z-z) < o.r + 0.4)) continue;
       makeWeed(+x.toFixed(2), +z.toFixed(2), +rnd(0.85, 1.2).toFixed(2), lit); return; } }
   for (let k=0;k<16;k++){
     const x = px + rnd(-8.5, 8.5), z = pz + rnd(-8.5, 8.5);
-    if (!groundOK(x, z) || world.isBeach(x, z) || world.isMud(x, z)) continue;
+    if (!weedSpotOK(x, z) || world.isBeach(x, z) || world.isMud(x, z)) continue;
     if (obstacles().some(o => Math.hypot(o.c.x-x, o.c.z-z) < o.r + 0.4)) continue;
     if (Math.hypot(pos.x-x, pos.z-z) < 1.6) continue;
     makeWeed(+x.toFixed(2), +z.toFixed(2), +rnd(0.8,1.25).toFixed(2)); return;
@@ -1921,6 +1925,7 @@ function commitBridge(){
   const P = placing; if (!P.ok) return;
   if (P.movingFrom === undefined && !pay(BRIDGE_PRICE)){ cancelPlace(); return; }
   scene.remove(P.mesh); const b = world.addBridge(P.z); P.mesh = b.g;
+  weeds.filter(w => overBridge(w.g.position.x, w.g.position.z)).forEach(w => { weeds.splice(weeds.indexOf(w), 1); scene.remove(w.g); });   // the deck covers whatever was there
   b.g.scale.set(0.01, 0.01, 0.01); tools.push({t:0, dur:0.9, update(t){ const k = ease(Math.min(1, t/0.8)); b.g.scale.set(1, Math.max(0.01, k), 1); }, done(){ b.g.scale.set(1, 1, 1); }});
   dust(b.x, b.z, 14, 2.5); sfx('grow'); NAV.dirty = true; if (P.movingFrom !== undefined) toast('橋搬好了。'); else { toast('橋蓋好了！袋熊可以過河了。'); track('bridge'); }
   $('#placeRot').hidden = false; endPlace();
@@ -4263,7 +4268,7 @@ const wildPlaces = () => { wild.setPlaces(trees.filter(tr => !tr.cut).map(tr => 
   [...world.feats.filter(f => f.d.k === 'bush').map(f => ({x:f.d.x, z:f.d.z, y:f.g.position.y + 0.78*f.d.s})), ...world.lockedAll('bushes')], world.lockedAll('trees'));
   fauna.setForestTrees([...trees.filter(tr => !tr.cut && world.inBio('forest', tr.d.x, tr.d.z) && !tr.d.pine).map(tr => tr.d), ...world.lockedTrees(BIO.forest)]); };
 wildPlaces();
-(S.weeds || []).forEach(([x,z,s,k]) => makeWeed(x,z,s,k));
+(S.weeds || []).forEach(([x,z,s,k]) => { if (weedSpotOK(x, z)) makeWeed(x,z,s,k); });   // old saves may have litter floating in water or on a bridge
 (S.poops || []).forEach(([x,z,ry,sc]) => { const c = makePoop(V3(x, gy(x, z) + 0.1*(sc||1), z), null, sc||1); c.m.rotation.y = ry; });
 setupBeach();
 (S.snowmen || []).forEach(([x,z,ry,m]) => makeSnowman(x,z,ry,m));
@@ -4282,7 +4287,7 @@ if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
 if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
-if (new URLSearchParams(location.search).has('debug')) window.W = {moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+if (new URLSearchParams(location.search).has('debug')) window.W = {spawnWeed, weedSpotOK, overBridge, moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   sim:(secs) => { skipRender = true; try { for (let i=0;i<secs*30;i++) step(true); } finally { skipRender = false; } clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};
