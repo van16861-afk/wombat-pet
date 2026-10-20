@@ -117,6 +117,19 @@ export function leafyCanopy(geo, seed = 1, perVert = 0.3, size = 1){
     for (let i=0;i<A.count;i++){ f[i*3] = A.getX(i); f[i*3+1] = A.getY(i); f[i*3+2] = A.getZ(i); } body.setAttribute(k, new THREE.BufferAttribute(f, 3)); }
   return mergeGeometries([body, cards]);
 }
+// Ghibli touches for built things: leafy vines with little flowers along a path, and rounded field stones.
+const VINE = {leaf:new THREE.IcosahedronGeometry(1, 0), bud:new THREE.SphereGeometry(1, 6, 4), stone:new THREE.DodecahedronGeometry(1, 1),
+  leafM:['#4f7f3a', '#6a9a45', '#3d6a33'].map(c => new THREE.MeshStandardMaterial({color:c, roughness:0.9, flatShading:true})),
+  budM:['#fbf8f0', '#f2a6be', '#f3d250'].map(c => new THREE.MeshStandardMaterial({color:c, roughness:0.6})),
+  stoneM:['#b3aa98', '#9d9483', '#c4b9a3'].map(c => new THREE.MeshStandardMaterial({color:c, roughness:0.95, flatShading:true}))};
+export function vines(g, pts, perUnit = 4, size = 1){
+  for (let k=0;k<pts.length - 1;k++){ const a = pts[k], b = pts[k + 1], n = Math.max(1, Math.round(a.distanceTo(b)*perUnit));
+    for (let i=0;i<n;i++){ const p = a.clone().lerp(b, (i + Math.random())/n);
+      const l = new THREE.Mesh(VINE.leaf, VINE.leafM[(i + k) % 3]); l.position.set(p.x + (Math.random() - 0.5)*0.12*size, p.y + (Math.random() - 0.5)*0.12*size, p.z + (Math.random() - 0.5)*0.12*size);
+      l.scale.set(1, 0.7, 1).multiplyScalar((0.07 + Math.random()*0.06)*size); l.rotation.set(Math.random()*3, Math.random()*3, 0); g.add(l);
+      if (Math.random() < 0.3){ const f = new THREE.Mesh(VINE.bud, VINE.budM[Math.floor(Math.random()*3)]); f.position.copy(l.position).add(new THREE.Vector3(0, 0.05*size, 0)); f.scale.setScalar(0.035*size); g.add(f); } } }
+}
+export function fieldStone(g, x, y, z, r, flat = 0.7){ const s = new THREE.Mesh(VINE.stone, VINE.stoneM[Math.floor(Math.random()*3)]); s.position.set(x, y, z); s.scale.set(r*(0.9 + Math.random()*0.3), r*flat, r*(0.9 + Math.random()*0.3)); s.rotation.y = Math.random()*6; g.add(s); return s; }
 export function leafMaterial(color){ return swaying(new THREE.MeshLambertMaterial({color: color || '#ffffff', map:leafTex, alphaTest:0.45, side:THREE.DoubleSide}), 3.0, 0.35, 0.12); }
 // Leaf cards scattered over spherical blobs [x, y, z, r]; normals point out from each blob's centre for soft, rounded shading.
 export function leafCards(blobs, density = 15, seed = 5){
@@ -674,8 +687,16 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
       g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 30, 0.055, 6), dark));
       for (let i=0;i<=8;i++){ const a = -len/2 + 0.25 + i*(len - 0.5)/8, post = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.07, 0.75, 6), dark);
         post.position.set(a, deckY(a) + 0.34, sd*BW/2); g.add(post); }
-      for (const e of [-1, 1]){ const a = e*(len/2 - 0.25), top = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 0.22), lamp); top.position.set(a, deckY(a) + 0.85, sd*BW/2); g.add(top); }
+      for (const e of [-1, 1]){ const a = e*(len/2 - 0.25), top = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.13, 0.2, 8), dark); top.position.set(a, deckY(a) + 0.8, sd*BW/2); g.add(top);
+        const cap = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 6), plank2); cap.position.set(a, deckY(a) + 0.95, sd*BW/2); g.add(cap); }
+      // vines wound along part of each railing, and down the end posts
+      const v0 = sd > 0 ? -len/2 + 0.3 : len/2 - 0.3, v1 = v0 + (sd > 0 ? 1 : -1)*len*0.45;
+      vines(g, [0, 0.33, 0.66, 1].map(t => { const a = v0 + (v1 - v0)*t; return V3(a, deckY(a) + 0.7, sd*BW/2); }), 5);
+      vines(g, [V3(v0, 0.1, sd*BW/2), V3(v0, deckY(v0) + 0.7, sd*BW/2)], 5);
     }
+    for (const e of [-1, 1]) for (let i=0;i<7;i++){   // stone footings where the bridge meets each bank
+      const zz = (i/6 - 0.5)*(BW + 0.4), r = 0.28 + Math.random()*0.1; fieldStone(g, e*(len/2 - 0.2) + (Math.random() - 0.5)*0.2, 0.08, zz, r, 0.75);
+      if (i % 2) fieldStone(g, e*(len/2 - 0.55), 0.25, zz, r*0.8, 0.7); }
     g.position.set(x, 0, z); g.rotation.y = Math.atan2(-az, ax); b.g = g; return b;
   }
   function makeBridge(bd){ const b = bridgeMesh(bd.z); b.d = bd; group.add(b.g); W.bridges.push(b);

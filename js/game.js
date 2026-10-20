@@ -6,7 +6,7 @@ import { cloud } from './cloud.js';
 import { createGhibli } from './ghibli.js';
 import { createFauna, SPECIES } from './fauna.js';
 import { createWildlife, WILD_NAMES } from './wildlife.js';
-import { createWorld, newWorld, HALF, WATER_Y, X0, X1, Z0, Z1, BIO, plotKey, PLOT_KEYS, SEE, seeThrough, leafMaterial, swaying, CANOPY_BLOBS, leafyCanopy, canopyTex } from './world.js';
+import { createWorld, newWorld, HALF, WATER_Y, X0, X1, Z0, Z1, BIO, plotKey, PLOT_KEYS, SEE, seeThrough, leafMaterial, swaying, CANOPY_BLOBS, leafyCanopy, canopyTex, vines, fieldStone } from './world.js';
 
 // Keep r128-era colour handling so the hand-tuned palette and fur shader look the same.
 THREE.ColorManagement.enabled = false;
@@ -793,17 +793,25 @@ function build(id){
     const star = new THREE.Mesh(extrude(starShape(0.26,0.11),0.06), glowMat('#e2b53b','#ffd36b')); star.position.y = 2.85; g.add(star);
     faceCenter(g, ringSpot(310));
   } else if (id === 'bench'){
-    const plank = mat('#b5865a',0.85), iron = mat('#3a3f3a',0.5);
-    for (let i=0;i<3;i++){ const p = new THREE.Mesh(new THREE.BoxGeometry(1.7,0.06,0.16), plank); p.position.set(0,0.5,-0.2+i*0.19); g.add(p); }
-    for (let i=0;i<2;i++){ const p = new THREE.Mesh(new THREE.BoxGeometry(1.7,0.14,0.05), plank); p.position.set(0,0.75+i*0.18,-0.32); p.rotation.x = -0.15; g.add(p); }
-    for (const s of [-1,1]){ const l = new THREE.Mesh(new THREE.BoxGeometry(0.06,0.5,0.5), iron); l.position.set(0.75*s,0.25,-0.05); g.add(l); const a = new THREE.Mesh(new THREE.BoxGeometry(0.06,0.55,0.06), iron); a.position.set(0.75*s,0.78,-0.33); g.add(a); }
+    const W_ = ['#a8774c', '#b5865a', '#9a6b43'].map(c => mat(c, 0.9)), leg = mat('#7d5636', 0.9);   // chunky country bench, all wood
+    for (let i=0;i<3;i++){ const p = new THREE.Mesh(new THREE.BoxGeometry(1.75,0.09,0.17), W_[i]); p.position.set(0,0.5,-0.2+i*0.19); p.rotation.z = (Math.random() - 0.5)*0.02; g.add(p); }
+    for (let i=0;i<3;i++){ const p = new THREE.Mesh(new THREE.BoxGeometry(0.2,0.55,0.07), W_[(i + 1) % 3]); p.position.set(-0.5 + i*0.5,0.85,-0.36); p.rotation.x = -0.12; g.add(p); }
+    const top = new THREE.Mesh(new THREE.BoxGeometry(1.85,0.14,0.09), W_[0]); top.position.set(0,1.13,-0.39); top.rotation.x = -0.12; g.add(top);
+    for (const s of [-1,1]){ for (const z of [-0.3, 0.17]){ const l = new THREE.Mesh(new THREE.BoxGeometry(0.13,0.5,0.13), leg); l.position.set(0.75*s,0.24,z); g.add(l); }
+      const back = new THREE.Mesh(new THREE.BoxGeometry(0.13,0.75,0.11), leg); back.position.set(0.75*s,0.85,-0.37); back.rotation.x = -0.12; g.add(back);
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.12,0.08,0.6), W_[2]); arm.position.set(0.8*s,0.74,-0.05); g.add(arm); }
   } else if (id === 'swing'){
-    const post = mat('#8a6240',0.85);
-    for (const s of [-1,1]) for (const z of [-0.45,0.45]){ const p = new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.07,2.3,8), post); p.position.set(1.2*s,1.1,z*0.9); p.rotation.x = z > 0 ? -0.22 : 0.22; g.add(p); }
-    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,2.6,8), post); bar.rotation.z = Math.PI/2; bar.position.y = 2.2; g.add(bar);
+    const post = mat('#7d5636',0.9), seatM = mat('#a8774c',0.9);   // log A-frames, plank seat with a back, flowering vines, stones at the feet
+    for (const s of [-1,1]) for (const z of [-0.45,0.45]){ const p = new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.13,2.35,8), post); p.position.set(1.2*s,1.1,z*0.95); p.rotation.x = z > 0 ? -0.22 : 0.22; g.add(p);
+      fieldStone(g, 1.2*s, 0.06, z*2.2, 0.2, 0.6); }
+    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.11,0.11,2.75,8), post); bar.rotation.z = Math.PI/2; bar.position.y = 2.2; g.add(bar);
+    for (const s of [-1,1]){ const c = new THREE.Mesh(new THREE.SphereGeometry(0.12,8,6), post); c.position.set(1.37*s,2.2,0); g.add(c); }
+    vines(g, [V3(-1.2,0.1,0.45), V3(-1.2,1.2,0.2), V3(-1.2,2.2,0), V3(-0.3,2.25,0)], 5);
+    vines(g, [V3(1.2,0.1,-0.45), V3(1.2,1.0,-0.25), V3(1.2,2.2,0), V3(0.7,2.25,0)], 4);
     const seatG = new THREE.Group(); seatG.position.y = 2.2; g.add(seatG);
-    for (const s of [-1,1]){ const r = new THREE.Mesh(new THREE.CylinderGeometry(0.012,0.012,1.6,4), mat('#d9c9a0',0.9)); r.position.set(0.35*s,-0.8,0); seatG.add(r); }
-    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.9,0.06,0.35), mat('#e45b5b',0.6)); seat.position.y = -1.6; seatG.add(seat);
+    for (const s of [-1,1]){ const r = new THREE.Mesh(new THREE.CylinderGeometry(0.018,0.018,1.6,5), mat('#d9c9a0',0.9)); r.position.set(0.42*s,-0.8,0); seatG.add(r); }
+    for (let i=0;i<3;i++){ const pl = new THREE.Mesh(new THREE.BoxGeometry(1.0,0.07,0.13), seatM); pl.position.set(0,-1.6,-0.14 + i*0.14); seatG.add(pl); }
+    const back = new THREE.Mesh(new THREE.BoxGeometry(1.0,0.32,0.06), seatM); back.position.set(0,-1.38,-0.2); back.rotation.x = -0.15; seatG.add(back);
     g.userData.sway = seatG;
   } else if (id === 'sandbox'){
     const frame = mat('#c39a64',0.85);
