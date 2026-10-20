@@ -74,47 +74,104 @@ def lumpy(o, amt, scale=1.6):
     d = o.modifiers.new("lumpy", 'DISPLACE'); d.texture = tex; d.strength = amt; d.mid_level = 0.5
 
 R = Matrix.Rotation
-# ------------------------------------------------------------------ burrow house
+# ------------------------------------------------------------------ cottage (Ghibli style: stone, plaster, red tiles, ivy)
 house = empty("house")
-EARTH, GRASS, WOOD, DARK, STONE = mat("Earth", '#8b6a48', 0.95), mat("Grass", '#7a9a4c', 0.9), mat("Wood", '#8a5a36', 0.8), mat("Hole", '#140e0a', 1.0), mat("Stone", '#a7a299', 0.9)
-bm = bmesh.new(); bmesh.ops.create_uvsphere(bm, u_segments=48, v_segments=24, radius=2.2)
-bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.z < -0.02], context='VERTS')
-bmesh.ops.transform(bm, matrix=Matrix.Diagonal((1, 1, 0.9, 1)), verts=bm.verts)
-mound = obj_from_bm("mound", bm, EARTH, house); lumpy(mound, 0.14)
-bm = bmesh.new(); bmesh.ops.create_uvsphere(bm, u_segments=48, v_segments=24, radius=2.27)
-bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.z < 1.1 + 0.18*math.sin(math.atan2(v.co.y, v.co.x)*7)], context='VERTS')
-bmesh.ops.transform(bm, matrix=Matrix.Diagonal((1, 1, 0.9, 1)), verts=bm.verts)
-cap = obj_from_bm("grasscap", bm, GRASS, house); lumpy(cap, 0.12)
-sol = cap.modifiers.new("thick", 'SOLIDIFY'); sol.thickness = 0.08
-# grass tufts on the cap
-for i in range(26):
-    a, el = random.uniform(0, 2*math.pi), random.uniform(0.55, 1.25)
-    p = Vector((math.cos(a)*math.cos(el), math.sin(a)*math.cos(el), math.sin(el)*0.9))*2.3
-    t = cyl(f"tuft{i}", 0.07, 0.0, random.uniform(0.25, 0.4), GRASS, at=p, seg=5, parent=house)
-    t.rotation_euler = (random.uniform(-0.4, 0.4), random.uniform(-0.4, 0.4), 0)
-# entrance: dark hole, wooden arch frame, little plank awning
-hole = cyl("hole", 0.78, 0.78, 0.2, DARK, at=(0, -2.06, 0.55), seg=32, rot=R(math.pi/2, 3, 'X'))
-hole.parent = house
-torus("doorframe", 0.86, 0.1, WOOD, at=(0, -2.12, 0.55), rot=R(math.pi/2, 3, 'X'), parent=house, arc=0.5, seg=24)
-for s in (-1, 1): cyl(f"doorpost{s}", 0.1, 0.1, 0.6, WOOD, at=(0.86*s, -2.12, 0.27), seg=10, parent=house)
-for i in range(5):
-    b = box(f"awning{i}", (0.28, 0.6, 0.05), WOOD, at=(-0.56 + i*0.28, -2.3, 1.55), parent=house); b.rotation_euler = (0.45, 0, 0)
-# round window with cross bars on the side
-win = cyl("window", 0.32, 0.32, 0.1, mat("Glass", '#ffe6a3', 0.2), at=(1.62, -1.13, 0.95), seg=24, rot=R(math.pi/2, 3, 'X'))
-win.parent = house; win.rotation_euler = (0, 0, 0.96)
-wf = torus("winframe", 0.34, 0.06, WOOD, at=(1.65, -1.15, 0.95), rot=R(math.pi/2, 3, 'X'), parent=house); wf.rotation_euler = (0, 0, 0.96)
-# stone chimney
-for i in range(4):
-    st = cyl(f"chimney{i}", 0.26 - i*0.01, 0.25 - i*0.01, 0.2, STONE, at=(0.7, 0.6, 1.95 + i*0.2), seg=10, parent=house); lumpy(st, 0.03, 0.5)
-cyl("chimneycap", 0.31, 0.31, 0.06, mat("DarkStone", '#6f6a63', 0.9), at=(0.7, 0.6, 2.78), seg=10, parent=house)
-# stepping stones and a few flowers at the base
-for i, (x, y) in enumerate([(0.1, -2.75), (-0.25, -3.25), (0.15, -3.7)]):
-    s = sphere(f"step{i}", 0.26, STONE, at=(x, y, 0.02), scale=(1.2, 0.9, 0.18), seg=14, ring=8, parent=house)
-for i in range(7):
-    a = random.uniform(-2.6, -0.5) if i % 2 else random.uniform(0.5, 2.6)
-    p = Vector((math.sin(a)*2.25, -math.cos(a)*2.25, 0.08))
-    if abs(p.x) < 1.1 and p.y < 0: continue
-    sphere(f"bud{i}", 0.09, mat(["Pink", "Yellow", "White"][i % 3], ['#f2a6be', '#f3d250', '#fbf8f0'][i % 3], 0.6), at=p, seg=10, ring=6, parent=house)
+PLASTER, BEAM = mat("Plaster", '#eadbbd', 0.95), mat("Beam", '#7a5233', 0.85)
+STONES = [mat("Stone", '#b3aa98', 0.9), mat("Stone2", '#9d9483', 0.9), mat("Stone3", '#c4b9a3', 0.9)]
+TILES = [mat("Tile", '#c25a3a', 0.75), mat("Tile2", '#b04c30', 0.75), mat("Tile3", '#d16c46', 0.75), mat("Tile4", '#a8452c', 0.75)]
+IVY = [mat("Ivy", '#4f7f3a', 0.9), mat("Ivy2", '#6a9a45', 0.9), mat("Ivy3", '#3d6a33', 0.9)]
+BLOOM = [mat("Pink", '#f2a6be', 0.6), mat("White", '#fbf8f0', 0.6), mat("Yellow", '#f3d250', 0.6)]
+GLASS, IRON, SHUT = mat("Glass", '#ffe6a3', 0.2), mat("Iron", '#3a3430', 0.4, 0.6), mat("Shutter", '#5f8a6a', 0.8)
+W2, D2, H = 1.8, 1.6, 2.0                       # half width (x), half depth (y), wall height
+walls = box("walls", (W2*2, D2*2, H), PLASTER, at=(0, 0, H/2 + 0.25), parent=house, bevel=0.04)
+# stone footing all round, and stones showing through the plaster on the front
+for side in range(4):
+    L = (W2 if side % 2 == 0 else D2)*2 + 0.2
+    for i in range(int(L/0.42)):
+        t = -L/2 + 0.21 + i*0.42
+        x, y = ((t, -D2 - 0.05) if side == 0 else (W2 + 0.05, t) if side == 1 else (t, D2 + 0.05) if side == 2 else (-W2 - 0.05, t))
+        st = sphere(f"foot{side}_{i}", 0.24, STONES[(i + side) % 3], at=(x, y, 0.18), scale=(1.0, 1.0, 0.8), seg=10, ring=6, parent=house); lumpy(st, 0.06, 0.4)
+for i in range(16):
+    x, z = random.uniform(-W2 + 0.3, W2 - 0.3), random.uniform(0.6, H)
+    if abs(x) < 0.8 and z < 1.9: continue                                   # keep the doorway clear
+    if 0.7 < abs(x) < 1.6 and 0.85 < z < 1.75: continue                     # and the windows
+    st = sphere(f"wst{i}", random.uniform(0.12, 0.2), STONES[i % 3], at=(x, -D2 - 0.01, z), scale=(1.3, 0.35, 0.9), seg=10, ring=6, parent=house); lumpy(st, 0.03, 0.3)
+# timber frame: corner posts and a beam under the eaves
+for sx in (-1, 1):
+    for sy in (-1, 1): box(f"post{sx}{sy}", (0.2, 0.2, H + 0.1), BEAM, at=(sx*(W2 - 0.04), sy*(D2 - 0.04), H/2 + 0.25), parent=house, bevel=0.02)
+for sy in (-1, 1): box(f"beam{sy}", (W2*2 + 0.2, 0.18, 0.18), BEAM, at=(0, sy*(D2 + 0.02), H + 0.25), parent=house, bevel=0.02)
+# gable roof: the ridge runs front to back, so the triangle faces the front like the reference cottage
+top, pitch, over = H + 0.25, math.radians(38), 0.35
+run = W2 + over; rise = run*math.tan(pitch); peak = W2*math.tan(pitch)
+for sx in (-1, 1):
+    rows, cols = 7, 11
+    for r in range(rows):
+        u = (r + 0.5)/rows
+        for c in range(cols):
+            y = -D2 - over + (c + 0.5)/cols*(2*(D2 + over)) + (0.07 if r % 2 else 0)
+            if abs(y) > D2 + over: continue
+            x = sx*run*(1 - u); z = top - over*math.tan(pitch) + rise*u + 0.07
+            t = box(f"tile{sx}_{r}_{c}", (run/math.cos(pitch)/rows*1.25, 2*(D2 + over)/cols*0.96, 0.08), TILES[(r*3 + c*7 + (sx > 0)) % 4], at=(x, y, z), parent=house, bevel=0.025)
+            t.rotation_euler = (random.uniform(-0.03, 0.03), sx*pitch + random.uniform(-0.04, 0.04), random.uniform(-0.03, 0.03))
+    slab = box(f"roofslab{sx}", (run/math.cos(pitch), 2*(D2 + over), 0.1), TILES[3], at=(sx*run/2, 0, top - over*math.tan(pitch) + rise/2), parent=house, bevel=0.0)
+    slab.rotation_euler = (0, sx*pitch, 0)
+box("ridge", (0.22, 2*(D2 + over) + 0.1, 0.16), TILES[1], at=(0, 0, top - over*math.tan(pitch) + rise + 0.1), parent=house, bevel=0.05)
+for sy in (-1, 1):                                                          # plastered gable triangles with a king post
+    bm = bmesh.new(); vs = [bm.verts.new((x, 0, z)) for x, z in ((-W2, top), (W2, top), (0, top + peak))]; bm.faces.new(vs)
+    g_ = obj_from_bm(f"gable{sy}", bm, PLASTER, house, smooth=False); g_.location = (0, sy*D2, 0)
+    m = g_.modifiers.new("t", 'SOLIDIFY'); m.thickness = 0.12; m.offset = 0
+    box(f"gbeam{sy}", (0.14, 0.12, peak), BEAM, at=(0, sy*(D2 + 0.06), top + peak/2), parent=house, bevel=0.02)
+cyl("attic", 0.2, 0.2, 0.08, GLASS, at=(0.45, -D2 - 0.08, top + 0.5), seg=20, rot=R(math.pi/2, 3, 'X'), parent=house)
+torus("atticrim", 0.22, 0.045, BEAM, at=(0.45, -D2 - 0.1, top + 0.5), rot=R(math.pi/2, 3, 'X'), parent=house)
+# arched plank door with a little round window, stone arch and steps
+for i in range(5): box(f"plank{i}", (0.26, 0.08, 1.35), BEAM, at=(-0.52 + i*0.26, -D2 - 0.06, 0.25 + 0.67), parent=house, bevel=0.015)
+sphere("doortop", 0.65, BEAM, at=(0, -D2 - 0.06, 1.6), scale=(1, 0.06, 0.6), seg=24, ring=10, parent=house)
+for i in range(9):
+    a = math.pi*i/8
+    st = sphere(f"arch{i}", 0.13, STONES[i % 3], at=(math.cos(a)*0.72, -D2 - 0.08, 1.6 + math.sin(a)*0.55), scale=(1, 0.8, 1), seg=10, ring=6, parent=house); lumpy(st, 0.03, 0.3)
+cyl("doorwin", 0.13, 0.13, 0.05, GLASS, at=(0, -D2 - 0.13, 1.38), seg=16, rot=R(math.pi/2, 3, 'X'), parent=house)
+sphere("knob", 0.05, IRON, at=(0.38, -D2 - 0.14, 0.95), parent=house)
+for i, (y, z, w) in enumerate([(-D2 - 0.35, 0.1, 1.6), (-D2 - 0.75, 0.04, 1.8)]):
+    st = box(f"step{i}", (w, 0.45, 0.16), STONES[i], at=(0, y, z), parent=house, bevel=0.06); lumpy(st, 0.03, 0.5)
+# windows with shutters and flower boxes
+def window(name, at, rotz=0.0):
+    g = empty(name, house); g.location = at; g.rotation_euler = (0, 0, rotz)
+    box(name + "_glass", (0.62, 0.06, 0.62), GLASS, parent=g, bevel=0.0)
+    for k, x in enumerate((-0.33, 0.33)): box(name + f"_f{k}", (0.07, 0.1, 0.72), BEAM, at=(x, -0.02, 0), parent=g, bevel=0.01)
+    for k, z in enumerate((-0.33, 0.33)): box(name + f"_h{k}", (0.72, 0.1, 0.07), BEAM, at=(0, -0.02, z), parent=g, bevel=0.01)
+    box(name + "_mull", (0.04, 0.08, 0.62), BEAM, at=(0, -0.03, 0), parent=g, bevel=0.0); box(name + "_mulh", (0.62, 0.08, 0.04), BEAM, at=(0, -0.03, 0), parent=g, bevel=0.0)
+    for k, x in enumerate((-0.55, 0.55)): box(name + f"_sh{k}", (0.34, 0.05, 0.74), SHUT, at=(x, -0.05, 0), parent=g, bevel=0.015)
+    box(name + "_box", (0.8, 0.22, 0.16), BEAM, at=(0, -0.13, -0.42), parent=g, bevel=0.02)
+    for i in range(7):
+        sphere(name + f"_fl{i}", 0.07, BLOOM[i % 3] if i % 2 else IVY[1], at=(-0.33 + i*0.11, -0.15, -0.3 + random.uniform(0, 0.06)), seg=8, ring=6, parent=g)
+window("winL", (-1.2, -D2 - 0.04, 1.3)); window("winR", (1.2, -D2 - 0.04, 1.3))
+window("winS", (W2 + 0.04, 0.2, 1.3), math.pi/2); window("winS2", (-W2 - 0.04, -0.2, 1.3), -math.pi/2)
+# stone chimney at the back right
+for i in range(10):
+    st = box(f"chim{i}", (0.62, 0.62, 0.24), STONES[i % 3], at=(0.95 + random.uniform(-0.02, 0.02), 0.75, top + 0.3 + i*0.23), parent=house, bevel=0.06); lumpy(st, 0.025, 0.4)
+box("chimcap", (0.74, 0.74, 0.1), STONES[1], at=(0.95, 0.75, top + 0.3 + 10*0.23), parent=house, bevel=0.03)
+# ivy climbing the front-left corner and over the eave, with little flowers
+nid = [0]
+def ivy(path, n, spread):
+    for i in range(n):
+        u = i/(n - 1); x, y, z = [path[0][k] + (path[1][k] - path[0][k])*u for k in range(3)]
+        for k in range(3):
+            nid[0] += 1
+            bl = sphere(f"ivy{nid[0]}", random.uniform(0.12, 0.22), IVY[(i + k) % 3], at=(x + random.uniform(-spread, spread), y + random.uniform(-0.06, 0.02), z + random.uniform(-spread, spread)), scale=(1, 0.55, 0.9), seg=10, ring=6, parent=house)
+            lumpy(bl, 0.05, 0.25)
+        if i % 2 == 0:
+            nid[0] += 1; sphere(f"ivyfl{nid[0]}", 0.06, BLOOM[i % 3], at=(x + random.uniform(-spread, spread), y - 0.12, z + random.uniform(-spread, spread)), seg=8, ring=6, parent=house)
+ivy([(-W2 - 0.02, -D2 - 0.08, 0.3), (-W2 + 0.2, -D2 - 0.08, H + 0.3)], 9, 0.22)
+ivy([(-W2 + 0.2, -D2 - 0.14, H + 0.4), (-0.6, -D2 - 0.25, H + 0.75)], 6, 0.18)
+ivy([(W2 + 0.08, D2 - 0.4, 0.3), (W2 + 0.08, -0.6, 1.0)], 6, 0.2)
+# flower pots and a lantern by the door, stepping stones
+for i, x in enumerate((-0.95, 0.95)):
+    cyl(f"pot{i}", 0.2, 0.15, 0.3, mat("Pot", '#b8653f', 0.8), at=(x, -D2 - 0.5, 0.33), seg=14, parent=house)
+    for k in range(5): sphere(f"potfl{i}{k}", 0.09, BLOOM[(k + i) % 3] if k % 2 else IVY[k % 3], at=(x + random.uniform(-0.12, 0.12), -D2 - 0.5 + random.uniform(-0.12, 0.12), 0.55 + random.uniform(0, 0.1)), seg=8, ring=6, parent=house)
+box("lantarm", (0.06, 0.3, 0.06), IRON, at=(0.85, -D2 - 0.15, 1.85), parent=house, bevel=0.0)
+cyl("lantern", 0.1, 0.12, 0.24, GLASS, at=(0.85, -D2 - 0.3, 1.7), seg=8, parent=house)
+for i, (x, y) in enumerate([(0.1, -D2 - 1.25), (-0.2, -D2 - 1.7), (0.15, -D2 - 2.1)]):
+    sphere(f"path{i}", 0.26, STONES[i % 3], at=(x, y, 0.02), scale=(1.2, 0.9, 0.18), seg=14, ring=8, parent=house)
 
 # ------------------------------------------------------------------ street lamp
 lamp = empty("lamp")
@@ -218,6 +275,7 @@ def export_props():
     bpy.ops.object.select_all(action='DESELECT')
     for o in scene.objects: o.select_set(True)
     bpy.ops.export_scene.gltf(filepath=OUT, export_format='GLB', use_selection=True, use_active_scene=True, export_apply=True,
-        export_animations=False, export_yup=True, export_cameras=False, export_lights=False)
+        export_animations=False, export_yup=True, export_cameras=False, export_lights=False,
+        export_draco_mesh_compression_enable=True, export_draco_mesh_compression_level=7, export_draco_position_quantization=13, export_draco_normal_quantization=9)
     for o in tops: o.location = saved[o.name]
     import os; return os.path.getsize(OUT)
