@@ -6,7 +6,7 @@ import { cloud } from './cloud.js';
 import { createGhibli } from './ghibli.js';
 import { createFauna, SPECIES } from './fauna.js';
 import { createWildlife, WILD_NAMES } from './wildlife.js';
-import { createWorld, newWorld, HALF, WATER_Y, X0, X1, Z0, Z1, BIO, plotKey, PLOT_KEYS, SEE, seeThrough, leafMaterial, swaying, CANOPY_BLOBS } from './world.js';
+import { createWorld, newWorld, HALF, WATER_Y, X0, X1, Z0, Z1, BIO, plotKey, PLOT_KEYS, SEE, seeThrough, leafMaterial, swaying, CANOPY_BLOBS, leafyCanopy, canopyTex } from './world.js';
 
 // Keep r128-era colour handling so the hand-tuned palette and fur shader look the same.
 THREE.ColorManagement.enabled = false;
@@ -341,7 +341,8 @@ try {
   const tg = await LOADS.trees;
   tg.scene.traverse(o => { if (!o.isMesh) return; const ca = o.geometry.attributes.color; if (ca && !o.geometry.userData.srgb){ o.geometry.userData.srgb = true;
     for (let i=0;i<ca.count;i++) for (let k=0;k<3;k++){ const v = ca.getComponent(i, k); ca.setComponent(i, k, v <= 0.0031308 ? v*12.92 : 1.055*Math.pow(v, 1/2.4) - 0.055); } } });
-  tg.scene.children.forEach(o => { const t = o.getObjectByName(o.name + '_trunk'), c = o.getObjectByName(o.name + '_canopy'); TREES[o.name] = {trunk: t && t.geometry, canopy: c && c.geometry}; });
+  tg.scene.children.forEach((o, i) => { const t = o.getObjectByName(o.name + '_trunk'), c = o.getObjectByName(o.name + '_canopy');
+    TREES[o.name] = {trunk: t && t.geometry, canopy: c && leafyCanopy(c.geometry, 7 + i, mobile ? 0.2 : 0.3, o.name.includes('pine') ? 0.7 : 1)}; });   // leafy fringe on every canopy
 } catch(e){ console.warn('trees.glb not loaded', e); }
 const treeSet = k => Object.keys(TREES).filter(n => n.startsWith('tree_' + k)).sort().map(n => TREES[n]);
 const TREE_MODELS = Object.keys(TREES).length ? {oak:treeSet('oak'), pine:treeSet('pine'), euc:treeSet('euc'), bush:treeSet('bush')} : null;
@@ -1727,7 +1728,7 @@ function updatePests(dt){
   }
 }
 // ---------- trees: planted at random when a game starts; some carry a beehive ----------
-const SWAMP_CANOPY = swaying(new THREE.MeshLambertMaterial({vertexColors:true, color:'#97a284'}), 3.6, 0.4, 0.12);
+const SWAMP_CANOPY = swaying(new THREE.MeshLambertMaterial({vertexColors:true, color:'#97a284', map:canopyTex, alphaTest:0.45, side:THREE.DoubleSide}), 3.6, 0.4, 0.12);
 function makeTree(d){
   // the Blender tree (outback trees are eucalyptus, swamp trees get a darker, mossier tint); simple shapes if the model is missing
   const euc = !!d.euc, g = new THREE.Group(), set = TREE_MODELS && (euc ? TREE_MODELS.euc : TREE_MODELS.oak);

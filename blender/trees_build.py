@@ -24,6 +24,22 @@ def foliage_shade(lo, hi, top, bottom, warm):
         return col, 0
     return shade
 
+def clump_shade(cs, dark, mid, light, warm, crevice=0.55):
+    """Ghibli-style leaf masses: every clump is lit on its own (warm yellow-green on top, cool blue-green underneath),
+    and the creases where two clumps meet go dark, so the crown reads as separate painted lumps of leaves."""
+    D, M, L, Wm = lin(dark), lin(mid), lin(light), lin(warm)
+    def shade(co, c, f):
+        near = sorted(((Vector(cc[:3]) - co).length/cc[3], i) for i, cc in enumerate(cs))
+        (d0, i0), d1 = near[0], (near[1][0] if len(near) > 1 else 9)
+        x, y, z, r = cs[i0]; t = max(-1.0, min(1.0, (co.z - z)/r*1.1 + (co.x*0.15 + co.y*0.1)/r))
+        col = mixc(D, M, (t + 1)) if t < 0 else mixc(M, L, t**0.8)
+        col = mixc(col, Wm, max(0.0, t)*0.35*max(0.0, noise3(co, 7.0)))           # sunny warm patches on the tops
+        crease = max(0.0, 1.0 - (d1 - d0)*3.2)                                      # where two clumps meet
+        col = mixc(col, D, crease*crevice*(1.0 - 0.5*max(0.0, t)))
+        col = [v*(0.88 + 0.16*(0.5 + 0.5*noise3(co, 21.0))) for v in col]           # leafy speckle
+        return col, 0
+    return shade
+
 def trunk_piece(name, h, r0, branches, col='#7a5634', dark='#4e3622', voxel=0.035):
     p = Piece(name, voxel, target=900)
     p.add(limb((0, 0, -0.1), (0, 0, h), r0, r0*0.55, seg=14), col)
@@ -47,14 +63,19 @@ def clumps(p, centers, col):
 # ---------- broadleaf (oak-like) ----------
 def oak(name, seed):
     random.seed(seed); g = empty(name)
-    tp, ts = trunk_piece(name + "_trunk", 1.6, 0.2, [(1.25, 0.5, 0.7, 0.5), (1.35, 2.6, 0.6, 0.45), (1.45, 4.3, 0.55, 0.5)])
-    tp.build(g, shade=ts)
-    p = Piece(name + "_canopy", 0.06, target=1800); cs = []
-    for i in range(16):
-        a = random.uniform(0, math.tau); r = random.uniform(0, 0.85); z = random.uniform(1.6, 2.6)
-        cs.append((math.cos(a)*r, math.sin(a)*r, z + (0.85 - r)*0.4, random.uniform(0.45, 0.7)))
+    cs = [(0, 0, 3.05, 0.78)]                                  # crown top, then a ring of side clumps, then a few low ones
+    n = random.choice((5, 6)); a0 = random.uniform(0, math.tau)
+    for i in range(n):
+        a = a0 + i/n*math.tau + random.uniform(-0.25, 0.25); rr = random.uniform(0.95, 1.2)
+        cs.append((math.cos(a)*rr, math.sin(a)*rr, random.uniform(2.25, 2.6), random.uniform(0.58, 0.72)))
+    for i in range(random.choice((2, 3))):
+        a = a0 + random.uniform(0, math.tau); rr = random.uniform(1.15, 1.4)
+        cs.append((math.cos(a)*rr, math.sin(a)*rr, random.uniform(1.75, 1.95), random.uniform(0.42, 0.52)))
+    br = [(1.3 + 0.1*i, math.atan2(y, x), math.hypot(x, y)*0.75, z - 1.5 - 0.1*i) for i, (x, y, z, r) in enumerate(cs[1:])]
+    tp, ts = trunk_piece(name + "_trunk", 2.0, 0.21, br); tp.build(g, shade=ts)
+    p = Piece(name + "_canopy", 0.055, target=2400)
     clumps(p, cs, '#5f8f3e')
-    p.build(g, shade=foliage_shade('#2f5a26', '#8cc25a', 3.2, 1.2, '#c9d36a'), smooth=4)
+    p.build(g, shade=clump_shade(cs, '#23493b', '#4d8a3c', '#b4d968', '#e6d77a'), smooth=3)
     return g
 
 # ---------- pine ----------
@@ -69,7 +90,8 @@ def pine(name, seed):
         p.add(bm_cone(r, 0.04, 0.75, at=(0, 0, z + 0.2)), '#3f6f45')
         for k in range(7):
             a = k/7*math.tau + i*0.4; p.add(bm_ball(r*0.38, at=(math.cos(a)*r*0.8, math.sin(a)*r*0.8, z - 0.05), scale=(1, 1, 0.55), seg=10), '#3f6f45')
-    p.build(g, shade=foliage_shade('#1f3f2a', '#5e9a5a', 3.4, 0.6, '#9cbf6a'), smooth=3)
+    tiers = [(0, 0, z + 0.25, r*0.9) for (z, r) in [(0.9, 1.05), (1.5, 0.88), (2.05, 0.7), (2.55, 0.52), (2.95, 0.34), (3.25, 0.18)]]
+    p.build(g, shade=clump_shade(tiers, '#16352c', '#2f6646', '#7fb86a', '#b9cf78', crevice=0.7), smooth=3)
     return g
 
 # ---------- eucalyptus (outback) ----------
@@ -80,7 +102,7 @@ def euc(name, seed):
     for i in range(9):
         a = random.uniform(0, math.tau); r = random.uniform(0.4, 1.1); cs.append((math.cos(a)*r, math.sin(a)*r, random.uniform(2.9, 3.6), random.uniform(0.35, 0.55)))
     clumps(p, cs, '#8fa58a')
-    p.build(g, shade=foliage_shade('#5d7462', '#b3c7a6', 4.0, 2.6, '#d6dcb0'), smooth=4)
+    p.build(g, shade=clump_shade(cs, '#4a6556', '#7f9c80', '#c8d8a8', '#e0dca8'), smooth=3)
     return g
 
 # ---------- bushes ----------
@@ -90,7 +112,7 @@ def bush(name, seed, n=6, size=0.5):
     for i in range(n):
         a = random.uniform(0, math.tau); r = random.uniform(0, 0.4); cs.append((math.cos(a)*r, math.sin(a)*r, random.uniform(0.25, 0.5), random.uniform(0.28, 0.4)*size/0.5))
     clumps(p, cs, '#5d9440')
-    p.build(g, shade=foliage_shade('#2c5226', '#86bd5a', 0.95, 0.0, '#c3d46a'), smooth=4)
+    p.build(g, shade=clump_shade(cs, '#22462f', '#4f8b3e', '#a8d468', '#dcd57a'), smooth=3)
     return g
 
 oak("tree_oak1", 1); oak("tree_oak2", 2); oak("tree_oak3", 3)

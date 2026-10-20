@@ -82,6 +82,41 @@ const leafTex = (() => { const cv = document.createElement('canvas'); cv.width =
     x.fillStyle = g; x.beginPath(); x.ellipse(0, 0, 7 + Math.random()*4, 15 + Math.random()*6, 0, 0, Math.PI*2); x.fill();
     x.strokeStyle = 'rgba(80,90,70,0.35)'; x.lineWidth = 1.2; x.beginPath(); x.moveTo(0, -14); x.lineTo(0, 14); x.stroke(); x.restore(); }
   const t = new THREE.CanvasTexture(cv); t.anisotropy = 4; return t; })();
+// Blender canopies get a fringe of painted leaf cards on their surface, so the outline is leafy instead of smooth.
+// One texture holds both: the left half is solid (the canopy body samples it), the right half is a painted leaf spray.
+export const canopyTex = (() => { const cv = document.createElement('canvas'); cv.width = 256; cv.height = 128; const x = cv.getContext('2d');
+  x.fillStyle = '#fff'; x.fillRect(0, 0, 120, 128);
+  for (let i=0;i<34;i++){ const a = Math.random()*Math.PI*2, r = 6 + Math.random()*46, px = 192 + Math.cos(a)*r*0.95, py = 64 + Math.sin(a)*r*0.95, l = 215 + Math.floor(Math.random()*40);
+    x.save(); x.translate(px, py); x.rotate(a + Math.PI/2 + (Math.random() - 0.5)*0.9);
+    const g = x.createLinearGradient(0, -14, 0, 14); g.addColorStop(0, `rgb(${l},${l},${l - 10})`); g.addColorStop(1, `rgb(${l - 60},${l - 50},${l - 60})`);
+    x.fillStyle = g; x.beginPath(); x.ellipse(0, 0, 6 + Math.random()*4, 13 + Math.random()*5, 0, 0, Math.PI*2); x.fill(); x.restore(); }
+  const t = new THREE.CanvasTexture(cv); t.anisotropy = 4; return t; })();
+export function leafyCanopy(geo, seed = 1, perVert = 0.3, size = 1){
+  const R = rng(seed), P = geo.attributes.position, N = geo.attributes.normal, C = geo.attributes.color, n = P.count;
+  geo.computeBoundingBox(); const diag = geo.boundingBox.getSize(new THREE.Vector3()).length();
+  const uvB = new Float32Array(n*2).fill(0.2); geo.setAttribute('uv', new THREE.BufferAttribute(uvB, 2));   // body samples the solid half
+  const pos = [], nor = [], col = [], uv = [], idx = [], K = Math.min(320, Math.round(n*perVert));
+  const p = new THREE.Vector3(), nn = new THREE.Vector3(), t1 = new THREE.Vector3(), t2 = new THREE.Vector3(), r = new THREE.Vector3();
+  for (let k=0;k<K;k++){
+    const i = Math.floor(R()*n); p.fromBufferAttribute(P, i); nn.fromBufferAttribute(N, i).normalize();
+    if (nn.y < -0.6 && R() < 0.7) continue;                              // fewer cards underneath
+    const s = diag*0.1*size*(0.75 + R()*0.6), c = p.clone().addScaledVector(nn, s*0.18);
+    t1.crossVectors(nn, r.set(R() - 0.5, R() - 0.5, R() - 0.5)).normalize(); t2.crossVectors(nn, t1).normalize();
+    t1.addScaledVector(nn, 0.35).normalize();                            // tilt the cards out a little so the edge reads as leaves
+    const base = pos.length/3, k2 = 0.95 + R()*0.15;
+    for (const [a, b, ua, ub] of [[-1, -1, 0.5, 0], [1, -1, 1, 0], [1, 1, 1, 1], [-1, 1, 0.5, 1]]){
+      const q = c.clone().addScaledVector(t1, a*s/2).addScaledVector(t2, b*s/2); pos.push(q.x, q.y, q.z); nor.push(nn.x, nn.y, nn.z); uv.push(ua, ub);
+      col.push(C.getX(i)*k2, C.getY(i)*k2, C.getZ(i)*k2); }
+    idx.push(base, base + 1, base + 2, base, base + 2, base + 3); }
+  const cards = new THREE.BufferGeometry();
+  cards.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); cards.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  cards.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); cards.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); cards.setIndex(idx);
+  const body = geo.index ? geo : geo.toNonIndexed(); if (!body.index){ const a = []; for (let i=0;i<body.attributes.position.count;i++) a.push(i); body.setIndex(a); }
+  const keep = ['position', 'normal', 'color', 'uv']; for (const k of Object.keys(body.attributes)) if (!keep.includes(k)) body.deleteAttribute(k);
+  for (const k of ['position', 'normal', 'color']){ const A = body.attributes[k], f = new Float32Array(A.count*3);   // plain float xyz (Draco may hand back packed or 4-wide data)
+    for (let i=0;i<A.count;i++){ f[i*3] = A.getX(i); f[i*3+1] = A.getY(i); f[i*3+2] = A.getZ(i); } body.setAttribute(k, new THREE.BufferAttribute(f, 3)); }
+  return mergeGeometries([body, cards]);
+}
 export function leafMaterial(color){ return swaying(new THREE.MeshLambertMaterial({color: color || '#ffffff', map:leafTex, alphaTest:0.45, side:THREE.DoubleSide}), 3.0, 0.35, 0.12); }
 // Leaf cards scattered over spherical blobs [x, y, z, r]; normals point out from each blob's centre for soft, rounded shading.
 export function leafCards(blobs, density = 15, seed = 5){
@@ -326,7 +361,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
   // canopy = a darker solid core (so you cannot see through it) wrapped in painted leaf cards
   const canopyGeo = mergeGeometries(CANOPY_BLOBS.map(([x, y, z, r]) => { const g = new THREE.IcosahedronGeometry(r*0.72, 1); g.translate(x, y, z); return g; }));
   const cardGeo = leafCards(CANOPY_BLOBS, mobile ? 10 : 15), leafCardM = leafMaterial();
-  const TRUNK_M = seeThrough(new THREE.MeshLambertMaterial({vertexColors:true})), CANOPY_M = swaying(new THREE.MeshLambertMaterial({vertexColors:true, color:'#e8eede'}), 3.6, 0.4, 0.12);
+  const TRUNK_M = seeThrough(new THREE.MeshLambertMaterial({vertexColors:true})), CANOPY_M = swaying(new THREE.MeshLambertMaterial({vertexColors:true, color:'#c9d8bc', map:canopyTex, alphaTest:0.45, side:THREE.DoubleSide}), 3.6, 0.4, 0.12);
   const TREE_TINTS = ['#ffffff', '#f0f6e6', '#f6f2e0', '#e8f0e0', '#fbf8ee'];
   W.TRUNK_M = TRUNK_M; W.CANOPY_M = CANOPY_M;
   const pineCards = leafCards([[0, 1.2, 0, 0.95], [0, 1.9, 0, 0.75], [0, 2.55, 0, 0.55], [0, 3.05, 0, 0.32]], mobile ? 9 : 13, 11), bushCards = leafCards([[0, 0.45, 0, 0.62], [0.35, 0.38, 0.2, 0.42], [-0.3, 0.4, -0.15, 0.45]], mobile ? 9 : 13, 13);
