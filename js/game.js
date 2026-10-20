@@ -1614,7 +1614,7 @@ const weedMats = [mat('#4c6b35'), mat('#5f7f3e'), mat('#3f5c2c')];
 // Litter that belongs to a special area: it grows or washes up there and can be cleared like weeds (a little more money).
 const LITTER = {
   tumble:{name:'風滾草', where:'aus'}, branch:{name:'枯樹枝', where:'forest'}, scree:{name:'碎石堆', where:'high'}, thorn:{name:'帶刺灌木', where:'savanna'},
-  hyacinth:{name:'布袋蓮', where:'swamp', shore:true}, algae:{name:'浮萍', where:'pond', shore:true}, drift:{name:'漂流木', where:'beaver'}, seaweed:{name:'海草', where:'beach'},
+  hyacinth:{name:'布袋蓮', where:'swamp', still:'swamp'}, algae:{name:'浮萍', where:'pond', still:'pond'}, drift:{name:'漂流木', where:'beaver'}, seaweed:{name:'海草', where:'beach'},
 };
 function litterMesh(kind){
   const g = new THREE.Group(), M = c => mat(c, 0.9), stick = (len, r, m) => { const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r*0.8, len, 5), m); c.rotation.set(rnd(-1.4, 1.4), rnd(0, 6), rnd(-1.4, 1.4)); return c; };
@@ -1633,7 +1633,7 @@ function litterMesh(kind){
 }
 function makeWeed(x, z, s, kind){
   const g = new THREE.Group();
-  if (kind && LITTER[kind]){ g.add(litterMesh(kind)); const y = gy(x, z); g.position.set(x, y, z); g.scale.setScalar(s); g.rotation.y = rnd(0, 6.28); scene.add(g);
+  if (kind && LITTER[kind]){ g.add(litterMesh(kind)); const y = LITTER[kind].still ? WATER_Y + 0.01 : gy(x, z); g.position.set(x, y, z); g.scale.setScalar(s); g.rotation.y = rnd(0, 6.28); scene.add(g);
     const hb = new THREE.Mesh(new THREE.SphereGeometry(0.45, 8, 6), hbMat); hb.position.y = 0.2; hb.userData.kind = 'weed'; g.add(hb);
     const w = {g, x, z, s, hb, kind}; hb.userData.ref = w; weeds.push(w); return w; }
   for (let i=0;i<6;i++){ const b = new THREE.Mesh(bladeGeo, weedMats[i%3]); b.position.set(rnd(-0.1,0.1),0,rnd(-0.1,0.1)); b.rotation.set(rnd(-0.6,0.6),0,rnd(-0.6,0.6)); b.scale.y = rnd(0.6,1.3); g.add(b); }
@@ -1652,16 +1652,17 @@ function rollTumbleweeds(dt){
 const plotBio = k => Object.keys(BIO).find(b => BIO[b] === k);
 // litter and weeds never grow in water or on a bridge deck; pond/swamp plants wash up on the bank instead
 const overBridge = (x, z, pad = 0.6) => world.bridges.some(b => { const dx = x - b.x, dz = z - b.z; return Math.abs(dx*b.ax + dz*b.az) < b.len/2 + pad && Math.abs(-dx*b.az + dz*b.ax) < world.BRIDGE_W/2 + pad; });
-const nearWater = (x, z, r = 1.3) => [0, 1, 2, 3, 4, 5, 6, 7].some(i => world.isWater(x + Math.sin(i*0.785)*r, z + Math.cos(i*0.785)*r));
 const weedSpotOK = (x, z) => groundOK(x, z) && !world.isWater(x, z) && !overBridge(x, z) && !inBuild(x, z, 0.4);
+const stillSpotOK = (x, z, where) => (where === 'pond' ? world.isPond(x, z) : world.isSwampWater(x, z)) && !world.isRiver(x, z) && !overBridge(x, z);
+const litterSpotOK = (x, z, k) => k && LITTER[k] && LITTER[k].still ? stillSpotOK(x, z, LITTER[k].still) : weedSpotOK(x, z);
 function spawnWeed(){
   const open = world.data.open; if (weeds.length >= weedCap()) return;
   const k_ = open[Math.floor(Math.random()*open.length)], [px, pz] = k_.split(',').map(Number).map(v => v*18), bio = plotBio(k_);
   // special areas grow their own litter half the time
   const lit = Object.keys(LITTER).find(l => LITTER[l].where === bio) || (k_.startsWith('1,') && Math.random() < 0.5 ? 'seaweed' : null);
   if (lit && (bio ? Math.random() < 0.55 : true)){
-    for (let k=0;k<20;k++){ const x = px + rnd(-8.5, 8.5), z = pz + rnd(-8.5, 8.5), L_ = LITTER[lit];
-      if (!weedSpotOK(x, z) || (L_.shore && !nearWater(x, z))) continue;
+    for (let k=0;k<60;k++){ const x = px + rnd(-8.5, 8.5), z = pz + rnd(-8.5, 8.5);
+      if (!litterSpotOK(x, z, lit)) continue;
       if (lit === 'seaweed' && !world.isBeach(x, z)) continue;
       if (obstacles().some(o => Math.hypot(o.c.x-x, o.c.z-z) < o.r + 0.4)) continue;
       makeWeed(+x.toFixed(2), +z.toFixed(2), +rnd(0.85, 1.2).toFixed(2), lit); return; } }
@@ -4297,7 +4298,7 @@ const wildPlaces = () => { wild.setPlaces(trees.filter(tr => !tr.cut).map(tr => 
   [...world.feats.filter(f => f.d.k === 'bush').map(f => ({x:f.d.x, z:f.d.z, y:f.g.position.y + 0.78*f.d.s})), ...world.lockedAll('bushes')], world.lockedAll('trees'));
   fauna.setForestTrees([...trees.filter(tr => !tr.cut && world.inBio('forest', tr.d.x, tr.d.z) && !tr.d.pine).map(tr => tr.d), ...world.lockedTrees(BIO.forest)]); };
 wildPlaces();
-(S.weeds || []).forEach(([x,z,s,k]) => { if (weedSpotOK(x, z)) makeWeed(x,z,s,k); });   // old saves may have litter floating in water or on a bridge
+(S.weeds || []).forEach(([x,z,s,k]) => { if (litterSpotOK(x, z, k)) makeWeed(x,z,s,k); });   // drops litter that ended up in the wrong water or on a bridge
 (S.poops || []).forEach(([x,z,ry,sc]) => { if (inBuild(x, z)) ({x, z} = freeNear(V3(x, 0, z))); const c = makePoop(V3(x, gy(x, z) + 0.1*(sc||1), z), null, sc||1); c.m.rotation.y = ry; });
 setupBeach();
 (S.snowmen || []).forEach(([x,z,ry,m]) => makeSnowman(x,z,ry,m));
