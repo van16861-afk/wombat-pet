@@ -13,7 +13,7 @@ PREP = r"C:\Users\User\Documents\wombat-pet\assets\source\rigprep"
 OUT = r"C:\Users\User\Documents\wombat-pet\assets\models\real"
 os.makedirs(PREP, exist_ok=True); os.makedirs(OUT, exist_ok=True)
 
-def prep(name, src, budget, flip=False):
+def prep(name, src, budget, flip=False, turn=0):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=os.path.join(SRC, src + ".glb"))
     meshes = [o for o in bpy.data.objects if o.type == 'MESH' and len(o.data.polygons) > 0]
@@ -36,6 +36,7 @@ def prep(name, src, budget, flip=False):
     # head forward: the end with the highest points is the front (head and ears stand higher than a tail)
     lo_end = [v.z for v in vs if v.y < y0 + 0.2*L]; hi_end = [v.z for v in vs if v.y > y1 - 0.2*L]
     if (max(hi_end) > max(lo_end)) != flip: me.transform(Matrix.Rotation(math.pi, 4, 'Z'))
+    if turn: me.transform(Matrix.Rotation(math.radians(turn), 4, "Z"))   # (e.g. a crab: wider than it is long)
     vs = [v.co for v in me.vertices]
     lo = Vector([min(v[k] for v in vs) for k in range(3)]); hi = Vector([max(v[k] for v in vs) for k in range(3)])
     s = 1/(hi.y - lo.y); c = Vector(((lo.x + hi.x)/2, (lo.y + hi.y)/2, lo.z))
@@ -126,7 +127,7 @@ from rig_specs import SPECS   # bone lists and clips per animal (blender/rig_spe
 only = [s for s in os.environ.get("ONLY", "").split(",") if s]
 for name, sp in SPECS.items():
     if only and name not in only: continue
-    ob = prep(name, sp["src"], sp["budget"], sp.get("flip", False))
+    ob = prep(name, sp["src"], sp["budget"], sp.get("flip", False), sp.get("turn", 0))
     if os.environ.get("PREP"):
         export(os.path.join(PREP, name + ".glb"), False); continue
     arm = build_rig(ob, sp["bones"]); skin(ob, arm, sp["bones"])

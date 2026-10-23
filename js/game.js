@@ -212,7 +212,7 @@ Object.values(LOADS).forEach(pr => pr.catch(() => {}));
 // Realistic rigged animals (Sketchfab, converted by blender/real_build.py; authors in assets/models/CREDITS.md). Each has its own
 // skeleton and clips (walk, run, graze, lie down...). `yaw` turns the model to face +Z; `like` is the old model whose size it takes.
 const REAL_CFG = {tiger:{yaw:Math.PI/2, like:'tiger', k:1.15}, deer:{like:'deer', k:1.45, parts:{antlers:'Chifre'}}, wolf:{like:'wolf', k:1.05},
-  moose:{like:'deer', k:1.9, parts:{antlers:'M_Moose_Antler'}}, horse:{like:'horse', k:1.25}, croc:{like:'croc', bright:1.8}, kangaroo:{like:'kangaroo', k:1.45}, heron:{like:'heron', k:1.1}};
+  moose:{like:'deer', k:1.9, parts:{antlers:'M_Moose_Antler'}}, horse:{like:'horse', k:1.25}, croc:{like:'croc', bright:1.8}, kangaroo:{like:'kangaroo', k:1.45}, heron:{like:'heron', k:1.1}, crab:{len:0.32}};
 const REAL_LOADS = Object.fromEntries(Object.keys(REAL_CFG).map(n => [n, new GLTFLoader().setDRACOLoader(draco).loadAsync(`assets/models/real/${n}.glb`)]));
 Object.values(REAL_LOADS).forEach(pr => pr.catch(() => {}));
 let gltf;
@@ -419,7 +419,7 @@ for (const [n, pr] of Object.entries(REAL_LOADS)){
     mx.stopAllAction(); mx.uncacheRoot(g.scene);
     box.min.z -= (box.max.z - box.min.z)*0.06; box.max.z += (box.max.z - box.min.z)*0.06;   // the skin reaches a little past the end bones
     const old = ANIM[cfg.like] ? new THREE.Box3().setFromObject(ANIM[cfg.like], true) : null;
-    const s = (old ? (old.max.z - old.min.z)/(box.max.z - box.min.z) : 1)*(cfg.k || 1);
+    const s = (cfg.len ? cfg.len/(box.max.z - box.min.z) : old ? (old.max.z - old.min.z)/(box.max.z - box.min.z) : 1)*(cfg.k || 1);
     REAL[n] = {g, s, y:-box.min.y*s, x:-(box.min.x + box.max.x)/2*s, z:-(box.min.z + box.max.z)/2*s, cfg}; tmp.remove(g.scene);   // centred on the body, feet on the ground
   } catch(e){ console.warn(`real/${n}.glb not loaded`, e); }
 }
@@ -2096,7 +2096,9 @@ function makeCrab(hermit){
     for (const s of [-1, 1]){ const claw = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), body.material); claw.scale.set(1, 0.7, 1.3); claw.position.set(0.12*s, 0.09, 0.16); g.add(claw);
       const eye = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 6), mat('#1b1b1b', 0.3)); eye.position.set(0.04*s, 0.2, 0.09); g.add(eye); }
   }
-  for (let i=0;i<6;i++){ const s = i < 3 ? 1 : -1, l = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.16, 4), mat(hermit ? '#e07a4f' : '#c44a36', 0.5));
+  const rc = !hermit && realClone('crab');   // the realistic rigged crab (blender/rig_build.py) replaces the round one
+  if (rc){ g.clear(); g.add(rc); g.userData.rig = rc.userData; }
+  for (let i=0;i<(rc ? 0 : 6);i++){ const s = i < 3 ? 1 : -1, l = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.16, 4), mat(hermit ? '#e07a4f' : '#c44a36', 0.5));
     l.position.set(0.13*s, 0.05, ((i % 3) - 1)*0.06 + (hermit ? 0.1 : 0)); l.rotation.z = s*1.1; g.add(l); legs.push(l); }
   const p = beachSpot(false) || V3(world.shoreX(0) - 2, 0, 0); g.position.copy(p); g.scale.setScalar(hermit ? 1.2 : 1.3); scene.add(g);
   const hb = new THREE.Mesh(new THREE.SphereGeometry(0.4, 8, 6), hbMat); hb.position.y = 0.1; hb.userData.kind = 'crab'; g.add(hb);
@@ -2173,6 +2175,10 @@ function updateBeach(dt, t){
     if (c.wait <= 0 && L > 0.05){ const sp = (c.hermit ? 0.35 : near ? 2.4 : 1.1)*dt; p.addScaledVector(d.normalize(), Math.min(sp, L));
       const face = Math.atan2(d.x, d.z) + (c.hermit ? 0 : Math.PI/2); c.g.rotation.y += clamp(wrapA(face - c.g.rotation.y), -6*dt, 6*dt);   // crabs walk sideways
       c.legs.forEach((l, k) => l.rotation.x = Math.sin(t*(c.hermit ? 12 : 26) + k*1.4)*0.5); }
+    const rg = c.g.userData.rig;
+    if (rg){ const name = c.wait <= 0 && L > 0.05 ? 'walk' : 'idle';   // scuttles sideways on its own legs, flexes its claws while resting
+      if (rg.cur !== name && rg.clips[name]){ const a = rg.mixer.clipAction(rg.clips[name]); a.reset().fadeIn(0.2).play(); if (rg.act) rg.act.fadeOut(0.2); rg.act = a; rg.cur = name; }
+      if (rg.act) rg.act.timeScale = name === 'walk' ? (near ? 2 : 1) : 1; rg.mixer.update(dt); }
     p.y = gy(p.x, p.z);
   }
   // a bottle drifts in on the waves now and then, if some of the beach is yours
@@ -4074,7 +4080,7 @@ const GUIDE = [
     <rect x="40" y="40" width="70" height="80" rx="8" fill="var(--chip)" stroke="var(--ink)" stroke-width="2"/><rect x="52" y="40" width="46" height="26" fill="var(--ink)" opacity=".8"/><rect x="54" y="88" width="42" height="28" rx="3" fill="var(--line)"/>${T(75,145,'自動存檔',12)}
     <rect x="150" y="60" width="44" height="22" rx="11" fill="#e45b5b"/><rect x="172" y="60" width="22" height="22" rx="11" fill="#f6f3ec"/>${T(172,110,'健康低：餵藥',12)}
     <path d="M250 120 v-38 a20 20 0 0 1 40 0 v38z" fill="#a3a59d"/><circle cx="258" cy="122" r="4" fill="#e0607e"/><circle cx="282" cy="122" r="4" fill="#f3d250"/>${T(270,145,'告別後孵新蛋',12)}`),
-    html:`<ul><li>進度每 5 秒自動存在<b>這台裝置</b>裡；到「設定」用 Google 登入後，還會同步到<b>雲端</b>，電腦和手機可以接著玩。離開期間的時間也會算進去。</li><li>你不在的時候牠最多只會變得很虛弱，不會因為沒人照顧而死掉；但年紀還是會增加。</li><li>健康低於 35 會生病，按畫面下方的「餵藥」（10 代幣）。</li><li>牠走完一生或病死之後，會留下一個小墓碑。代幣、衣服、建設都會留給下一隻，再孵一顆新蛋。</li><li>設定 →「全部重新開始」會清掉所有東西，從一顆蛋重來。</li><li><b>聲音來源</b>：音樂用 FluidR3 音色庫（MIT 授權）；動物叫聲是 Wikimedia Commons 和 Freesound 上的真實錄音，作者和授權見<a href="assets/sounds/CREDITS.md" target="_blank">動物聲音來源</a>。</li><li><b>3D 模型來源</b>：寫實動物來自 Sketchfab 的創作者（老虎、鹿、狼、駝鹿、馬、鱷魚、袋鼠、蒼鷺），場景植物是 Quaternius 的免費素材，作者和授權見<a href="assets/models/CREDITS.md" target="_blank">模型來源</a>。</li></ul><p class="note">清除瀏覽器資料或換手機，存檔就會不見。</p>`}
+    html:`<ul><li>進度每 5 秒自動存在<b>這台裝置</b>裡；到「設定」用 Google 登入後，還會同步到<b>雲端</b>，電腦和手機可以接著玩。離開期間的時間也會算進去。</li><li>你不在的時候牠最多只會變得很虛弱，不會因為沒人照顧而死掉；但年紀還是會增加。</li><li>健康低於 35 會生病，按畫面下方的「餵藥」（10 代幣）。</li><li>牠走完一生或病死之後，會留下一個小墓碑。代幣、衣服、建設都會留給下一隻，再孵一顆新蛋。</li><li>設定 →「全部重新開始」會清掉所有東西，從一顆蛋重來。</li><li><b>聲音來源</b>：音樂用 FluidR3 音色庫（MIT 授權）；動物叫聲是 Wikimedia Commons 和 Freesound 上的真實錄音，作者和授權見<a href="assets/sounds/CREDITS.md" target="_blank">動物聲音來源</a>。</li><li><b>3D 模型來源</b>：寫實動物來自 Sketchfab 的創作者（老虎、鹿、狼、駝鹿、馬、鱷魚、袋鼠、蒼鷺、螃蟹），場景植物是 Quaternius 的免費素材，作者和授權見<a href="assets/models/CREDITS.md" target="_blank">模型來源</a>。</li></ul><p class="note">清除瀏覽器資料或換手機，存檔就會不見。</p>`}
 ];
 const guideEl = $('#guide'); let gPage = 0;
 function openGuide(p=0){ gPage = p; guideEl.hidden = false; renderGuide(); $('#gNext').focus(); }

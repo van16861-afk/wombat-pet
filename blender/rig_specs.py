@@ -109,3 +109,33 @@ SPECS["heron"] = {"src": "heron", "budget": 7000, "clips": _heron_clips, "bones"
     *_bird_wings((0.46, 0.67), (0.8, 0.55), (0.975, 0.43), 0.85, lambda f, u, s: f > 0.42 and u > 0.38),
     *_bird_legs((0.6, 0.44), (0.648, 0.296), (0.61, 0.03), (0.47, 0.008), 0.22, 0.42),
 ]}
+
+# ---------------------------------------------------------------- crab (Sketchfab model by LRURI01, CC BY 4.0): eight legs, two claws
+def _crab_clips(lp):
+    LEGS = [("L", 1), ("L", 2), ("L", 3), ("R", 1), ("R", 2), ("R", 3), ("L", 4), ("R", 4)]
+    def legs(t, amp):
+        out = {}
+        for k, i in LEGS:
+            ph = t*2*math.pi + (0 if (i % 2 == 1) == (k == "L") else math.pi)   # alternating sets of legs
+            up = amp*max(0, math.sin(ph)); sw = 0.35*amp*math.cos(ph); sg = 1 if k == "L" else -1
+            out[f"leg{k}{i}"] = (0, sw, -sg*up)               # lift: roll about the body's length; swing: yaw
+            out[f"knee{k}{i}"] = (0, 0, sg*0.6*up)
+        return out
+    claws = lambda op, raise_=0: {f"claw{k}": (-raise_, 0.15*op*(1 if k == "L" else -1), 0) for k in "LR"} | {f"pincer{k}": (0, -0.35*op*(1 if k == "L" else -1), 0) for k in "LR"}
+    walk = [(i/8, {**legs(i/8, 0.5), "root": (0, 0, 0.04*math.sin(i/8*4*math.pi)), **claws(0.2)}) for i in range(9)]
+    idle = [(i/8, {**claws(0.5*max(0, math.sin(i/8*4*math.pi))), "root": (0.02*math.sin(i/8*2*math.pi), 0, 0)}) for i in range(9)]
+    wave = [(0.0, {}), (0.25, claws(1.0, 0.7)), (0.5, claws(0.0, 0.8)), (0.75, claws(1.0, 0.7)), (1.0, {})]
+    return {"walk": (0.5, walk), "idle": (2.4, idle), "wave": (1.0, wave)}
+def _crab_bones():
+    bones = [{"n": "root", "h": (0.62, 0.55, 0), "t": (0.3, 0.6, 0)}]
+    for k, sg in (("L", 1), ("R", -1)):
+        sd = _side(k)
+        bones += [{"n": f"claw{k}", "p": "root", "h": (0.335, 0.5, 0.32*sg), "t": (0.17, 0.5, 0.52*sg), "zone": lambda f, u, s, sd=sd: f < 0.36 and (f < 0.24 or abs(s) > 0.3) and sd(s)},
+                  {"n": f"fore{k}", "p": f"claw{k}", "h": (0.17, 0.5, 0.52*sg), "t": (0.03, 0.45, 0.41*sg), "zone": lambda f, u, s, sd=sd: f < 0.24 and sd(s)},
+                  {"n": f"pincer{k}", "p": f"fore{k}", "h": (0.03, 0.45, 0.41*sg), "t": (0.054, 0.3, 0.07*sg), "zone": lambda f, u, s, sd=sd: f < 0.12 and sd(s)}]
+        for i, fl in ((1, 0.465), (2, 0.61), (3, 0.76), (4, 0.88)):
+            zf = lambda f, u, s, fl=fl, sd=sd: abs(f - fl) < 0.075 and abs(s) > 0.42 and sd(s)
+            bones += [{"n": f"leg{k}{i}", "p": "root", "h": (fl, 0.62, 0.46*sg), "t": (fl, 0.86, 0.74*sg), "zone": zf},
+                      {"n": f"knee{k}{i}", "p": f"leg{k}{i}", "h": (fl, 0.86, 0.74*sg), "t": (fl, 0.0, 0.98*sg), "zone": lambda f, u, s, zf=zf: zf(f, u, s) and abs(s) > 0.7}]
+    return bones
+SPECS["crab"] = {"src": "crab", "budget": 5000, "turn": -90, "clips": _crab_clips, "bones": _crab_bones()}
