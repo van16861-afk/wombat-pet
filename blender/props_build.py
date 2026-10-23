@@ -75,7 +75,7 @@ def lumpy(o, amt, scale=1.6):
 
 R = Matrix.Rotation
 # ------------------------------------------------------------------ cottage (Ghibli style: stone, plaster, red tiles, ivy)
-house = empty("house")
+house = empty("cottage")   # the stone cottage: a building you can buy (the home is the burrow below)
 PLASTER, BEAM = mat("Plaster", '#eadbbd', 0.95), mat("Beam", '#7a5233', 0.85)
 STONES = [mat("Stone", '#b3aa98', 0.9), mat("Stone2", '#9d9483', 0.9), mat("Stone3", '#c4b9a3', 0.9)]
 TILES = [mat("Tile", '#c25a3a', 0.75), mat("Tile2", '#b04c30', 0.75), mat("Tile3", '#d16c46', 0.75), mat("Tile4", '#a8452c', 0.75)]
@@ -172,6 +172,74 @@ box("lantarm", (0.06, 0.3, 0.06), IRON, at=(0.85, -D2 - 0.15, 1.85), parent=hous
 cyl("lantern", 0.1, 0.12, 0.24, GLASS, at=(0.85, -D2 - 0.3, 1.7), seg=8, parent=house)
 for i, (x, y) in enumerate([(0.1, -D2 - 1.25), (-0.2, -D2 - 1.7), (0.15, -D2 - 2.1)]):
     sphere(f"path{i}", 0.26, STONES[i % 3], at=(x, y, 0.02), scale=(1.2, 0.9, 0.18), seg=14, ring=8, parent=house)
+
+# ------------------------------------------------------------------ burrow (the wombat's home): a grassy earth mound in the cottage's style
+bur = empty("house")
+EARTH, EARTH2, MOSS, GRASSC = mat("Earth", '#9a7550', 0.95), mat("Earth2", '#86654a', 0.95), mat("Moss", '#5f8a3a', 0.9), mat("GrassCap", '#5f8f3c', 0.9)
+DOOR, HOLE = mat("Door", '#5f8a6a', 0.8), mat("Hole", '#2a1d14', 1.0)
+bm = bmesh.new(); bmesh.ops.create_uvsphere(bm, u_segments=48, v_segments=24, radius=2.25)
+bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.z < -0.02], context='VERTS')
+bmesh.ops.transform(bm, matrix=Matrix.Diagonal((1.05, 1, 0.82, 1)), verts=bm.verts)
+mound = obj_from_bm("b_mound", bm, EARTH, bur); lumpy(mound, 0.12)
+bm = bmesh.new(); bmesh.ops.create_uvsphere(bm, u_segments=48, v_segments=24, radius=2.32)       # thick grass cap with a wavy, overhanging edge
+bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.z < 0.95 + 0.16*math.sin(math.atan2(v.co.y, v.co.x)*6) + 0.08*math.sin(math.atan2(v.co.y, v.co.x)*13)], context='VERTS')
+bmesh.ops.transform(bm, matrix=Matrix.Diagonal((1.05, 1, 0.82, 1)), verts=bm.verts)
+cap = obj_from_bm("b_cap", bm, GRASSC, bur); lumpy(cap, 0.1)
+s_ = cap.modifiers.new("thick", 'SOLIDIFY'); s_.thickness = 0.12
+for i in range(30):                                                                              # stones showing in the earth
+    a = random.uniform(0, 2*math.pi); el = random.uniform(0.1, 0.5)
+    if math.cos(a - (-math.pi/2)) > 0.8 and el < 0.45: continue                                   # not over the door
+    p = Vector((math.cos(a)*math.cos(el)*2.3, math.sin(a)*math.cos(el)*2.25, math.sin(el)*1.85))
+    st = sphere(f"b_st{i}", random.uniform(0.14, 0.26), STONES[i % 3], at=p, scale=(1.2, 1.2, 0.7), seg=10, ring=6, parent=bur); lumpy(st, 0.04, 0.3)
+for side in range(26):                                                                            # stone footing round the base
+    a = side/26*2*math.pi
+    if math.cos(a - (-math.pi/2)) > 0.93: continue
+    st = sphere(f"b_ft{side}", 0.22, STONES[side % 3], at=(math.cos(a)*2.33, math.sin(a)*2.24, 0.12), scale=(1.1, 1.1, 0.75), seg=10, ring=6, parent=bur); lumpy(st, 0.05, 0.4)
+# the entrance: a stone arch, a round green plank door standing ajar, a dark tunnel, a little red-tile awning
+DY = -2.16
+for i in range(11):
+    a = math.pi*i/10
+    st = sphere(f"b_arch{i}", 0.15, STONES[i % 3], at=(math.cos(a)*0.82, DY - 0.05, 0.55 + math.sin(a)*0.8), scale=(1, 0.8, 1), seg=10, ring=6, parent=bur); lumpy(st, 0.03, 0.3)
+cyl("b_hole", 0.72, 0.72, 0.4, HOLE, at=(0, DY + 0.1, 0.62), seg=32, rot=R(math.pi/2, 3, 'X'), parent=bur)
+dg = empty("b_doorpivot", bur); dg.location = (0.7, DY - 0.12, 0.62); dg.rotation_euler = (0, 0, 0.9)       # hinged on the right, swung open
+for i in range(5):
+    w_ = 0.27; x = -0.7 + w_*0.5 + i*w_
+    hgt = 2*math.sqrt(max(0.0, 0.72**2 - (x + 0.0)**2))
+    box(f"b_dplank{i}", (w_*0.95, 0.07, max(0.3, hgt)), DOOR, at=(x - 0.7, 0, 0), parent=dg, bevel=0.015)
+sphere("b_knob", 0.05, IRON, at=(-1.15, -0.06, 0), parent=dg)
+for k in range(6):
+    t = box(f"b_awn{k}", (0.32, 0.55, 0.06), TILES[k % 4], at=(-0.8 + k*0.32, DY - 0.18, 1.62), parent=bur, bevel=0.02); t.rotation_euler = (0.42, 0, 0)
+for s in (-1, 1): box(f"b_awnpost{s}", (0.08, 0.08, 0.5), BEAM, at=(0.9*s, DY - 0.32, 1.38), parent=bur, bevel=0.01)
+# round window with shutters and a flower box, on the front-left
+wg = empty("b_win", bur); wg.location = (-1.24, -1.62, 0.98); wg.rotation_euler = (0, 0, -0.62)
+cyl("b_glass", 0.3, 0.3, 0.06, GLASS, at=(0, 0, 0), seg=24, rot=R(math.pi/2, 3, 'X'), parent=wg)
+torus("b_wrim", 0.32, 0.055, BEAM, at=(0, -0.03, 0), rot=R(math.pi/2, 3, 'X'), parent=wg)
+for x in (-0.18, 0.18): box(f"b_wbar{x}", (0.03, 0.05, 0.58), BEAM, at=(0, -0.04, 0), parent=wg, bevel=0.0) if x < 0 else box("b_wbarh", (0.58, 0.05, 0.03), BEAM, at=(0, -0.04, 0), parent=wg, bevel=0.0)
+for k, x in enumerate((-0.48, 0.48)): box(f"b_shut{k}", (0.24, 0.05, 0.62), SHUT, at=(x, -0.06, 0), parent=wg, bevel=0.015)
+box("b_fbox", (0.7, 0.2, 0.14), BEAM, at=(0, -0.14, -0.38), parent=wg, bevel=0.02)
+for i in range(6): sphere(f"b_wfl{i}", 0.07, BLOOM[i % 3] if i % 2 else IVY[1], at=(-0.28 + i*0.11, -0.16, -0.27), seg=8, ring=6, parent=wg)
+# stone chimney through the grass, ivy down one side, flowers on the cap
+for i in range(7):
+    st = box(f"b_chim{i}", (0.5, 0.5, 0.22), STONES[i % 3], at=(0.75, 0.55, 1.62 + i*0.21), parent=bur, bevel=0.06); lumpy(st, 0.025, 0.4)
+box("b_chimcap", (0.62, 0.62, 0.09), STONES[1], at=(0.75, 0.55, 1.62 + 7*0.21), parent=bur, bevel=0.03)
+ivy([(1.55, -1.45, 0.3), (1.2, -1.25, 1.5)], 7, 0.2)
+ivy([(-0.95, DY + 0.05, 0.25), (-0.95, DY + 0.05, 1.35)], 5, 0.16)
+for i in range(22):
+    a = random.uniform(0, 2*math.pi); el = random.uniform(0.75, 1.35)
+    p = Vector((math.cos(a)*math.cos(el)*2.36, math.sin(a)*math.cos(el)*2.3, math.sin(el)*1.92))
+    sphere(f"b_capfl{i}", 0.07, BLOOM[i % 3], at=p, seg=8, ring=6, parent=bur)
+for i in range(18):
+    a, el = random.uniform(0, 2*math.pi), random.uniform(0.75, 1.4)
+    p = Vector((math.cos(a)*math.cos(el)*2.33, math.sin(a)*math.cos(el)*2.27, math.sin(el)*1.9))
+    t = cyl(f"b_tuft{i}", 0.07, 0.0, random.uniform(0.25, 0.4), MOSS, at=p, seg=5, parent=bur); t.rotation_euler = (random.uniform(-0.4, 0.4), random.uniform(-0.4, 0.4), 0)
+# pots, lantern and stepping stones in front
+for i, x in enumerate((-1.25, 1.25)):
+    cyl(f"b_pot{i}", 0.2, 0.15, 0.3, mat("Pot", '#b8653f', 0.8), at=(x, DY - 0.45, 0.15), seg=14, parent=bur)
+    for k in range(5): sphere(f"b_potfl{i}{k}", 0.09, BLOOM[(k + i) % 3] if k % 2 else IVY[k % 3], at=(x + random.uniform(-0.12, 0.12), DY - 0.45 + random.uniform(-0.12, 0.12), 0.37 + random.uniform(0, 0.1)), seg=8, ring=6, parent=bur)
+box("b_lantpost", (0.07, 0.07, 1.3), BEAM, at=(1.05, DY - 0.55, 0.65), parent=bur, bevel=0.0)
+cyl("b_lantern", 0.1, 0.12, 0.24, GLASS, at=(1.05, DY - 0.55, 1.42), seg=8, parent=bur)
+for i, (x, y) in enumerate([(0.1, DY - 0.75), (-0.2, DY - 1.2), (0.15, DY - 1.65)]):
+    sphere(f"b_path{i}", 0.26, STONES[i % 3], at=(x, y, 0.02), scale=(1.2, 0.9, 0.18), seg=14, ring=8, parent=bur)
 
 # ------------------------------------------------------------------ street lamp
 lamp = empty("lamp")

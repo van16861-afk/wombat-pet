@@ -652,6 +652,7 @@ const BUILDS = [
   {id:'windmill',name:'小風車',   price:90,  desc:'扇葉會一直轉。', size:[2,2]},
   {id:'mailbox', name:'郵筒',     price:30,  desc:'紅色的小郵筒。', size:[1,1]},
   {id:'scarecrow',name:'稻草人',  price:40,  desc:'守著院子，雜草長得比較慢。', size:[1,1]},
+  {id:'cottage', name:'石頭小屋', price:220, desc:'石牆紅瓦、爬滿藤蔓的小屋，晚上窗戶會亮。', size:[5,5]},
   {id:'mushroom',name:'蘑菇屋',   price:120, desc:'紅色大蘑菇做的小屋，晚上窗戶會亮。', size:[3,3]},
   {id:'fruittree',name:'果樹',    price:110, desc:'每過一陣子會結一顆蘋果，自動放進背包。', size:[2,2]},
   {id:'fountain',name:'噴水池',   price:130, desc:'看著噴水，心情掉得比較慢。', size:[3,3]},
@@ -846,6 +847,8 @@ function build(id){
     const head_ = new THREE.Mesh(new THREE.SphereGeometry(0.24,14,10), mat('#e8d6a8',0.95)); head_.position.y = 1.78; g.add(head_);
     const hat = new THREE.Mesh(new THREE.ConeGeometry(0.38,0.32,14), mat('#c9a24d',0.9)); hat.position.y = 2.02; g.add(hat);
     for (const s of [-1,1]){ const straw = new THREE.Mesh(new THREE.ConeGeometry(0.08,0.25,6), mat('#e2c37c',0.9)); straw.position.set(0.75*s,1.35,0); straw.rotation.z = -s*Math.PI/2; g.add(straw); }
+  } else if (id === 'cottage'){   // Blender cottage (blender/props_build.py)
+    const pr = propClone('cottage'); if (pr){ g.add(pr); swapMat(pr, 'Glass', glowMat('#ffe6a3', '#ffcf5a')); }
   } else if (id === 'mushroom'){
     const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.75,0.9,1.4,18), mat('#f2ead8',0.85)); stalk.position.y = 0.7; g.add(stalk);
     const capM = mat('#d8423c',0.55), cap = new THREE.Mesh(new THREE.SphereGeometry(1.45,26,14,0,Math.PI*2,0,Math.PI/2), capM); cap.scale.y = 0.75; cap.position.y = 1.3; g.add(cap);
@@ -3573,7 +3576,7 @@ const TRICK_ICON = {sit:'🐾', flip:'🤸', roll:'🌀', spin:'⭐', belly:'�
 const TRICK_DESC = {dig:'用前腳拚命挖土，偶爾會挖到代幣！', zoomies:'突然興奮地繞圈暴衝。體力 -6，心情 +10', wave:'坐著舉起前腳跟你揮手。', bow:'低下頭鞠個躬。', hop:'往前跳三下。', stretch:'前腳往前伸，打個大哈欠。', sit:'乖乖坐下，看著你。心情 +6', flip:'原地一個後空翻！體力 -6，心情 +10', roll:'連續側翻滾三圈。體力 -6，心情 +10', spin:'跳起來轉一圈。體力 -6，心情 +10',
   belly:'翻過來露出肚子扭扭。體力 -6，心情 +10', shake:'甩甩全身的毛。體力 -6，心情 +10', dance:'跟著音樂跳舞。體力 -8，心情 +14', ballroll:'縮成一顆球往前滾。體力 -6，心情 +12'};
 const CLOTH_ICON = {party:'🥳', straw:'👒', glasses:'👓', bow:'🎀', scarf:'🧣', sweater:'🧶', nyband:'🎊', caishen:'🧧', heartgl:'😍', propeller:'🚁', sachet:'🎐', bunny:'🐰', witch:'🧙', santa:'🎅'};
-const BUILD_ICON = {bench:'🪑', swing:'🎠', sandbox:'🏖️', well:'🪣', windmill:'🌬️', mailbox:'📮', scarecrow:'🌾', mushroom:'🍄', fruittree:'🍎', fountain:'⛲', house:'🏠', pond:'🐟', lamp:'💡', flowers:'🌷', fence:'🪵', fireworks:'🎆', lanterns:'🏮', heartarch:'💗', slide:'🎢', dragonboat:'🐉', moonlamp:'🌕', pumpkins:'🎃', xmastree:'🎄'};
+const BUILD_ICON = {cottage:'🏡', bench:'🪑', swing:'🎠', sandbox:'🏖️', well:'🪣', windmill:'🌬️', mailbox:'📮', scarecrow:'🌾', mushroom:'🍄', fruittree:'🍎', fountain:'⛲', house:'🕳️', pond:'🐟', lamp:'💡', flowers:'🌷', fence:'🪵', fireworks:'🎆', lanterns:'🏮', heartarch:'💗', slide:'🎢', dragonboat:'🐉', moonlamp:'🌕', pumpkins:'🎃', xmastree:'🎄'};
 let shopTab = 'food', feedTab = 'food', detailQty = 1;
 const tabsHTML = (tabs, cur, attr) => `<div class="tabs" role="tablist">` + tabs.map(([k,l]) => `<button class="tab" role="tab" aria-selected="${k === cur}" data-${attr}="${k}">${l}</button>`).join('') + `</div>`;
 const tileHTML = (e, i) => `<button class="tile${e.dim ? ' dim' : ''}" data-tile="${i}" aria-label="${e.name}"><span class="ti">${e.icon}</span><span class="tn">${e.name}</span>${e.badge ? `<span class="tb">${e.badge}</span>` : ''}</button>`;
