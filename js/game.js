@@ -1506,6 +1506,7 @@ function sfx(name, at){   // `at`: where the sound comes from — quieter the fu
     case 'coin':  tone('square',1318,t,0.06,0.08,out); tone('square',1760,t+0.07,0.06,0.18,out); break;
     case 'happy': [72,76,79,84].forEach((m,i)=>tone('sine',mtof(m),t+i*0.07,0.16,0.4,out)); break;
     case 'sad':   [67,64,60].forEach((m,i)=>tone('sine',mtof(m),t+i*0.25,0.14,0.6,out)); break;
+    case 'horn': for (const [d, f] of [[0, 1], [1.35, 0.84]]){ const s = t + d; o = tone('sawtooth', 98*f, s, 0.22, 1.1, out, 0.12); o.frequency.linearRampToValueAtTime(94*f, s + 1.0); o = tone('square', 196*f, s, 0.05, 1.0, out, 0.15); } break;   // a ship's horn: two long, low blasts
     case 'whoosh': noiseHit(t, 0.3, 0.25, 'bandpass', 1500, out); break;
     case 'splash': noiseHit(t, 0.35, 0.35, 'bandpass', 1100, out, null, 0.8); [0.08,0.16,0.22].forEach(d => { const q = tone('sine', rnd(900,1400), t+d, 0.08, 0.08, out); q.frequency.exponentialRampToValueAtTime(rnd(400,600), t+d+0.07); }); break;
     case 'thunder': noiseHit(t, 2.2, 0.9, 'lowpass', 180, out, SND.noiseLong); break;
@@ -2174,7 +2175,60 @@ function animalScare(kind){   // a crocodile snapping near the wombat makes it j
   if (who && !(S.toldScare || {})[kind]){ S.toldScare = {...(S.toldScare || {}), [kind]:1}; toast(`${who}！${S.name || '牠'}嚇了一大跳。`); }
 }
 function pokeCrab(c){ c.hide = c.hermit ? 3 : 0; if (!c.hermit){ const a = Math.random()*6.28; c.tgt.set(c.g.position.x + Math.sin(a)*2.5, 0, c.g.position.z + Math.cos(a)*2.5); c.wait = 0; } sfx('pop'); }
+// ---------- out at sea: a fisherman in a canoe now and then, and a yacht passing far off that sounds its horn ----------
+const boats = {canoe:null, canoeT:rnd(60, 180), yacht:null, yachtT:rnd(90, 240)};
+function makeCanoe(){
+  const g = new THREE.Group(), wood = mat('#8a5a35', 0.8), dark = mat('#5e3b22', 0.85);
+  const hull = new THREE.Mesh(new THREE.SphereGeometry(1, 18, 10, 0, Math.PI*2, Math.PI/2, Math.PI/2), wood); hull.scale.set(0.42, 0.32, 1.9); g.add(hull);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(1, 0.05, 6, 28), dark); rim.rotation.x = Math.PI/2; rim.scale.set(0.42, 1.9, 1); g.add(rim);
+  const man = new THREE.Group(); man.position.set(0, 0.05, -0.3); g.add(man);
+  const shirt = mat(['#4f86c6', '#d9573f', '#5aa469', '#e2b53b'][Math.floor(Math.random()*4)], 0.8), skin = mat('#e8b896', 0.7);
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.22, 0.55, 10), shirt); body.position.y = 0.3; man.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 10), skin); head.position.y = 0.72; man.add(head);
+  const hat = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.16, 16), mat('#e2c37c', 0.9)); hat.position.y = 0.86; man.add(hat);
+  const arm = new THREE.Group(); arm.position.set(0.15, 0.48, 0.05); man.add(arm);
+  const fore = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.4, 6), shirt); fore.rotation.x = 1.1; fore.position.set(0, -0.05, 0.17); arm.add(fore);
+  const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.016, 2.2, 5), dark); rod.geometry.translate(0, 1.1, 0); rod.position.set(0, -0.08, 0.35); rod.rotation.x = 0.75; arm.add(rod);
+  const paddle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 1.5), wood); paddle.position.set(-0.3, 0.3, 0.1); man.add(paddle);
+  const lineGeo = new THREE.BufferGeometry().setFromPoints([V3(), V3()]), line = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({color:'#f4f4f0'})); scene.add(line);
+  const bob = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), mat('#e0483a', 0.4)); scene.add(bob);
+  scene.add(g); return {g, man, arm, rod, paddle, line, bob, t:0, catchT:rnd(8, 20)};
+}
+function makeYacht(){
+  const g = new THREE.Group(), white = mat('#f4f4f0', 0.5), glass = mat('#3d5a73', 0.2), stripe = mat('#2f5f9e', 0.5);
+  const hull = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 0.7, 1.2, 4, 1), white); hull.rotation.y = Math.PI/4; hull.scale.set(1.3, 1, 4.2); hull.position.y = 0.3; g.add(hull);
+  const bow = new THREE.Mesh(new THREE.ConeGeometry(1.0, 2.6, 4), white); bow.rotation.set(Math.PI/2, Math.PI/4, 0); bow.scale.set(1.25, 1, 0.45); bow.position.set(0, 0.45, 4.6); g.add(bow);
+  const band = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.14, 7.2), stripe); band.position.set(0, 0.55, 0.2); g.add(band);
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.9, 3.4), white); cabin.position.set(0, 1.35, -0.6); g.add(cabin);
+  const win = new THREE.Mesh(new THREE.BoxGeometry(1.64, 0.3, 3.0), glass); win.position.set(0, 1.45, -0.5); g.add(win);
+  const top = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.5, 1.8), white); top.position.set(0, 2.05, -0.9); g.add(top);
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.4, 6), white); mast.position.set(0, 2.9, -1.1); g.add(mast);
+  g.scale.setScalar(1.6); scene.add(g); return {g, t:0, honked:0};
+}
+function updateBoats(dt, t){
+  const sea = z => world.shoreX(z), cz = (Z0 + Z1)/2;
+  // the canoe paddles out, the man casts and waits (now and then a fish), then paddles away
+  if (!boats.canoe){ boats.canoeT -= dt; if (boats.canoeT <= 0){ const z = rnd(Z0 + 10, Z1 - 10), c = makeCanoe(); c.spot = V3(sea(z) + rnd(7.5, 11), WATER_Y, z); c.from = c.spot.clone().add(V3(30, 0, rnd(-10, 10))); c.stay = rnd(80, 160); c.g.position.copy(c.from); boats.canoe = c; } }
+  else { const c = boats.canoe; c.t += dt; const T = c.t, IN = 22, p = c.g.position;
+    const u = T < IN ? T/IN : T < IN + c.stay ? 1 : 1 - (T - IN - c.stay)/IN, k = u*u*(3 - 2*u);
+    p.lerpVectors(c.from, c.spot, k); p.y = WATER_Y - 0.08 + Math.sin(t*1.3 + p.z)*0.05;
+    c.g.rotation.set(Math.sin(t*1.1)*0.04, Math.atan2(c.spot.x - c.from.x, c.spot.z - c.from.z) + (T > IN ? 1.3 : 0)*Math.min(1, (T - IN)/4)*(T < IN + c.stay ? 1 : 0), Math.sin(t*0.9)*0.05);
+    const paddling = T < IN || T > IN + c.stay; c.paddle.visible = paddling; c.rod.visible = !paddling; c.paddle.rotation.y = paddling ? Math.sin(t*3)*0.9 : 0;
+    c.line.visible = c.bob.visible = !paddling;
+    if (!paddling){ c.catchT -= dt; const tip = V3(0, 2.2, 0); c.rod.localToWorld(tip); const bob = c.g.position.clone().add(V3(Math.sin(c.g.rotation.y)*3.2, 0, Math.cos(c.g.rotation.y)*3.2)).setY(WATER_Y + Math.sin(t*2)*0.03);
+      const bite = c.catchT < 0 && c.catchT > -2.5; if (bite){ bob.y -= 0.12*Math.abs(Math.sin(t*9)); c.rod.rotation.x = 0.75 - 0.3*Math.abs(Math.sin(t*6)); } else c.rod.rotation.x = 0.75;
+      if (c.catchT < -2.5){ c.catchT = rnd(10, 25); if (Math.random() < 0.6){ floatSprite(emojiTex('🐟'), bob.clone().add(V3(0, 0.4, 0)), {size:0.7, vy:2.2, g:4, max:1.4}); sfx('splash', bob); } }
+      c.bob.position.copy(bob); const a = c.line.geometry.attributes.position; a.setXYZ(0, tip.x, tip.y, tip.z); a.setXYZ(1, bob.x, bob.y, bob.z); a.needsUpdate = true; }
+    if (T > IN*2 + c.stay){ scene.remove(c.g, c.line, c.bob); boats.canoe = null; boats.canoeT = rnd(180, 420); } }
+  // the yacht crosses far out, sounding its horn as it passes
+  if (!boats.yacht){ boats.yachtT -= dt; if (boats.yachtT <= 0){ const y = makeYacht(), dir = Math.random() < 0.5 ? 1 : -1; y.dir = dir; y.x = sea(cz) + rnd(48, 62); y.z0 = cz - dir*(PLOT*2.6); boats.yacht = y; } }
+  else { const y = boats.yacht; y.t += dt; const z = y.z0 + y.dir*y.t*3.2, p = y.g.position;
+    p.set(y.x, WATER_Y - 0.15 + Math.sin(t*0.8)*0.06, z); y.g.rotation.set(Math.sin(t*0.6)*0.02, y.dir > 0 ? 0 : Math.PI, Math.sin(t*0.7)*0.03);
+    if (y.honked < 2 && Math.abs(z - camTarget.z) < (y.honked ? 12 : 26) && y.t > (y.honked ? y.hT + 6 : 0)){ y.honked++; y.hT = y.t; sfx('horn', V3(world.shoreX(z), 0, z)); }
+    if (y.t*3.2 > PLOT*5.2){ scene.remove(y.g); boats.yacht = null; boats.yachtT = rnd(240, 600); } }
+}
 function updateBeach(dt, t){
+  updateBoats(dt, t);
   for (const c of crabs){
     const p = c.g.position, near = petActive() && root.visible && Math.hypot(p.x - pos.x, p.z - pos.z) < 2.2*Math.max(petS, 0.6);
     if (c.hermit && near) c.hide = 2.5;
@@ -4481,7 +4535,7 @@ if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
 if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
-if (new URLSearchParams(location.search).has('debug')) window.W = {wear, art, setArt, inBuild, freeNear, poopNow, spawnWeed, weedSpotOK, overBridge, moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+if (new URLSearchParams(location.search).has('debug')) window.W = {boats, wear, art, setArt, inBuild, freeNear, poopNow, spawnWeed, weedSpotOK, overBridge, moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   sim:(secs) => { skipRender = true; try { for (let i=0;i<secs*30;i++) step(true); } finally { skipRender = false; } clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};
