@@ -45,10 +45,12 @@ const scene = new THREE.Scene(); scene.fog = new THREE.Fog('#d9e1d2', 30, 90);
 const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 200);
 const camTarget = V3(0, 0.9, 0);
 let yaw = 0.75, pitch = 0.42, zoom = 1, baseDist = 14, camY = 0.9, zoomFx = 1;
+let shake = 0;   // camera shake strength (set by big hits, fades out)
 function placeCam(){
   const d = baseDist * zoom * zoomFx;
   camera.position.set(camTarget.x + d*Math.cos(pitch)*Math.sin(yaw), camTarget.y + d*Math.sin(pitch), camTarget.z + d*Math.cos(pitch)*Math.cos(yaw));
   camera.lookAt(camTarget);
+  if (shake > 0.002){ camera.position.add(V3((Math.random() - 0.5)*shake, (Math.random() - 0.5)*shake, (Math.random() - 0.5)*shake)); shake *= 0.88; }
 }
 function resize(){
   renderer.setSize(innerWidth, innerHeight, false);
@@ -1408,6 +1410,12 @@ function sfx(name, at){   // `at`: where the sound comes from — quieter the fu
   switch(name){
     case 'boing': o = tone('sine',260,t,0.35,0.3,out); o.frequency.exponentialRampToValueAtTime(720,t+0.18); break;
     case 'thud':  o = tone('sine',150,t,0.45,0.22,out); o.frequency.exponentialRampToValueAtTime(55,t+0.15); break;
+    case 'charge': o = tone('sine',280,t,0.18,0.7,out,0.25); o.frequency.exponentialRampToValueAtTime(980,t+0.75); o = tone('triangle',560,t,0.06,0.7,out,0.25); o.frequency.exponentialRampToValueAtTime(1960,t+0.75); break;
+    case 'boom':  o = tone('sine',120,t,0.75,0.6,out); o.frequency.exponentialRampToValueAtTime(32,t+0.5); noiseHit(t, 0.55, 0.45, 'lowpass', 700, out); break;
+    case 'crack': noiseHit(t, 0.12, 0.6, 'highpass', 2600, out); noiseHit(t + 0.02, 0.3, 0.35, 'bandpass', 1100, out, null, 1.5); break;
+    case 'slash': { const n = noiseHit(t, 0.2, 0.4, 'bandpass', 4200, out, null, 2.5); n.f.frequency.setValueAtTime(4200, t); n.f.frequency.exponentialRampToValueAtTime(900, t + 0.18); break; }
+    case 'shing': tone('triangle',2640,t,0.14,0.7,out); tone('triangle',3960,t,0.07,0.55,out); tone('sine',1320,t,0.08,0.4,out); break;
+    case 'chip':  noiseHit(t, 0.05, 0.28, 'bandpass', 1900, out, null, 3); break;
     case 'plop':  o = tone('sine',600,t,0.35,0.18,out); o.frequency.exponentialRampToValueAtTime(140,t+0.12); break;
     case 'nom':   o = tone('triangle',520,t,0.2,0.09,out); o.frequency.exponentialRampToValueAtTime(360,t+0.07); break;
     case 'drink': o = tone('sine',380,t,0.22,0.12,out); o.frequency.exponentialRampToValueAtTime(760,t+0.08); break;
@@ -1851,32 +1859,55 @@ function startSkill(type, at, reach, done, targetG){
   if (!petActive() || asleep() || act || ['inHouse','enter','exit','evolve','bloated','dead','skillGo','skillDo'].includes(B.mode)){ toast(`${S.name || '牠'}現在沒辦法過去。`); return; }
   closeSheet(); B.mode = 'skillGo'; B.skill = {type, at:at.clone(), reach, done, t:0, hit:0, g:targetG || null}; B.timer = 30; B.path = null; B.treeVisit = null; showEmote({bite:'💪', claw:'🐾', gnaw:'🦷'}[type], 1.2);
 }
+// Each skill has its own move. bite (learned from the hippo): crouch and charge, leap, CHOMP: the rock bursts into tumbling
+// chunks with a shockwave and the screen shakes. claw (the mantis): three quick slashes and a big X, the bush bursts into
+// leaves. gnaw (the beaver): a fast gnaw with wood chips spraying while the tree shakes harder and harder, a crack, and it falls.
+const SKILL_COL = {bite:'#ff8a3d', claw:'#7be05a', gnaw:'#e8b45a'};
+const chunkGeo = new THREE.DodecahedronGeometry(1, 0), chunkMats = ['#a19c92', '#8f8a80', '#b3ab9c', '#7d776d'].map(c => mat(c, 0.95));
+const tintSlash = c => new THREE.SpriteMaterial({map:slashTex, color:c, transparent:true, depthWrite:false, depthTest:false, blending:THREE.AdditiveBlending});
+function shockwave(at, color, size){ const ring = new THREE.Mesh(new THREE.RingGeometry(0.7, 1.0, 48), new THREE.MeshBasicMaterial({color, transparent:true, opacity:0.95, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide}));
+  ring.rotation.x = -Math.PI/2; ring.position.copy(at).setY(gy(at.x, at.z) + 0.08); scene.add(ring);
+  tools.push({t:0, dur:0.6, update(t){ const k = t/0.6; ring.scale.setScalar(size*(0.3 + k*1.4)); ring.material.opacity = 0.95*(1 - k); }, done(){ scene.remove(ring); }}); }
+function slashAt(at, rot, color, size = 1.4, dur = 0.32){ const sl = new THREE.Sprite(tintSlash(color)); sl.material.rotation = rot; sl.position.copy(at); sl.scale.setScalar(size); scene.add(sl);
+  tools.push({t:0, dur, update(t){ sl.material.opacity = 1 - t/dur; sl.scale.setScalar(size*(1 + t*2.2)); }, done(){ scene.remove(sl); }}); }
+function rockBurst(at, r){   // tumbling stone chunks with simple physics, plus dust
+  for (let i=0;i<14;i++){ const m = new THREE.Mesh(chunkGeo, chunkMats[i % 4]), sz = r*rnd(0.12, 0.28); m.scale.set(sz, sz*rnd(0.6, 1), sz); m.position.copy(at).add(V3(rnd(-0.2, 0.2)*r, rnd(0.1, 0.5)*r, rnd(-0.2, 0.2)*r)); scene.add(m);
+    const v = V3(rnd(-1, 1), rnd(1.2, 2.4), rnd(-1, 1)).multiplyScalar(rnd(2.5, 4.5)), spin = V3(rnd(-9, 9), rnd(-9, 9), rnd(-9, 9));
+    tools.push({t:0, dur:rnd(1.6, 2.2), update(t){ const dt = 1/60; v.y -= 18*dt; m.position.addScaledVector(v, dt); const g0 = gy(m.position.x, m.position.z) + sz*0.5;
+      if (m.position.y < g0){ m.position.y = g0; v.y = Math.abs(v.y)*0.3; v.x *= 0.6; v.z *= 0.6; spin.multiplyScalar(0.6); }
+      m.rotation.x += spin.x*dt; m.rotation.y += spin.y*dt; m.rotation.z += spin.z*dt; if (t > this.dur - 0.4) m.scale.multiplyScalar(0.92); }, done(){ scene.remove(m); }}); }
+  dust(at.x, at.z, 14, r*0.8); }
+function leafBurst(at, n){ for (let i=0;i<n;i++){ floatSprite(i % 3 ? radialTex('rgba(110,170,70,1)', 'rgba(110,170,70,0)') : emojiTex('🍃'), at.clone().add(V3(rnd(-0.3, 0.3), rnd(0, 0.5), rnd(-0.3, 0.3))),
+  {size:i % 3 ? rnd(0.12, 0.22) : rnd(0.25, 0.4), vx:rnd(-3, 3), vz:rnd(-3, 3), vy:rnd(1.5, 4), g:6, max:1.4, grow:0}); } }
 function skillStep(dt){
   const k = B.skill; if (!k){ B.mode = 'idle'; return; }
   const face = Math.atan2(k.at.x - pos.x, k.at.z - pos.z);
-  root.rotation.y += clamp(wrapA(face - root.rotation.y), -4*dt, 4*dt);
-  const prev = k.t; k.t += dt;
-  if (prev === 0){   // the cast: a golden ring spreads under the wombat and sparkles rise
-    const ring = new THREE.Mesh(new THREE.RingGeometry(0.8, 1.0, 40), new THREE.MeshBasicMaterial({color:'#ffd65a', transparent:true, opacity:0.9, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide}));
-    ring.rotation.x = -Math.PI/2; ring.position.copy(pos).setY(gy(pos.x, pos.z) + 0.06); scene.add(ring);
-    tools.push({t:0, dur:0.9, update(t){ const k = t/0.9; ring.scale.setScalar(petS*(0.6 + k*1.6)); ring.material.opacity = 0.9*(1 - k); }, done(){ scene.remove(ring); }});
-    sparkles(pos.clone().setY(gy(pos.x, pos.z) + 0.6*petS), 14, 0.8*petS); sfx('grow'); }
-  const beat = type => Math.floor((k.t - 0.5)/0.5);
-  if (k.t > 0.5 && beat() !== k.hit && beat() <= 3){ k.hit = beat(); const hitAt = k.at.clone().setY(gy(k.at.x, k.at.z) + 0.5);
-    const claw = k.type === 'claw' || (k.type === 'gnaw' && k.hit % 2 === 0);
-    if (claw){   // a swipe of the front paws: white claw arcs cut through the target
-      sqv += 0.4; root.rotation.y += (k.hit % 2 ? 0.35 : -0.35); sfx('whoosh');
-      const sl = new THREE.Sprite(new THREE.SpriteMaterial({map:slashTex, transparent:true, depthWrite:false, depthTest:false, rotation:(k.hit % 2 ? 0.6 : -0.6)}));
-      sl.position.copy(hitAt).add(V3(0, 0.2, 0)); sl.scale.setScalar(1.3); scene.add(sl);
-      tools.push({t:0, dur:0.35, update(t){ sl.material.opacity = 1 - t/0.35; sl.scale.setScalar(1.3 + t*1.5); }, done(){ scene.remove(sl); }});
-      for (let i=0;i<6;i++) floatSprite(radialTex(k.type === 'claw' ? 'rgba(110,160,70,1)' : 'rgba(180,140,90,1)', 'rgba(0,0,0,0)'), hitAt.clone(), {size:0.18, vx:rnd(-2, 2), vz:rnd(-2, 2), vy:rnd(1.5, 3), g:8, max:0.8, grow:0}); }
-    else {   // a big bite: lunge, mouth open (eating pose), crunch, stone chips fly
-      sqv += 0.8; vel.y = 1.2*petS; sfx('thud'); setTimeout(() => sfx('nom'), 120);
-      for (let i=0;i<8;i++) floatSprite(radialTex(k.type === 'bite' ? 'rgba(150,146,138,1)' : 'rgba(190,150,100,1)', 'rgba(0,0,0,0)'), hitAt.clone(), {size:0.2, vx:rnd(-2.5, 2.5), vz:rnd(-2.5, 2.5), vy:rnd(2, 4), g:9, max:0.9, grow:0});
-      if (k.g) k.g.scale.multiplyScalar(0.86); }
-    if (k.type === 'gnaw') { const tr = trees.find(t_ => t_.g.position === k.at || (Math.abs(t_.g.position.x - k.at.x) < 0.01 && Math.abs(t_.g.position.z - k.at.z) < 0.01)); if (tr) tr.shake = 1; }
+  root.rotation.y += clamp(wrapA(face - root.rotation.y), -5*dt, 5*dt);
+  const prev = k.t; k.t += dt; const T = k.t, at = k.at.clone().setY(gy(k.at.x, k.at.z) + 0.5), col = SKILL_COL[k.type];
+  const passed = x => prev < x && T >= x;
+  if (prev === 0){   // the cast: a ring in the skill's colour spreads under the wombat, light gathers round it
+    shockwave(pos, col, 2.2*petS); sparkles(pos.clone().setY(gy(pos.x, pos.z) + 0.6*petS), 18, 0.9*petS); sfx('charge'); }
+  if (T < 0.8 && Math.random() < dt*30) floatSprite(radialTex('rgba(255,230,160,1)', 'rgba(255,230,160,0)'), pos.clone().add(V3(rnd(-1, 1)*petS, rnd(0, 0.4), rnd(-1, 1)*petS)).setY(gy(pos.x, pos.z) + rnd(0.1, 0.4)), {size:0.14, vy:rnd(1, 2.2), max:0.7, grow:0, add:true});
+  if (k.type === 'bite'){
+    if (T < 0.8) sqv -= dt*0.6;                                                                       // crouch, gathering power
+    if (passed(0.8)){ vel.y = 2.4*petS; sfx('whoosh'); const d = V3(k.at.x - pos.x, 0, k.at.z - pos.z); if (d.length() > 0.5) pos.addScaledVector(d.normalize(), 0.4); }   // leap
+    if (passed(1.15)){   // CHOMP
+      sqv += 1.2; sfx('boom'); setTimeout(() => sfx('crack'), 40); shake = 0.45; shockwave(k.at, '#ffd08a', 3.4); shockwave(k.at, '#ffffff', 2.0);
+      for (let i=0;i<10;i++) floatSprite(radialTex('rgba(255,200,120,1)', 'rgba(255,120,40,0)'), at.clone(), {size:rnd(0.3, 0.6), vx:rnd(-4, 4), vz:rnd(-4, 4), vy:rnd(1, 4), max:0.4, grow:1.5, add:true});
+      const r = k.g ? Math.max(0.6, k.g.scale.x) : 1; if (k.g) k.g.visible = false; rockBurst(at, r); if (k.done){ k.done(); k.done = null; } }
+  } else if (k.type === 'claw'){
+    for (const [x, i] of [[0.5, 0], [0.72, 1], [0.94, 2]]) if (passed(x)){ sqv += 0.35; root.rotation.y += i % 2 ? 0.3 : -0.3; sfx('slash');
+      slashAt(at.clone().add(V3(0, 0.2, 0)), i % 2 ? 0.7 : -0.7, col, 1.5); leafBurst(at, 6); if (k.g) k.g.rotation.z = (i % 2 ? 0.15 : -0.15); }
+    if (passed(1.35)){ sfx('shing'); setTimeout(() => sfx('slash'), 60); shake = 0.2; slashAt(at.clone().add(V3(0, 0.3, 0)), 0.78, '#e9ffd0', 2.4, 0.45); slashAt(at.clone().add(V3(0, 0.3, 0)), -0.78, '#e9ffd0', 2.4, 0.45);   // the big X
+      shockwave(k.at, col, 2.6); leafBurst(at, 22); if (k.g) k.g.visible = false; if (k.done){ k.done(); k.done = null; } }
+  } else if (k.type === 'gnaw'){
+    const tr = trees.find(t_ => Math.abs(t_.g.position.x - k.at.x) < 0.01 && Math.abs(t_.g.position.z - k.at.z) < 0.01);
+    if (T > 0.4 && T < 2.0){ if (Math.random() < dt*22) floatSprite(radialTex('rgba(196,150,96,1)', 'rgba(196,150,96,0)'), at.clone().add(V3(0, -0.15, 0)), {size:rnd(0.08, 0.16), vx:rnd(-2.5, 2.5), vz:rnd(-2.5, 2.5), vy:rnd(1.5, 3.5), g:9, max:0.8, grow:0});
+      if (Math.floor(T*6) !== Math.floor(prev*6)){ sfx('chip'); sqv += 0.12; if (tr) tr.shake = Math.min(1, 0.3 + (T - 0.4)*0.45); }   // each bite jolts the tree, harder and harder
+    }
+    if (passed(2.0)){ sfx('crack'); shake = 0.15; shockwave(k.at, col, 2.0); if (k.done){ k.done(); k.done = null; } }
   }
-  if (k.t > 2.6){ B.skill = null; B.mode = 'idle'; B.timer = 2; k.done && k.done(); spawnHearts(1); }
+  if (T > (k.type === 'gnaw' ? 2.8 : 2.4)){ B.skill = null; B.mode = 'idle'; B.timer = 2; k.done && k.done(); spawnHearts(1); }
 }
 function cutTree(tr){
   if (hasSkill('gnaw')){ startSkill('gnaw', tr.g.position, treeReach(tr) + 0.2, () => { if (!tr.cut){ fellTree(tr); addCoins(6, headTop()); } }); return; }   // learned from the beaver: free, and the wood sells
@@ -1889,7 +1920,7 @@ function fellTree(tr){
   const dir = Math.random() < 0.5 ? 1 : -1; sfx('whoosh');
   tools.push({t:0, dur:2.0, update(t){
     tr.g.rotation.z = dir*ease(Math.min(1, t/1.1))*1.45;
-    if (t > 1.1 && !this.thud){ this.thud = true; sfx('thud'); leafFall(tr, 10); sqv += 0.6; }
+    if (t > 1.1 && !this.thud){ this.thud = true; sfx('thud'); sfx('boom'); shake = 0.3; leafFall(tr, 14); dust(tr.g.position.x + dir*1.6, tr.g.position.z, 10, 1.4); sqv += 0.6; }
     if (t > 1.4){ const k = Math.max(0.01, 1 - (t - 1.4)/0.6); tr.g.scale.setScalar(tr.d.s*k); tr.sh.g.scale.setScalar(k); }
   }, done(){ scene.remove(tr.g, tr.sh.g); }});
   toast('樹砍掉了。'); track('tree'); track('clear'); koalaPerches(); wildPlaces(); save();
