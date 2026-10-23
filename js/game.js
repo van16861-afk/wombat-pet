@@ -2167,7 +2167,7 @@ let wetUntil = 0;
 const ANIMAL_ICON = {crane:'🦩', monkey:'🐒', cicada:'🪰', mantis:'🦗', longhorn:'🪲', grasshopper:'🦗', cricket:'🦗', horse:'🐎', tiger:'🐅', hippo:'🦛', capybara:'🐹', tortoise:'🐢', snake:'🐍', peacock:'🦚', rabbit:'🐇', beetle:'🪲', worm:'🪱', fish:'🐟', deer:'🦌', moose:'🫎', wolf:'🐺', gull:'🐦', dolphin:'🐬', whale:'🐋', owl:'🦉', eagle:'🦅', lizard:'🦎', seafish:'🐠', frog:'🐸', dragonfly:'🪰', turtle:'🐢', croc:'🐊', heron:'🪿', beaver:'🦫', kangaroo:'🦘', quokka:'😊', emu:'🦤', koala:'🐨', crab:'🦀'};
 function pokeAnimal(a){
   const k = (a.kind in WILD_NAMES ? wild : fauna).poke(a), first = !stat('meet:' + k);
-  track('meet:' + k); if (!a.tappedOnce){ a.tappedOnce = true; track('meetU:' + k); learnSkills(); }   // different animals of a kind (for skills) floatSprite(emojiTex(ANIMAL_ICON[k] || '❗'), a.g.position.clone().add(V3(0, 1.4, 0)), {size:0.55, vy:0.6, max:1.4});
+  track('meet:' + k); if (!a.tappedOnce){ a.tappedOnce = true; track('meetU:' + k); learnSkills(k); }   // different animals of a kind (for skills) floatSprite(emojiTex(ANIMAL_ICON[k] || '❗'), a.g.position.clone().add(V3(0, 1.4, 0)), {size:0.55, vy:0.6, max:1.4});
   if (first) toast(`遇見了${SPECIES[k] || WILD_NAMES[k]}！`);
 }
 let scareCd = 0;
@@ -2741,9 +2741,9 @@ const SKILLS = {
 };
 const hasSkill = k => !!(S.skills && S.skills[k]);
 const skillCount = k => stat('meetU:' + SKILLS[k].from);
-function learnSkills(){
+function learnSkills(from){   // only the teaching kind just met can teach (so tapping a peacock never teaches the turtles' trick)
   for (const [k, sk] of Object.entries(SKILLS)){
-    if (hasSkill(k) || skillCount(k) < sk.need || (sk.area && !sk.area())) continue;
+    if (sk.from !== from || hasSkill(k) || skillCount(k) < sk.need || (sk.area && !sk.area())) continue;
     S.skills = {...(S.skills || {}), [k]:true}; save();
     showModal(`學會新本領：${sk.name}！`, `<div class="bigicon">${sk.icon}</div><p>${S.name || '袋熊'}${sk.desc}。</p>`, [{label:'太棒了', onClick:()=>{}}]);
     spawnHearts(3); sfx('grow'); break;
@@ -3727,7 +3727,7 @@ function updateWorld(dt, t){
   const theme = di.n > 0.5 ? 'dark' : 'light'; if (theme !== lastTheme){ lastTheme = theme; document.documentElement.dataset.theme = theme; }
   snowCover = clamp(snowCover + (w === 'snow' ? 0.015 : -0.006)*dt, 0, 0.75);
   // snow settles on the ground; fog fades the far edges of the world into the sky colour
-  const tm = world.terrain.material; tm.emissive.setScalar(snowCover*0.55*(1 - di.n*0.7)); tm.color.setScalar(0.74*(1 - snowCover*0.25)); world.tufts.visible = snowCover < 0.45; if (world.flowers) world.flowers.visible = snowCover < 0.3;
+  const tm = world.terrain.material; tm.emissive.setScalar(snowCover*0.55*(1 - di.n*0.7)); tm.color.setScalar(0.74*(1 - snowCover*0.25)); world.tufts.material.emissive.setScalar(snowCover*0.45*(1 - di.n*0.7));   // grass and flowers stay under snow (hiding them emptied the whole meadow on snowy nights); the grass just frosts over
   const camD = camera.position.distanceTo(camTarget); scene.fog.color.set(sky); scene.fog.near = camD*1.5; scene.fog.far = camD*4.2;
   updateSky(di);
   world.update(dt, t, {night:di.n, fog:scene.fog, pet: petActive() && root.visible ? pos : null});
