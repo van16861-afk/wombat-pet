@@ -180,7 +180,7 @@ export function newWorld(seed){
   return upgradeWorld(D);
 }
 // Special regions on the 4 × 4 map: a lily pond, a swamp, the Australian outback and a beaver stream on the river.
-export const BIO = {pond:'0,-2', swamp:'-2,-1', aus:'-2,1', beaver:'-1,-2', forest:'-2,0', high:'-2,-2', savanna:'-1,1', meadow:'0,1'};   // meadow: the flower meadow (花海) south of home
+export const BIO = {pond:'0,-2', swamp:'-2,-1', aus:'-2,1', beaver:'-1,-2', forest:'-2,0', high:'-2,-2', savanna:'-1,1', meadow:'0,1', mangrove:'1,0'};   // meadow: the flower meadow (花海) south of home
 // v1 worlds were 3 × 3: grow them to 4 × 4 (new plots to the west and north) without moving anything already there.
 export function upgradeWorld(D){
   if (D.v < 2){
@@ -309,6 +309,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
     if (D.plat && platH(x, z) > 0.5 && H(x, z) - platH(x, z) < 0.05) col = mixc(col, [1.02, 1.0, 0.86], 0.35);   // plateau grass a little drier
     const sandW = sstep(sx - 10, sx - 5.5, x + (nz - 0.5)*2.4);
     if (sandW > 0){ const wet = sstep(sx + 0.3, sx + 2.4, x); col = mixc(col, mixc([0.95, 0.87, 0.68], [0.78, 0.69, 0.52], wet), sandW); g *= 1 - sandW; }
+    if (sandW > 0){ const mg = plotW(BIO.mangrove, x, z, 6.5, 9.4); if (mg > 0) col = mixc(col, mixc([0.55, 0.5, 0.4], [0.4, 0.37, 0.3], sstep(sx - 4, sx + 1.5, x)), mg*sandW); }   // the mangrove's grey-brown tidal mud
     if (rd < bk + 1.9){ const w = 1 - sstep(bk + 0.3, bk + 1.9, rd + (nz - 0.5)*0.9); col = mixc(col, rd < bk + 0.2 ? [0.66, 0.62, 0.53] : [0.62, 0.52, 0.39], w); g *= 1 - w; }
     let mud = 0;
     for (const [mx, mz, r] of D.muds) mud = Math.max(mud, 1 - sstep(r*0.5, r, Math.hypot(x - mx, z - mz) + (nz - 0.5)*1.2));
@@ -779,7 +780,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
   W.plotName = k => {
     const [a, b] = k.split(',').map(Number), dir = (b < 0 ? '北' : b > 0 ? '南' : '') + (a < 0 ? '西' : a > 0 ? '東' : '');
     const [cx, cz] = plotCenter(k), P = D.plat;
-    const special = {[BIO.pond]:'荷花池塘', [BIO.swamp]:'沼澤', [BIO.aus]:'澳洲草原', [BIO.beaver]:'河狸溪', [BIO.forest]:'鹿的森林', [BIO.high]:'狼的高地', [BIO.savanna]:'大草原', [BIO.meadow]:'花海'}[k]; if (special) return special;
+    const special = {[BIO.pond]:'荷花池塘', [BIO.swamp]:'沼澤', [BIO.aus]:'澳洲草原', [BIO.beaver]:'河狸溪', [BIO.forest]:'鹿的森林', [BIO.high]:'狼的高地', [BIO.savanna]:'大草原', [BIO.meadow]:'花海', [BIO.mangrove]:'紅樹林'}[k]; if (special) return special;
     const what = a === -2 ? '森林' : a === -1 ? '河畔' : a > 0 ? '海岸' : Math.abs(P.z - cz) < 6 ? '高台' : D.pits.some(([x, z]) => Math.abs(x - cx) < 9 && Math.abs(z - cz) < 9) ? '窪地' : '山丘';
     return `${dir}邊的${what}`;
   };

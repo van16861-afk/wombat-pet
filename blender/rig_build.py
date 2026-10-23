@@ -13,10 +13,10 @@ PREP = r"C:\Users\User\Documents\wombat-pet\assets\source\rigprep"
 OUT = r"C:\Users\User\Documents\wombat-pet\assets\models\real"
 os.makedirs(PREP, exist_ok=True); os.makedirs(OUT, exist_ok=True)
 
-def prep(name, src, budget, flip=False, turn=0):
+def prep(name, src, budget, flip=False, turn=0, drop=()):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=os.path.join(SRC, src + ".glb"))
-    meshes = [o for o in bpy.data.objects if o.type == 'MESH' and len(o.data.polygons) > 0]
+    meshes = [o for o in bpy.data.objects if o.type == "MESH" and len(o.data.polygons) > 0 and not any(m and m.name.split(".")[0] in drop for m in o.data.materials)]   # (drop: e.g. a colour chart scanned with the animal)
     for o in [o for o in bpy.data.objects if o not in meshes]: bpy.data.objects.remove(o, do_unlink=True) if o.type == 'MESH' else None
     for o in meshes:   # bake transforms
         mw = o.matrix_world.copy(); o.parent = None; o.data.transform(mw); o.matrix_world.identity()
@@ -130,7 +130,7 @@ from rig_specs import SPECS   # bone lists and clips per animal (blender/rig_spe
 only = [s for s in os.environ.get("ONLY", "").split(",") if s]
 for name, sp in SPECS.items():
     if only and name not in only: continue
-    ob = prep(name, sp["src"], sp["budget"], sp.get("flip", False), sp.get("turn", 0))
+    ob = prep(name, sp["src"], sp["budget"], sp.get("flip", False), sp.get("turn", 0), sp.get("drop", ()))
     if os.environ.get("PREP"):
         export(os.path.join(PREP, name + ".glb"), False); continue
     arm = build_rig(ob, sp["bones"]); skin(ob, arm, sp["bones"])

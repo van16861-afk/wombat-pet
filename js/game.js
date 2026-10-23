@@ -212,7 +212,7 @@ Object.values(LOADS).forEach(pr => pr.catch(() => {}));
 // Realistic rigged animals (Sketchfab, converted by blender/real_build.py; authors in assets/models/CREDITS.md). Each has its own
 // skeleton and clips (walk, run, graze, lie down...). `yaw` turns the model to face +Z; `like` is the old model whose size it takes.
 const REAL_CFG = {tiger:{yaw:Math.PI/2, like:'tiger', k:1.15}, deer:{like:'deer', k:1.45, parts:{antlers:'Chifre'}}, wolf:{like:'wolf', k:1.05},
-  moose:{like:'deer', k:1.9, parts:{antlers:'M_Moose_Antler'}}, horse:{like:'horse', k:1.25}, croc:{like:'croc', bright:1.8}, kangaroo:{like:'kangaroo', k:1.45}, heron:{like:'heron', k:1.1}, crab:{len:0.32}, hermit:{len:0.42}, seaturtle:{len:1.3}, penguin:{h:0.85}, flamingo:{len:1.3}, owl:{h:0.7}, peacock:{like:'peacock', k:1.15}};
+  moose:{like:'deer', k:1.9, parts:{antlers:'M_Moose_Antler'}}, horse:{like:'horse', k:1.25}, croc:{like:'croc', bright:1.8}, kangaroo:{like:'kangaroo', k:1.45}, heron:{like:'heron', k:1.1}, crab:{len:0.32}, hermit:{len:0.42}, seaturtle:{len:1.3}, penguin:{h:0.85}, flamingo:{len:1.3}, owl:{h:0.7}, peacock:{like:'peacock', k:1.15}, mangrove:{h:4.2}, fiddler:{len:0.3}, mudskipper:{len:0.34}};
 const REAL_LOADS = Object.fromEntries(Object.keys(REAL_CFG).map(n => [n, new GLTFLoader().setDRACOLoader(draco).loadAsync(`assets/models/real/${n}.glb`)]));
 Object.values(REAL_LOADS).forEach(pr => pr.catch(() => {}));
 let gltf;
@@ -417,6 +417,7 @@ for (const [n, pr] of Object.entries(REAL_LOADS)){
     tmp.updateMatrixWorld(true);
     const v_ = new THREE.Vector3(); tmp.traverse(o => { if (o.isBone) box.expandByPoint(o.getWorldPosition(v_)); });
     mx.stopAllAction(); mx.uncacheRoot(g.scene);
+    if (box.isEmpty()) box.setFromObject(tmp);   // a static model (a tree): no bones to measure, its mesh bounds are right
     box.min.z -= (box.max.z - box.min.z)*0.06; box.max.z += (box.max.z - box.min.z)*0.06;   // the skin reaches a little past the end bones
     const old = ANIM[cfg.like] ? new THREE.Box3().setFromObject(ANIM[cfg.like], true) : null;
     const s = (cfg.h ? cfg.h/(box.max.y - box.min.y) : cfg.len ? cfg.len/(box.max.z - box.min.z) : old ? (old.max.z - old.min.z)/(box.max.z - box.min.z) : 1)*(cfg.k || 1);
@@ -2251,11 +2252,13 @@ function playRig(rg, name, ts = 1){
   if (rg.cur !== name && rg.clips[name]){ const a = rg.mixer.clipAction(rg.clips[name]); a.reset().fadeIn(0.25).play(); if (rg.act) rg.act.fadeOut(0.25); rg.act = a; rg.cur = name; }
   if (rg.act) rg.act.timeScale = ts;
 }
-const BEACH_NAMES = {seaturtle:'赤蠵龜（海龜）', penguin:'企鵝'};
+const BEACH_NAMES = {seaturtle:'赤蠵龜（海龜）', penguin:'企鵝', fiddler:'招潮蟹', mudskipper:'彈塗魚'};
 function pokeBeachLife(o){   // tap: the penguin squawks and pecks, the turtle heads back to the sea
   const first = !stat('meet:' + o.kind); track('meet:' + o.kind); if (first) toast(`遇見了${BEACH_NAMES[o.kind]}！`);
-  floatSprite(emojiTex(o.kind === 'penguin' ? '🐧' : '🐢'), o.g.position.clone().add(V3(0, 1.2, 0)), {size:0.55, vy:0.6, max:1.4});
+  floatSprite(emojiTex({penguin:'🐧', seaturtle:'🐢', fiddler:'🦀', mudskipper:'🐟'}[o.kind]), o.g.position.clone().add(V3(0, 1.2, 0)), {size:0.55, vy:0.6, max:1.4});
   if (o.kind === 'penguin'){ o.state = 'peck'; o.timer = 2; o.dest = null; sfx('penguin', o.g.position); }
+  else if (o.kind === 'fiddler') o.hide = 3;   // down its burrow
+  else if (o.kind === 'mudskipper'){ o.state = 'display'; o.timer = 2.5; o.dest = null; }   // fins up
   else if (o.state !== 'swim'){ o.state = 'toSea'; o.dest = V3(world.shoreX(o.g.position.z) + 4, 0, o.g.position.z); }
 }
 function setupBeachLife(){
@@ -2265,7 +2268,9 @@ function setupBeachLife(){
     g.scale.setScalar(sc*rnd(0.9, 1.1)); g.position.set(world.shoreX(z) + (kind === 'seaturtle' ? rnd(1.5, 5) : -rnd(1, 4)), 0, z); scene.add(g);
     const hb = new THREE.Mesh(new THREE.SphereGeometry(kind === 'seaturtle' ? 0.7 : 0.45, 8, 6), hbMat); hb.position.y = 0.3; hb.userData.kind = 'beachlife'; g.add(hb);
     const o = {kind, g, rg:g.userData, zr:[z0, z1], state:kind === 'seaturtle' ? 'swim' : 'idle', t:rnd(0, 9), timer:rnd(2, 8), dest:null, hb}; hb.userData.ref = o; beachHit.push(hb); BEACH_LIFE.push(o); } };
-  add('seaturtle', 2, -1, 1); add('penguin', 5, 1, 1);
+  add('seaturtle', 2, -1, 1); add('penguin', 5, 1, 1); add('fiddler', 9, 0, 1); add('mudskipper', 7, 0, 1);
+  { const [z0, z1] = zr(0); for (let i=0;i<16;i++){ const g = realClone('mangrove'); if (!g) break; const z = z0 + (i + Math.random()*0.8)*(z1 - z0)/16, x = world.shoreX(z) + rnd(-2.5, 3.5);   // the mangroves stand along the tide line
+    g.scale.setScalar(rnd(0.7, 1.15)); g.rotation.y = rnd(0, 6.28); g.position.set(x, Math.min(gy(x, z), WATER_Y) - 0.15, z); scene.add(g); } }
 }
 function updateBeachLife(dt, t){
   for (const o of BEACH_LIFE){
@@ -2282,21 +2287,43 @@ function updateBeachLife(dt, t){
       if (o.dest){ const d = V3(o.dest.x - p.x, 0, o.dest.z - p.z), L = d.length(), sp = wet ? 0.9 : 0.25;
         if (L > 0.2){ p.addScaledVector(d.normalize(), Math.min(L, sp*dt)); o.g.rotation.y += clamp(wrapA(Math.atan2(d.x, d.z) - o.g.rotation.y), -1.5*dt, 1.5*dt); }
         else { o.dest = null; if (o.state === 'crawl'){ o.state = 'rest'; o.timer = rnd(15, 35); } else if (o.state === 'toSea') o.state = 'swim'; } }
-      playRig(o.rg, 'swim', o.state === 'rest' ? 0 : wet ? 0.8 : 0.45);   // the same flippers row in water and drag it over the sand
+      playRig(o.rg, wet ? 'swim' : o.state === 'rest' ? 'rest' : 'crawl', wet ? 0.8 : 1);   // swims in the sea; on the sand it crawls on its flippers
       p.y = wet ? WATER_Y - 0.12 + Math.sin(o.t*1.4)*0.03 : gy(p.x, p.z) + 0.02;
-    } else {   // penguins: waddle about together, peck at the sand, belly-slide into the sea for a swim and come back
-      if (o.timer <= 0){ o.timer = rnd(3, 8); const r_ = Math.random();
-        if (o.state === 'swim'){ o.state = 'walk'; const z = zIn(p.z + rnd(-3, 3)); o.dest = V3(world.shoreX(z) - rnd(1, 4), 0, z); }
-        else if (r_ < 0.2){ o.state = 'slide'; const z = zIn(p.z + rnd(-2, 2)); o.dest = V3(world.shoreX(z) + rnd(2.5, 5), 0, z); }
-        else if (r_ < 0.5){ o.state = 'walk'; const z = zIn(p.z + rnd(-4, 4)); o.dest = V3(world.shoreX(z) - rnd(0.8, 4.5), 0, z); }
-        else if (r_ < 0.75){ o.state = 'peck'; o.dest = null; } else { o.state = 'idle'; o.dest = null; } }
-      if (near && o.state !== 'swim' && !o.scared){ o.scared = true; o.state = 'walk'; o.dest = p.clone().addScaledVector(V3(p.x - pos.x, 0, p.z - pos.z).normalize(), 2.5); o.dest.z = zIn(o.dest.z); sfx('penguin', p); setTimeout(() => o.scared = false, 6000); }
-      if (o.dest){ const d = V3(o.dest.x - p.x, 0, o.dest.z - p.z), L = d.length(), sp = o.state === 'slide' || wet ? 2.0 : 0.7;
+    } else if (o.kind === 'penguin'){   // penguins: waddle about together and peck at the sand; to feed they walk into the sea, swim out and dive for fish
+      if (o.timer <= 0){ o.timer = rnd(4, 9); const r_ = Math.random();
+        if (o.state === 'swim'){ if (Math.random() < 0.6){ o.state = 'dive'; o.diveT = 0; o.dest = null; o.timer = 2.2; } else { o.state = 'home'; const z = zIn(p.z + rnd(-3, 3)); o.dest = V3(world.shoreX(z) - rnd(1, 4), 0, z); } }
+        else if (o.state === 'dive'){ o.state = 'swim'; o.timer = rnd(3, 7); const z = zIn(p.z + rnd(-4, 4)); o.dest = V3(world.shoreX(z) + rnd(3, 8), 0, z); }
+        else if (o.state === 'home'){ o.timer = 1; }
+        else if (r_ < 0.25){ o.state = 'fish'; const z = zIn(p.z + rnd(-2, 2)); o.dest = V3(world.shoreX(z) + rnd(3.5, 7), 0, z); }   // off to fish
+        else if (r_ < 0.55){ o.state = 'walk'; const z = zIn(p.z + rnd(-4, 4)); o.dest = V3(world.shoreX(z) - rnd(0.8, 4.5), 0, z); }
+        else if (r_ < 0.78){ o.state = 'peck'; o.dest = null; } else { o.state = 'idle'; o.dest = null; } }
+      if (near && !wet && !o.scared){ o.scared = true; o.state = 'walk'; o.dest = p.clone().addScaledVector(V3(p.x - pos.x, 0, p.z - pos.z).normalize(), 2.5); o.dest.z = zIn(o.dest.z); sfx('penguin', p); setTimeout(() => o.scared = false, 6000); }
+      if (o.state === 'dive'){   // under and up again with a fish, swallowed at the surface
+        o.diveT += dt; if (o.diveT > 1.0 && !o.caught){ o.caught = true; if (Math.random() < 0.7){ floatSprite(emojiTex('🐟'), p.clone().add(V3(0, 0.6, 0)), {size:0.45, vy:0.8, max:0.9}); sfx('splash', p); } } }
+      else o.caught = false;
+      if (o.dest){ const d = V3(o.dest.x - p.x, 0, o.dest.z - p.z), L = d.length(), sp = wet ? 1.8 : 0.6;
         if (L > 0.15){ p.addScaledVector(d.normalize(), Math.min(L, sp*dt)); o.g.rotation.y += clamp(wrapA(Math.atan2(d.x, d.z) - o.g.rotation.y), -4*dt, 4*dt); }
-        else { o.dest = null; if (o.state === 'slide'){ o.state = 'swim'; o.timer = rnd(8, 18); const z = zIn(p.z + rnd(-4, 4)); o.dest = V3(world.shoreX(z) + rnd(3, 7), 0, z); } else if (o.state === 'walk') o.state = 'idle'; } }
-      playRig(o.rg, wet || o.state === 'slide' ? 'slide' : o.state === 'peck' ? 'peck' : o.dest ? 'walk' : 'idle');
-      p.y = wet ? WATER_Y - 0.3 + Math.sin(o.t*2)*0.03 : gy(p.x, p.z) - (o.state === 'slide' ? 0.15 : 0);
+        else { o.dest = null; if (o.state === 'fish'){ o.state = 'swim'; o.timer = rnd(2, 5); } else if (o.state === 'walk' || o.state === 'home'){ o.state = 'idle'; o.timer = rnd(2, 6); } } }
+      const deep = wet && p.x > world.shoreX(p.z) + 1.6;   // wading in the shallows it still walks; out of its depth it swims
+      playRig(o.rg, o.state === 'dive' ? 'dive' : deep ? 'swim' : o.state === 'peck' ? 'peck' : o.dest ? 'walk' : 'idle');
+      p.y = deep ? WATER_Y - 0.28 - (o.state === 'dive' ? 0.5*Math.sin(Math.min(1, o.diveT/1.6)*Math.PI) : 0) + Math.sin(o.t*2)*0.02 : Math.max(gy(p.x, p.z), WATER_Y - 0.45);
       if (Math.random() < dt*0.01) sfx('penguin', p);
+    } else if (o.kind === 'fiddler'){   // fiddler crabs: wave the big claw by their burrow, scuttle sideways a little, pop down the burrow when the wombat comes
+      if (near) o.hide = 4;
+      if (o.hide > 0){ o.hide -= dt; o.g.visible = false; o.rg.mixer.update(dt); continue; }
+      if (o.timer <= 0){ o.timer = rnd(3, 8); if (Math.random() < 0.4){ const z = zIn(p.z + rnd(-1.5, 1.5)); o.dest = V3(world.shoreX(z) - rnd(0.3, 3), 0, z); } }
+      if (o.dest){ const d = V3(o.dest.x - p.x, 0, o.dest.z - p.z), L = d.length(); if (L > 0.05){ p.addScaledVector(d.normalize(), Math.min(L, 0.8*dt)); o.g.rotation.y += clamp(wrapA(Math.atan2(d.x, d.z) + Math.PI/2 - o.g.rotation.y), -5*dt, 5*dt); } else o.dest = null; }   // (crabs walk sideways)
+      playRig(o.rg, 'dance', o.dest ? 1.6 : 1); p.y = gy(p.x, p.z);
+    } else if (o.kind === 'mudskipper'){   // mudskippers: crutch along the mud on their front fins, skip with a flick of the tail, raise their fins to show off
+      if (o.timer <= 0){ o.timer = rnd(2, 6); const r_ = Math.random();
+        if (r_ < 0.35){ o.state = 'crawl'; const z = zIn(p.z + rnd(-2, 2)); o.dest = V3(world.shoreX(z) + rnd(-1.5, 0.8), 0, z); }
+        else if (r_ < 0.55){ o.state = 'skip'; o.skipT = 0; o.from = p.clone(); const a = o.g.rotation.y + rnd(-0.8, 0.8); o.to = V3(p.x + Math.sin(a)*1.2, 0, zIn(p.z + Math.cos(a)*1.2)); o.timer = 0.7; }
+        else if (r_ < 0.75){ o.state = 'display'; o.timer = 2.5; o.dest = null; } else { o.state = 'idle'; o.dest = null; } }
+      if (near && o.state !== 'skip'){ o.state = 'skip'; o.skipT = 0; o.from = p.clone(); const aw = V3(p.x - pos.x, 0, p.z - pos.z).normalize(); o.to = V3(p.x + aw.x*1.4, 0, zIn(p.z + aw.z*1.4)); o.timer = 0.7; o.g.rotation.y = Math.atan2(aw.x, aw.z); }
+      if (o.state === 'skip'){ o.skipT += dt; const u = Math.min(1, o.skipT/0.6); p.lerpVectors(o.from, o.to, u); p.y = gy(p.x, p.z) + Math.sin(u*Math.PI)*0.35; if (u >= 1) o.state = 'idle'; }
+      else { if (o.dest){ const d = V3(o.dest.x - p.x, 0, o.dest.z - p.z), L = d.length(); if (L > 0.05){ p.addScaledVector(d.normalize(), Math.min(L, 0.35*dt)); o.g.rotation.y += clamp(wrapA(Math.atan2(d.x, d.z) - o.g.rotation.y), -3*dt, 3*dt); } else { o.dest = null; o.state = 'idle'; } }
+        p.y = Math.max(gy(p.x, p.z), WATER_Y - 0.04); }
+      playRig(o.rg, o.state === 'skip' ? 'skip' : o.state === 'display' ? 'display' : o.dest ? 'crawl' : 'idle');
     }
     o.rg.mixer.update(dt);
   }
@@ -2319,7 +2346,7 @@ function updateBeach(dt, t){
     const rg = c.g.userData.rig;
     if (rg){ const name = c.wait <= 0 && L > 0.05 ? 'walk' : 'idle';   // scuttles sideways on its own legs, flexes its claws while resting
       if (rg.cur !== name && rg.clips[name]){ const a = rg.mixer.clipAction(rg.clips[name]); a.reset().fadeIn(0.2).play(); if (rg.act) rg.act.fadeOut(0.2); rg.act = a; rg.cur = name; }
-      if (rg.act) rg.act.timeScale = name === 'walk' ? (c.hermit ? 0.7 : near ? 2 : 1) : rg.clips.idle ? 1 : 0; rg.mixer.update(dt); }   // (no resting clip: it just stops)
+      if (rg.act){ const stop = name !== 'walk' && !rg.clips.idle; if (stop && rg.act.timeScale) rg.act.time = 0; rg.act.timeScale = stop ? 0 : name === 'walk' ? (c.hermit ? 0.7 : near ? 2 : 1) : 1; } rg.mixer.update(dt); }   // (no resting clip: it settles with all its legs down)
     p.y = gy(p.x, p.z);
   }
   // a bottle drifts in on the waves now and then, if some of the beach is yours
@@ -4234,7 +4261,7 @@ const GUIDE = [
     <rect x="40" y="40" width="70" height="80" rx="8" fill="var(--chip)" stroke="var(--ink)" stroke-width="2"/><rect x="52" y="40" width="46" height="26" fill="var(--ink)" opacity=".8"/><rect x="54" y="88" width="42" height="28" rx="3" fill="var(--line)"/>${T(75,145,'自動存檔',12)}
     <rect x="150" y="60" width="44" height="22" rx="11" fill="#e45b5b"/><rect x="172" y="60" width="22" height="22" rx="11" fill="#f6f3ec"/>${T(172,110,'健康低：餵藥',12)}
     <path d="M250 120 v-38 a20 20 0 0 1 40 0 v38z" fill="#a3a59d"/><circle cx="258" cy="122" r="4" fill="#e0607e"/><circle cx="282" cy="122" r="4" fill="#f3d250"/>${T(270,145,'告別後孵新蛋',12)}`),
-    html:`<ul><li>進度每 5 秒自動存在<b>這台裝置</b>裡；到「設定」用 Google 登入後，還會同步到<b>雲端</b>，電腦和手機可以接著玩。離開期間的時間也會算進去。</li><li>你不在的時候牠最多只會變得很虛弱，不會因為沒人照顧而死掉；但年紀還是會增加。</li><li>健康低於 35 會生病，按畫面下方的「餵藥」（10 代幣）。</li><li>牠走完一生或病死之後，會留下一個小墓碑。代幣、衣服、建設都會留給下一隻，再孵一顆新蛋。</li><li>設定 →「全部重新開始」會清掉所有東西，從一顆蛋重來。</li><li><b>聲音來源</b>：音樂用 FluidR3 音色庫（MIT 授權）；動物叫聲是 Wikimedia Commons 和 Freesound 上的真實錄音，作者和授權見<a href="assets/sounds/CREDITS.md" target="_blank">動物聲音來源</a>。</li><li><b>3D 模型來源</b>：寫實動物來自 Sketchfab 的創作者（老虎、鹿、狼、駝鹿、馬、鱷魚、袋鼠、蒼鷺、螃蟹、寄居蟹、海龜、企鵝、紅鶴、貓頭鷹、孔雀），場景植物是 Quaternius 的免費素材，作者和授權見<a href="assets/models/CREDITS.md" target="_blank">模型來源</a>。</li></ul><p class="note">清除瀏覽器資料或換手機，存檔就會不見。</p>`}
+    html:`<ul><li>進度每 5 秒自動存在<b>這台裝置</b>裡；到「設定」用 Google 登入後，還會同步到<b>雲端</b>，電腦和手機可以接著玩。離開期間的時間也會算進去。</li><li>你不在的時候牠最多只會變得很虛弱，不會因為沒人照顧而死掉；但年紀還是會增加。</li><li>健康低於 35 會生病，按畫面下方的「餵藥」（10 代幣）。</li><li>牠走完一生或病死之後，會留下一個小墓碑。代幣、衣服、建設都會留給下一隻，再孵一顆新蛋。</li><li>設定 →「全部重新開始」會清掉所有東西，從一顆蛋重來。</li><li><b>聲音來源</b>：音樂用 FluidR3 音色庫（MIT 授權）；動物叫聲是 Wikimedia Commons 和 Freesound 上的真實錄音，作者和授權見<a href="assets/sounds/CREDITS.md" target="_blank">動物聲音來源</a>。</li><li><b>3D 模型來源</b>：寫實動物來自 Sketchfab 的創作者（老虎、鹿、狼、駝鹿、馬、鱷魚、袋鼠、蒼鷺、螃蟹、寄居蟹、海龜、企鵝、紅鶴、貓頭鷹、孔雀、紅樹林、招潮蟹、彈塗魚），場景植物是 Quaternius 的免費素材，作者和授權見<a href="assets/models/CREDITS.md" target="_blank">模型來源</a>。</li></ul><p class="note">清除瀏覽器資料或換手機，存檔就會不見。</p>`}
 ];
 const guideEl = $('#guide'); let gPage = 0;
 function openGuide(p=0){ gPage = p; guideEl.hidden = false; renderGuide(); $('#gNext').focus(); }

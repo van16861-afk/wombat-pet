@@ -208,3 +208,28 @@ SPECS["peacock"] = {"src": "peacock", "budget": 60000, "clips": _peacock_clips, 
     {"n": "wingR", "p": "root", "h": (0.18, 0.55, -0.85), "t": (0.38, 0.35, -0.85), "zone": lambda f, u, s: s < -0.5 and f < 0.42 and u > 0.3},
     *_bird_legs((0.25, 0.29), (0.24, 0.22), (0.23, 0.025), (0.17, 0.01), 0.25, 0.3),
 ]}
+SPECS["mangrove"] = {"src": "mangrove_red", "budget": 22000, "bones": [], "clips": lambda lp: {}}   # (static: prep only, copied to assets/models/real)
+SPECS["mudskipper"] = {"src": "mudskipper", "budget": 40000, "drop": ("Material",), "bones": [], "clips": lambda lp: {}}
+
+# ---------------------------------------------------------------- mudskipper (Sketchfab CC0 scan "Shuttles Mudskipper P. modestus" by ffish.asia / floraZia)
+def _mudskipper_clips(lp):
+    fold = lambda k: {"dorsal1": (-1.0*k, 0, 0), "dorsal2": (-0.7*k, 0, 0)}   # dorsal fins lie flat (k = 1) or stand up (k = 0)
+    idle = [(t, {**fold(0.85 - 0.15*max(0, math.sin(t*2*math.pi*2))), "head": (0, 0.05*math.sin(t*2*math.pi), 0), "tail1": (0, 0.06*math.sin(t*2*math.pi + 1), 0),
+                 "finL": (0, 0.1*math.sin(t*2*math.pi), 0), "finR": (0, -0.1*math.sin(t*2*math.pi), 0)}) for t in [i/8 for i in range(9)]]
+    # crawl ("crutching"): both front fins plant and swing back together, lifting and pulling the body forward; the tail follows
+    crawl = [(t, {**fold(0.9), "finL": (0.25*max(0, math.cos(t*2*math.pi)), 0.6*math.sin(t*2*math.pi), 0), "finR": (0.25*max(0, math.cos(t*2*math.pi)), -0.6*math.sin(t*2*math.pi), 0),
+                  "root": (0, 0, 0, (0, 0, 0.012*max(0, -math.sin(t*2*math.pi)))), "tail1": (0, 0.12*math.sin(t*2*math.pi), 0), "tail2": (0, 0.18*math.sin(t*2*math.pi - 0.6), 0)}) for t in [i/8 for i in range(9)]]
+    # skip: the body curls to one side and the tail flicks it off the mud
+    skip = [(0, fold(0.9)), (0.3, {**fold(0.6), "tail1": (0, 0.8, 0), "tail2": (0, 0.9, 0), "head": (0, -0.3, 0)}), (0.5, {**fold(0.5), "tail1": (0, -0.4, 0), "tail2": (0, -0.5, 0), "head": (0, 0.15, 0)}), (1.0, fold(0.9))]
+    display = [(0, fold(0.9)), (0.2, fold(0)), (0.8, fold(0)), (1.0, fold(0.9))]   # fins up to show off
+    return {"idle": (2.4, idle), "crawl": (0.7, crawl), "skip": (0.6, skip), "display": (2.5, display)}
+SPECS["mudskipper"] = {"src": "mudskipper", "budget": 40000, "drop": ("Material",), "clips": _mudskipper_clips, "bones": [
+    {"n": "root", "h": (0.5, 0.38, 0), "t": (0.25, 0.4, 0)},
+    {"n": "head", "p": "root", "h": (0.25, 0.4, 0), "t": (0.0, 0.35, 0), "zone": lambda f, u, s: f < 0.27 and abs(s) < 0.4},
+    {"n": "tail1", "p": "root", "h": (0.5, 0.38, 0), "t": (0.75, 0.38, 0), "zone": lambda f, u, s: f > 0.48 and u < 0.55},
+    {"n": "tail2", "p": "tail1", "h": (0.75, 0.38, 0), "t": (1.0, 0.38, 0), "zone": lambda f, u, s: f > 0.72},
+    {"n": "finL", "p": "root", "h": (0.25, 0.2, 0.25), "t": (0.28, 0.05, 0.95), "zone": lambda f, u, s: s > 0.32 and 0.15 < f < 0.38},
+    {"n": "finR", "p": "root", "h": (0.25, 0.2, -0.25), "t": (0.28, 0.05, -0.95), "zone": lambda f, u, s: s < -0.32 and 0.15 < f < 0.38},
+    {"n": "dorsal1", "p": "root", "h": (0.36, 0.58, 0), "t": (0.42, 0.98, 0), "zone": lambda f, u, s: u > 0.56 and 0.27 < f < 0.5},
+    {"n": "dorsal2", "p": "tail1", "h": (0.55, 0.55, 0), "t": (0.68, 0.78, 0), "zone": lambda f, u, s: u > 0.52 and 0.5 < f < 0.76},
+]}

@@ -19,6 +19,7 @@ MODELS = {
     "eagle": ("baldeagle", 7000, {"fly": "GltfAnimation 0"}, []),
     "hermit": ("hermit_k", 4000, {"walk": "Animation"}, []),
     "seaturtle": ("seaturtle", 6000, {"swim": "Swim Cycle"}, []),
+    "fiddler": ("fiddler", 3000, {"dance": "Dance"}, ["AOFLoor"]),
     "penguin": ("penguin", 3500, {"idle": "Iddle", "walk": "Walk", "slide": "Slide", "peck": "Bite", "fall": "Fall"}, []),
 }
 # these keep the file's own rest pose (Blender's bind-pose guess tips them on their side)
@@ -109,6 +110,7 @@ def build(name, src, budget, clips, drop):
         if bone_slot: st.action_slot = bone_slot   # an action can hold several objects' channels; the armature takes the bones' ones
         if bone_slot: hold_rest(arm, ac, bone_slot)
     ad.action = None; arm.data.pose_position = 'POSE'
+    if name in EXTRA: add_clips(arm, ad, *EXTRA[name])   # clips made here for what the model lacks (a turtle crawling on land, a penguin swimming)
     for ac in keep.values(): print("  CLIP", ac.name, [sl.identifier for sl in getattr(ac, "slots", [])], "bones:", bones_slot(ac).identifier if bones_slot(ac) else None)
     print("MODEL", name, "faces", total, "->", tris, "tris; clips", sorted(keep), "missing", sorted(set(clips) - set(keep)))
     bpy.ops.object.select_all(action='SELECT')
@@ -119,6 +121,67 @@ def build(name, src, budget, clips, drop):
         export_draco_normal_quantization=10, export_draco_texcoord_quantization=12)
     print("EXPORTED", p, os.path.getsize(p))
 
+
+# ---------------------------------------------------------------- clips made here, keyed on the model's own bones
+import math
+from mathutils import Vector, Quaternion
+FPS = 30
+def add_clips(arm, ad, head, tail, clips):
+    """clips: {name: (seconds, [(t 0..1, {bone prefix: (pitch, yaw, roll[, lift])})])}. Angles are about the animal's own axes:
+    pitch about its side (positive tips a forward-pointing bone down), yaw about the up axis, roll about its length; lift raises the bone.
+    Every bone starts from the model's own first clip (its rest pose may stand it on end), so the new clips are changes to a real pose."""
+    B = arm.data.bones
+    bone = lambda p: next((b for b in B if b.name.startswith(p)), None)
+    ref = ad.nla_tracks[0].strips[0].action; ad.action = ref
+    sl = bones_slot(ref)
+    if sl: ad.action_slot = sl
+    bpy.context.scene.frame_set(int(ref.frame_range[0])); bpy.context.view_layer.update()
+    base = {pb.name: (pb.rotation_quaternion.copy(), pb.location.copy(), (arm.matrix_world @ pb.matrix).to_3x3().normalized(), (arm.matrix_world @ pb.matrix).to_3x3()) for pb in arm.pose.bones}
+    P = lambda n: arm.matrix_world @ arm.pose.bones[bone(n).name].head
+    up = Vector((0, 0, 1)); fwd = P(head) - P(tail); fwd.z = 0; fwd.normalize(); side = up.cross(fwd)
+    for cname, (secs, frames) in clips.items():
+        act = bpy.data.actions.new(cname); ad.action = act
+        names = {pfx: bone(pfx).name for _, poses in frames for pfx in poses}
+        for t, poses in frames:
+            f = 1 + t*secs*FPS
+            want = {names[p]: v for p, v in poses.items()}
+            for pb in arm.pose.bones:
+                qb, lb, Wr, Ws = base[pb.name]; pb.rotation_mode = 'QUATERNION'
+                v = want.get(pb.name, (0, 0, 0)); pr, yw, rl = v[:3]
+                M = (Wr @ qb.to_matrix().inverted()).inverted()   # world axes into the bone's own frame
+                q = Quaternion((M @ up).normalized(), yw) @ Quaternion((M @ side).normalized(), pr) @ Quaternion((M @ fwd).normalized(), rl)
+                pb.rotation_quaternion = q @ qb; pb.keyframe_insert("rotation_quaternion", frame=f)
+                pb.location = lb + ((Ws @ qb.to_matrix().inverted()).inverted() @ (up*v[3]) if len(v) > 3 else Vector((0, 0, 0))); pb.keyframe_insert("location", frame=f)
+        tr = ad.nla_tracks.new(); tr.name = cname; st = tr.strips.new(cname, 1, act); st.name = cname; tr.mute = True
+        ad.action = None
+        print("  EXTRA CLIP", cname)
+
+def _turtle_crawl():
+    # loggerheads on sand: diagonal pairs — the front flipper reaches forward and plants, then hauls the body (lifted a little) over it
+    fr = []
+    for i in range(13):
+        t = i/12; ph = t*2*math.pi
+        def limb(p, fore):
+            reach = math.sin(p); lift = max(0, math.cos(p))
+            return ((-0.25*lift if fore else -0.15*lift), (0.55 if fore else 0.35)*reach, 0)
+        fl, fr_ = limb(ph, True), limb(ph + math.pi, True); hl, hr = limb(ph + math.pi, False), limb(ph, False)
+        flip = lambda v, s: (v[0], v[1]*s, v[2]*s)
+        fr.append((t, {"flipper-left.001": flip(fl, 1), "flipper-right.001": flip(fr_, -1), "hind-left.001": flip(hl, 1), "hind-right.001": flip(hr, -1),
+                       "Main": (0, 0.05*math.sin(ph), 0.04*math.sin(ph), 0.012*abs(math.sin(ph))), "head.002": (0.05*math.sin(2*ph), 0, 0)}))
+    rest = [(t, {"head.002": (0.06*math.sin(t*2*math.pi), 0.15*math.sin(t*2*math.pi), 0), "Main": (0, 0, 0, 0.004*math.sin(t*2*math.pi))}) for t in (0, 0.25, 0.5, 0.75, 1)]
+    return {"crawl": (2.2, fr), "rest": (4.0, rest)}
+
+def _penguin_swim():
+    # in the water the body lies flat and the flippers beat like wings; a dive tips it head-down and back up
+    flat = lambda extra={}: {"Hips": (1.45, 0, 0), **extra}
+    swim = [(t, flat({"Flipper1_l": (0, 0, -0.9*math.sin(t*2*math.pi)), "Flipper1_r": (0, 0, 0.9*math.sin(t*2*math.pi)),
+                      "Flipper2_l": (0, 0, -0.4*math.sin(t*2*math.pi - 0.8)), "Flipper2_r": (0, 0, 0.4*math.sin(t*2*math.pi - 0.8)),
+                      "Leg_l": (0.6, 0, 0), "Leg_r": (0.6, 0, 0), "Neck": (-0.5, 0, 0)})) for t in [i/8 for i in range(9)]]
+    dive = [(0, flat({"Neck": (-0.5, 0, 0)})), (0.3, flat({"Hips": (2.2, 0, 0), "Neck": (0.1, 0, 0), "Flipper1_l": (0, 0, -1.0), "Flipper1_r": (0, 0, 1.0)})),
+            (0.6, flat({"Hips": (2.2, 0, 0), "Neck": (0.2, 0, 0), "Jaw": (0.4, 0, 0)})), (1.0, flat({"Neck": (-0.5, 0, 0)}))]
+    return {"swim": (0.7, swim), "dive": (1.6, dive)}
+
+EXTRA = {"seaturtle": ("head.001", "tail.001", _turtle_crawl()), "penguin": ("Head", "Tail1", _penguin_swim())}
 for name, (src, budget, clips, drop) in MODELS.items():
     if only and name not in only: continue
     build(name, src, budget, clips, drop)

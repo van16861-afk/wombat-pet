@@ -21,6 +21,9 @@ Rigged, animated models from Sketchfab, reduced in polygons and texture size and
 | flamingo.glb | 紅鶴（飛過天空的鶴群） | [Flamingos Bird flying pose](https://sketchfab.com/3d-models/flamingos-bird-flying-pose-3d-model-free-85cdbecd4b924fcdb3889d3c109f4fb9) (rigged by `blender/rig_build.py`) | iRahulRajput | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | owl.glb | 貓頭鷹 | [Realistic Barn Owl](https://sketchfab.com/3d-models/realistic-barn-owl-3d-model-3d5760660cd54ed59ca9fd107f9c1a9b) (rigged by `blender/rig_build.py`) | Pigcraft | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | peacock.glb | 孔雀 | [Indian Peacock – Fanned Tail Bird](https://sketchfab.com/3d-models/indian-peacock-fanned-tail-bird-4b19815633eb40c781f5aa03d30243ba) (rigged by `blender/rig_build.py`) | Pigcraft | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| mangrove.glb | 紅樹林（中間的海灘） | [red-mangrove-tree](https://sketchfab.com/3d-models/red-mangrove-tree-e806105d83bc440499495e62bb010f7a) | SAVIA_Colombia | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| fiddler.glb | 招潮蟹 | [Dancing Crab - Uca Mjoebergi](https://sketchfab.com/3d-models/dancing-crab-uca-mjoebergi-280863886fee409ab3c8168f07caa89f) | Bohdan Lvov | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| mudskipper.glb | 彈塗魚 | [CC0 Shuttles Mudskipper P. modestus](https://sketchfab.com/3d-models/3e868e81be79482c80619d93476eb663) (rigged by `blender/rig_build.py`) | ffish.asia / floraZia | CC0 |
 | croc.glb | 鱷魚 | [ALLIGATOR - Realistic 3D Model (DEMO FREE)](https://sketchfab.com/3d-models/alligator-realistic-3d-model-demo-free-80af5463728149baba78b12f70f6ff5c) | WildMesh 3D | [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) |
 
 The CC BY-NC models may not be used commercially.
