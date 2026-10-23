@@ -2736,6 +2736,7 @@ const SKILLS = {
   fast:{icon:'🐎', name:'奔馳', from:'horse', need:3, area:() => world.isOpenKey(BIO.savanna), areaTxt:'開拓大草原', desc:'跟馬學會跑得更快（走路、跑步都快 25%）'},
   bush:{icon:'🦗', name:'除樹叢', from:'mantis', need:10, desc:'跟螳螂學會自己清樹叢，以後清樹叢免費'},
   rock:{icon:'🦛', name:'咬碎石頭', from:'hippo', need:2, desc:'跟河馬學會把石頭咬碎，以後清石頭免費'},
+  ninja:{icon:'🐢', name:'忍術瞬移', from:'turtle', need:2, desc:'跟池塘的烏龜學會忍者的瞬間移動：施展本領時會在一陣煙和樹葉中消失，「啵」一聲出現在樹、樹叢或石頭旁邊'},
   gnaw:{icon:'🦫', name:'啃木頭', from:'beaver', need:1, desc:'跟河狸學會啃樹：砍樹免費，還會賺到木材錢；也學會了做木筏和碼頭的方法（之後可以划去別的島）'},
 };
 const hasSkill = k => !!(S.skills && S.skills[k]);
@@ -3546,7 +3547,8 @@ function think(dt){
       if (!k.tp){ const d = V3(pos.x - k.at.x, 0, pos.z - k.at.z); if (d.lengthSq() < 1e-4) d.set(0, 0, 1); d.normalize(); let dest = null;
         for (const a of [0, 0.6, -0.6, 1.2, -1.2, 2, -2, Math.PI]){ const dd = d.clone().applyAxisAngle(V3(0, 1, 0), a), q = V3(k.at.x + dd.x*(k.reach + 0.1), 0, k.at.z + dd.z*(k.reach + 0.1));
           if (groundOK(q.x, q.z) && !world.isWater(q.x, q.z) && !inBuild(q.x, q.z, 0.3)){ dest = q; break; } }
-        k.tp = {t:0, from:pos.clone(), dest, walk:!dest}; if (dest){ ninjaPuff(pos); sfx('whoosh'); } }
+        const ninja = dest && hasSkill('ninja');   // the vanishing trick is learned from the pond turtles (ninja turtles); before that it walks
+        k.tp = {t:0, from:pos.clone(), dest, walk:!ninja}; if (ninja){ ninjaPuff(pos); sfx('whoosh'); } }
       const tp = k.tp;
       if (tp.walk){ const r = walkTo(k.at.x, k.at.z, dt, sp*1.2, k.reach); moving = r.moving;   // nowhere to land: walk over as before
         if (r.dist < k.reach + 0.25 || r.arrived || B.timer <= 0){ B.mode = 'skillDo'; k.t = 0; } break; }
