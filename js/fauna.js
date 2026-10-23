@@ -126,6 +126,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
     return g;
   }
   function kangaroo(joey){
+    const rk = real && real('kangaroo'); if (rk){ rk.userData.body = new THREE.Object3D(); return rk; }   // realistic rig: hops with its own clip
     const km = clone && clone('kangaroo'); if (km){ const w = new THREE.Group(); w.add(km); w.userData.body = km; const j = km.getObjectByName('kangaroo_joey'); if (j) j.visible = !!joey; return w; }
     const g = new THREE.Group(), fur = mat('#b77a4e', 0.8), light = mat('#e6c9a8', 0.8);
     const body = new THREE.Group(); g.add(body); g.userData.body = body;
@@ -415,6 +416,8 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
           const wet = world.isWater(p.x, p.z); p.y = wet ? WATER_Y - 0.22 : gy(p.x, p.z);
           break; }
         case 'kangaroo': {
+          if (isReal(a)){ if (a.state === 'hop'){ const hc = a.g.userData.clips.hop; clip(a, 'hop', hc ? hc.duration/a.hopDur : 1); if (a.hopT <= dt) a.g.userData.act.time = 0; a.pose = true; }   // one hop clip per jump
+            else a.pose = Math.sin(a.t*0.35 + a.idx_) > 0.3 ? 'eat' : 'idle'; }
           const body = a.g.userData.body;
           { const lL = pt(a.g, 'kangaroo_legL'), lR = pt(a.g, 'kangaroo_legR'), tl = pt(a.g, 'kangaroo_tail');   // jointed hop: crouch, kick back, tuck, swing forward, land
             const u = a.state === 'hop' ? clamp(a.hopT/a.hopDur, 0, 1) : -1;

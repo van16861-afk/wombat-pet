@@ -1,6 +1,6 @@
 # Animal sound credits
 
-Short clips (trimmed, volume-levelled, converted to mp3) from recordings on Wikimedia Commons.
+Short clips (trimmed, volume-levelled, converted to mp3) from recordings on Wikimedia Commons (and one on Freesound).
 
 | Clips | Source file | Author | Licence |
 |---|---|---|---|
@@ -17,5 +17,6 @@ Short clips (trimmed, volume-levelled, converted to mp3) from recordings on Wiki
 | deer1, deer2 | [Sika Deer (Cervus nippon) (W1CDR0001426 BD2).ogg](https://commons.wikimedia.org/wiki/File:Sika_Deer_(Cervus_nippon)_(W1CDR0001426_BD2).ogg) | British Library (Wildlife Sounds) | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) |
 | whale1 | [Humpback whale song (pone.0079422.s001.oga)](https://commons.wikimedia.org/wiki/File:Humpback-Whale-Song-on-the-Southern-Ocean-Feeding-Grounds-Implications-for-Cultural-Transmission-pone.0079422.s001.oga) | Garland E, Gedamke J, Rekdahl M, Noad M, Garrigue C, Gales N | [CC BY 2.5](https://creativecommons.org/licenses/by/2.5/) |
 | emu1 | [Dromaius novaehollandiae Lue0043 03.wav](https://commons.wikimedia.org/wiki/File:Dromaius_novaehollandiae_Lue0043_03.wav) | Hans Lütgens | [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/) |
+| moose1, moose2 | [Moose_Elk.mp3](https://freesound.org/people/gleith/sounds/486554/) (Freesound) | gleith | CC0 |
 
 The CC BY-SA clips are shared under the same licence as their sources.

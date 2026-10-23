@@ -15,5 +15,6 @@
 - 動物模型：`blender/animals_build.py`（無頭模式執行 Blender），輸出 `assets/models/animals.glb`（Draco 壓縮）。可動的部位是獨立物件，命名為 `<動物>_<部位>`，原點在關節。
 - 毛（`*_fur`）、羽毛（`*_feather`）、光滑皮膚／甲殼（其他有頂點色的網格，alpha = 光澤）。
 - 動物叫聲錄音放在 `assets/sounds/`，來源與授權寫在 `assets/sounds/CREDITS.md`。
+- 沒有骨架的靜態模型（袋鼠……）用 `blender/rig_build.py` 自動轉正、減面，依 `blender/rig_specs.py` 的骨頭位置裝骨架、算權重、做動作；先用 `PREP=1` 輸出到 `assets/source/rigprep/`，再用 `tools/view.html?...&side=x` 的格線量骨頭位置。
 - 寫實動物（老虎、鹿、狼、駝鹿、馬、鱷魚）：Sketchfab 的骨架動畫模型，原始檔在 `assets/source/sketchfab/`（不上傳），用 `blender/real_build.py` 減面、縮貼圖、整理動作後輸出 `assets/models/real/<名字>.glb`；作者與授權寫在 `assets/models/CREDITS.md`。遊戲裡由 `fauna.js` 依行為播放牠們自己的動作（走、跑、吃草、躺下、嚎叫），步伐速度跟著移動速度。`tools/view.html?f=檔案&a=動作&t=秒` 可以單獨檢查模型。
 - 外部素材（CC0）原始檔放在 `assets/source/`（不上傳）：Quaternius Stylized Nature MegaKit（`blender/nature_build.py` → `assets/models/nature.glb`：樹、松、灌木、草叢、花、蕨類、蘑菇）、Quaternius Ultimate Animated Animals、GOBKIT 昆蟲／鳥類包。
