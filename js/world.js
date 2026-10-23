@@ -209,7 +209,7 @@ export function upgradeWorld(D){
 }
 
 // ---------- the world: terrain shape, looks, water, nature ----------
-export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fishModel, treeModels, onFeatGone}){
+export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fishModel, treeModels, plants, onFeatGone}){
   const W = {feats:[], pick:[], bridges:[], plots:{}};
   let D = null;
   const group = new THREE.Group(); scene.add(group);
@@ -379,6 +379,26 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
       if (KINDS[k][1]){ spikes.setMatrixAt(i, M); spikes.setColorAt(i, col); heads.setMatrixAt(i, zero); heads.setColorAt(i, col); }
       else { heads.setMatrixAt(i, M); heads.setColorAt(i, col); spikes.setMatrixAt(i, zero); spikes.setColorAt(i, col); } });
     const g = new THREE.Group(); g.add(stems, heads, spikes); group.add(g); W.flowers = g;
+    if (plants) buildKitPlants(R, g);
+  }
+  function buildKitPlants(R, into){
+    const M = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color(), Y = new THREE.Vector3(0, 1, 0);
+    const place = (models, n, test, sMin, sMax, patch) => { if (!models || !models.length) return;
+      const lists = models.map(() => []);
+      for (let k=0; k<n*4 && lists.reduce((a, l) => a + l.length, 0) < n; k++){
+        const cx = lerp(X0, X1, R()), cz = lerp(Z0, Z1, R()); if (!test(cx, cz)) continue;
+        const v = Math.floor(R()*models.length), m = patch ? 3 + Math.floor(R()*5) : 1;
+        for (let i=0;i<m;i++){ const a = R()*6.28, r = patch ? Math.sqrt(R())*1.4 : 0, x = cx + Math.cos(a)*r, z = cz + Math.sin(a)*r; if (test(x, z)) lists[v].push([x, z]); } }
+      models.forEach((md, v) => { const L = lists[v]; if (!L.length || !md.canopy) return; const im = new THREE.InstancedMesh(md.canopy, md.canopyMat, L.length);
+        L.forEach(([x, z], i) => { const s = sMin + R()*(sMax - sMin); M.compose(V3(x, H(x, z) - 0.02, z), q.setFromAxisAngle(Y, R()*6.28), V3(s, s, s)); im.setMatrixAt(i, M);
+          im.setColorAt(i, col.setScalar((0.9 + R()*0.15)*(W.isOpen(x, z) || !inWorld(x, z) ? 1 : 0.85))); });
+        into.add(im); }); };
+    const grassy = (x, z) => !W.isWater(x, z) && !W.isBeach(x, z) && surf(x, z)[1] > 0.7;
+    const S_ = mobile ? 0.45 : 1;
+    place(plants.grass, Math.round(2400*S_), grassy, 0.8, 1.35, true);                                         // lush grass clumps
+    place(plants.flower, Math.round(520*S_), grassy, 0.7, 1.15, true);                                         // flower groups in patches
+    place(plants.fern, Math.round(700*S_), grassy, 0.7, 1.3, true);                                            // ferns, clover, leafy plants
+    place(plants.mush, Math.round(120*S_), (x, z) => grassy(x, z) && plotKey(x, z) === BIO.forest, 0.8, 1.4, true);   // mushrooms in the deer forest
   }
 
   // --- shared nature models ---
@@ -411,7 +431,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
     const trees = items.filter(o => o.k === 'tree'), pines = items.filter(o => o.k === 'pine'), eucs = items.filter(o => o.k === 'euc'), bushes = items.filter(o => o.k === 'bush');
     if (treeModels){   // Blender trees: one instanced trunk + canopy per variant, each tree tinted a little differently
       const byVariant = (list, set) => set.forEach((m, v) => { const sub = list.filter((o, i) => i % set.length === v); if (!sub.length) return;
-        if (m.trunk) make(m.trunk, TRUNK_M, sub, ['#ffffff', '#f2ece4', '#e8e0d4']); if (m.canopy) make(m.canopy, CANOPY_M, sub, TREE_TINTS); });
+        if (m.trunk) make(m.trunk, m.trunkMat || TRUNK_M, sub, ['#ffffff', '#f2ece4', '#e8e0d4']); if (m.canopy) make(m.canopy, m.canopyMat || CANOPY_M, sub, TREE_TINTS); });
       byVariant(trees, treeModels.oak); byVariant(pines, treeModels.pine); byVariant(eucs, treeModels.euc); byVariant(bushes, treeModels.bush);
     } else {
       make(trunkGeo, bark, [...trees, ...pines, ...eucs], null);
@@ -472,7 +492,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
   function makeFeat(d){
     const g = new THREE.Group(); let m;
     if (d.k === 'rock'){ m = new THREE.Mesh(rockGeos[d.v % 4], rockMat(d.v)); m.scale.set(d.s, d.s*(0.8 + (d.v % 3)*0.12), d.s*0.9); }
-    else { m = new THREE.Mesh(bushGeos[d.v % 3], bushMat(d.v)); m.scale.setScalar(d.s); if (treeModels && treeModels.bush.length){ m = new THREE.Mesh(treeModels.bush[d.v % treeModels.bush.length].canopy, CANOPY_M); m.scale.setScalar(d.s); }
+    else { m = new THREE.Mesh(bushGeos[d.v % 3], bushMat(d.v)); m.scale.setScalar(d.s); if (treeModels && treeModels.bush.length){ const bm_ = treeModels.bush[d.v % treeModels.bush.length]; m = new THREE.Mesh(bm_.canopy, bm_.canopyMat || CANOPY_M); m.scale.setScalar(d.s); }
       if (d.v % 2){ for (let i=0;i<5;i++){ const b = new THREE.Mesh(berryGeo, berryM[(d.v >> 1) % 2]); const a = i*1.3 + d.v; b.position.set(Math.cos(a)*0.42, 0.5 + (i % 2)*0.18, Math.sin(a)*0.42); m.add(b); } } }
     g.add(m); g.position.set(d.x, H(d.x, d.z) - (d.k === 'rock' ? 0.12*d.s : 0.02), d.z); g.rotation.y = d.ry; group.add(g);
     const r = W.featR(d), hb = new THREE.Mesh(new THREE.CylinderGeometry(r, r, d.k === 'rock' ? 1.4*d.s + 0.4 : 1.2*d.s, 8), hbMat); hb.position.y = 0.5*d.s; hb.userData.kind = d.k; g.add(hb);

@@ -15,3 +15,4 @@
 - 動物模型：`blender/animals_build.py`（無頭模式執行 Blender），輸出 `assets/models/animals.glb`（Draco 壓縮）。可動的部位是獨立物件，命名為 `<動物>_<部位>`，原點在關節。
 - 毛（`*_fur`）、羽毛（`*_feather`）、光滑皮膚／甲殼（其他有頂點色的網格，alpha = 光澤）。
 - 動物叫聲錄音放在 `assets/sounds/`，來源與授權寫在 `assets/sounds/CREDITS.md`。
+- 外部素材（CC0）原始檔放在 `assets/source/`（不上傳）：Quaternius Stylized Nature MegaKit（`blender/nature_build.py` → `assets/models/nature.glb`：樹、松、灌木、草叢、花、蕨類、蘑菇）、Quaternius Ultimate Animated Animals、GOBKIT 昆蟲／鳥類包。

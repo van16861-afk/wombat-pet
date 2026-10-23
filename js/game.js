@@ -203,10 +203,10 @@ const offG = new THREE.Group(); offG.position.y = -0.95; actG.add(offG);
 const squashG = new THREE.Group(); offG.add(squashG);
 // all four model files download at the same time; the loading screen shows how far along they are
 const ldStep = (msg, k) => { const m = document.getElementById('ldMsg'), f = document.getElementById('ldFill'); if (m && msg) m.textContent = msg; if (f && k != null) f.style.width = Math.round(k*100) + '%'; };
-let ldDone = 0; const ldTrack = pr => pr.then(v => { ldDone++; ldStep(`載入模型 ${ldDone} / 4`, 0.1 + ldDone*0.18); return v; }, e => { ldDone++; throw e; });
-ldStep('載入模型 0 / 4', 0.08);
+let ldDone = 0; const ldTrack = pr => pr.then(v => { ldDone++; ldStep(`載入模型 ${ldDone} / 5`, 0.1 + ldDone*0.15); return v; }, e => { ldDone++; throw e; });
+ldStep('載入模型 0 / 5', 0.08);
 const draco = new DRACOLoader().setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/libs/draco/gltf/');   // animals and trees are Draco-compressed
-const LOADS = Object.fromEntries(['wombat', 'props', 'animals', 'trees'].map(n => [n, ldTrack(new GLTFLoader().setDRACOLoader(draco).loadAsync(`assets/models/${n}.glb`))]));
+const LOADS = Object.fromEntries(['wombat', 'props', 'animals', 'trees', 'nature'].map(n => [n, ldTrack(new GLTFLoader().setDRACOLoader(draco).loadAsync(`assets/models/${n}.glb`))]));
 Object.values(LOADS).forEach(pr => pr.catch(() => {}));
 let gltf;
 try { gltf = await LOADS.wombat; }
@@ -348,6 +348,41 @@ try {
 } catch(e){ console.warn('trees.glb not loaded', e); }
 const treeSet = k => Object.keys(TREES).filter(n => n.startsWith('tree_' + k)).sort().map(n => TREES[n]);
 const TREE_MODELS = Object.keys(TREES).length ? {oak:treeSet('oak'), pine:treeSet('pine'), euc:treeSet('euc'), bush:treeSet('bush')} : null;
+// Plants from Quaternius' Stylized Nature MegaKit (CC0; blender/nature_build.py -> assets/models/nature.glb): painted textured trees,
+// bushes, grass, flowers, ferns and mushrooms. Bark keeps the see-through; leaves sway in the wind (alpha-cut leaf cards).
+const NATURE = {};
+try { const ng = await LOADS.nature; ng.scene.children.forEach(o => { NATURE[o.name] = o; }); } catch(e){ console.warn('nature.glb not loaded', e); }
+const natMats = {};
+function natMat(src, leaf, height){
+  const key = src.name + '|' + leaf + '|' + height; if (natMats[key]) return natMats[key];
+  if (src.map){ src.map.colorSpace = THREE.NoColorSpace; src.map.needsUpdate = true; }   // this scene works in display values
+  const m = new THREE.MeshLambertMaterial({map:src.map || null, color:'#ffffff', alphaTest:leaf ? 0.45 : 0, side:leaf ? THREE.DoubleSide : THREE.FrontSide});
+  return natMats[key] = leaf ? swaying(m, height, 0.4, 0.12) : seeThrough(m);
+}
+// one kit model -> {trunk, canopy (all non-bark parts merged, one material group each), trunkMat, canopyMat}
+function natModel(name, height, round){
+  const root = NATURE[name]; if (!root) return null;
+  const bark = root.children.filter(c => /Bark/.test(c.name)), rest = root.children.filter(c => !/Bark/.test(c.name));
+  const clean = g => { const h = new THREE.BufferGeometry(); for (const k of ['position', 'normal', 'uv']) if (g.attributes[k]) h.setAttribute(k, g.attributes[k]); h.setIndex(g.index); return h; };
+  const out = {height};
+  if (bark.length){ out.trunk = clean(bark[0].geometry); out.trunkMat = natMat(bark[0].material, false, height); }
+  if (rest.length){ out.canopy = rest.length > 1 ? mergeGeometries(rest.map(c => clean(c.geometry)), true) : clean(rest[0].geometry);
+    if (round){   // soft, rounded shading for leaf masses: normals point out from the crown's centre (raw leaf-card normals made the trees nearly black)
+      const g = out.canopy; g.computeBoundingBox(); const c = g.boundingBox.getCenter(new THREE.Vector3()); c.y -= (g.boundingBox.max.y - g.boundingBox.min.y)*0.15;
+      const P = g.attributes.position, N = new Float32Array(P.count*3), v = new THREE.Vector3();
+      for (let i=0;i<P.count;i++){ v.fromBufferAttribute(P, i).sub(c).normalize(); v.y = v.y*0.8 + 0.25; v.normalize(); N[i*3] = v.x; N[i*3+1] = v.y; N[i*3+2] = v.z; }
+      g.setAttribute('normal', new THREE.BufferAttribute(N, 3)); }
+    out.canopyMat = rest.length > 1 ? rest.map(c => natMat(c.material, true, height)) : natMat(rest[0].material, true, height);
+    out.swampMat = [].concat(out.canopyMat).map(m => { const c = m.clone(); c.color.set('#a9b494'); c.onBeforeCompile = m.onBeforeCompile; c.customProgramCacheKey = m.customProgramCacheKey; return c; });
+    if (!Array.isArray(out.canopyMat)) out.swampMat = out.swampMat[0]; }
+  return out;
+}
+const natSet = (k, n, h, round) => Array.from({length:n}, (_, i) => natModel(`nat_${k}${i + 1}`, h, round)).filter(Boolean);
+if (Object.keys(NATURE).length){
+  const oaks = natSet('oak', 5, 4.2, true), pines = natSet('pine', 5, 4.4, true), bushes = natSet('bush', 2, 1.15, true);
+  if (TREE_MODELS){ if (oaks.length) TREE_MODELS.oak = oaks; if (pines.length) TREE_MODELS.pine = pines; if (bushes.length) TREE_MODELS.bush = bushes; }
+}
+const NATURE_SMALL = Object.keys(NATURE).length ? {grass:natSet('grass', 3, 0.5), flower:natSet('flower', 4, 0.55), fern:natSet('fern', 4, 0.45), mush:natSet('mush', 2, 0.3)} : null;
 // shells only near the camera, to keep phones fast
 const furLOD = (g, near) => { if (g.userData.near === near) return; g.userData.near = near; g.traverse(o => { if (o.userData.shell) o.visible = near; }); };
 // a copy of a Blender animal; `recolor` maps material names to new colours (each copy gets its own materials)
@@ -1762,7 +1797,7 @@ function makeTree(d){
   const euc = !!d.euc, g = new THREE.Group(), set = TREE_MODELS && (euc ? TREE_MODELS.euc : TREE_MODELS.oak);
   if (set && set.length){
     const m = set[Math.abs(Math.round(d.x*7 + d.z*13)) % set.length];
-    const trunk = new THREE.Mesh(m.trunk, world.TRUNK_M), crown = new THREE.Mesh(m.canopy, d.swamp ? SWAMP_CANOPY : world.CANOPY_M);
+    const trunk = new THREE.Mesh(m.trunk, m.trunkMat || world.TRUNK_M), crown = new THREE.Mesh(m.canopy, d.swamp ? (m.swampMat || SWAMP_CANOPY) : (m.canopyMat || world.CANOPY_M));
     trunk.userData.noFade = crown.userData.noFade = true; g.add(trunk, crown);
   } else {
     const bark = mat(euc ? '#e6ddcc' : '#7a5634', 0.95), trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.27, 1.5, 9), bark); trunk.position.y = 0.75; g.add(trunk);
@@ -4314,7 +4349,7 @@ function importSave(){
 [...FOODS, ...DRINKS].forEach(f => { if (f.price && inv(f.id) > 0){ S.food = S.food || {}; S.food[f.id] = true; S.inv[f.id] = 0; } });
 const worldIsNew = !S.world;
 if (worldIsNew) S.world = newWorld(Math.floor(Math.random()*2147483647));
-world = createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fishModel, treeModels:TREE_MODELS, onFeatGone:() => { NAV.dirty = true; }});
+world = createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fishModel, treeModels:TREE_MODELS, plants:NATURE_SMALL, onFeatGone:() => { NAV.dirty = true; }});
 const preV = S.world.v || 1;
 world.load(S.world);
 const grew = !worldIsNew && preV < 4;   // the save was made with 18-wide plots: spread our own things out the same way the world was
