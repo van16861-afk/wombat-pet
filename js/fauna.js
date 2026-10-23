@@ -36,21 +36,21 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
   const P = D.bio.pond, pads = [], stones = [];
   { const padGeo = new THREE.CircleGeometry(0.42, 18, 0.35, Math.PI*2 - 0.35); padGeo.rotateX(-Math.PI/2);
     const padM = mat('#4f8f3a', 0.6), lotus = mat('#f2a6be', 0.5), lotusC = mat('#f3d250', 0.5);
-    for (let i=0, nPads = Math.min(40, Math.round(16*(P.r/5)**2)); i<nPads; i++){ const a = rnd(0, 6.28), r = Math.sqrt(Math.random())*(P.r - 0.8), x = P.x + Math.cos(a)*r, z = P.z + Math.sin(a)*r;
+    for (let i=0, nPads = Math.min(40, Math.round(16*(P.r/5)**2)); i<nPads; i++){ const a = rnd(0, 6.28), r = Math.sqrt(Math.random())*(world.pondR(a) - 0.8), x = P.x + Math.cos(a)*r, z = P.z + Math.sin(a)*r;
       if (pads.some(p => Math.hypot(p.x - x, p.z - z) < 0.9)) continue;
       const g = new THREE.Group(), m = new THREE.Mesh(padGeo, padM); m.scale.setScalar(rnd(0.8, 1.4)); g.add(m);
       if (Math.random() < 0.35){ const f = new THREE.Group(); for (let k=0;k<6;k++){ const p = ball(0.09, lotus, 0.5, 1, 0.3); p.position.set(Math.cos(k)*0.06, 0.08, Math.sin(k)*0.06); p.rotation.set(Math.sin(k)*0.5, 0, Math.cos(k)*0.5); f.add(p); }
         f.add(ball(0.04, lotusC)); f.position.set(0.08, 0.02, 0.05); g.add(f); }
       g.position.set(x, WATER_Y + 0.02, z); g.rotation.y = rnd(0, 6.28); group.add(g); pads.push({x, z, g}); }
     const stoneM = mat('#9c968a', 0.9);
-    for (let i=0;i<3;i++){ const a = i*2.1 + rnd(0, 0.6), r = P.r*rnd(0.35, 0.6), x = P.x + Math.cos(a)*r, z = P.z + Math.sin(a)*r;
+    for (let i=0;i<3;i++){ const a = i*2.1 + rnd(0, 0.6), r = world.pondR(a)*rnd(0.35, 0.6), x = P.x + Math.cos(a)*r, z = P.z + Math.sin(a)*r;
       const s = new THREE.Mesh(new THREE.DodecahedronGeometry(0.45, 0), stoneM); s.scale.set(1.3, 0.45, 1); s.position.set(x, WATER_Y + 0.05, z); group.add(s); stones.push({x, z}); }
   }
   // reeds and cattails round the pond and the swamp pools
   { const blade = new THREE.CylinderGeometry(0.012, 0.02, 1.0, 4); blade.translate(0, 0.5, 0);
     const head = new THREE.CylinderGeometry(0.035, 0.035, 0.18, 6); head.translate(0, 1.0, 0);
     const spots = [];
-    for (let i=0;i<70;i++){ const a = rnd(0, 6.28), r = P.r + rnd(-0.6, 0.5); spots.push([P.x + Math.cos(a)*r, P.z + Math.sin(a)*r]); }
+    for (let i=0;i<70;i++){ const a = rnd(0, 6.28), r = world.pondR(a) + rnd(-0.6, 0.5); spots.push([P.x + Math.cos(a)*r, P.z + Math.sin(a)*r]); }
     for (const [px, pz, r] of D.bio.pools) for (let i=0;i<14;i++){ const a = rnd(0, 6.28), rr = r + rnd(-0.4, 0.6); spots.push([px + Math.cos(a)*rr, pz + Math.sin(a)*rr]); }
     const bm = new THREE.InstancedMesh(blade, mat('#6f8f43', 0.8), spots.length*3), hm = new THREE.InstancedMesh(head, mat('#6b4a2f', 0.8), spots.length);
     const M = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
@@ -287,7 +287,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
   put('hippo', 2, o => riverPt(o), {hit:1.6, hitY:0.6, per:i => ({zr:[[11, 25], [-7, 7]][i].map(v => v*PLOT/24)})});
   put('snake', 1, o => areaLand(o.area), {hit:0.5, hitY:0.05, area:BIO.forest}); put('snake', 1, o => landIn(o.area), {hit:0.5, hitY:0.05, area:BIO.swamp});
   // red-crowned cranes wading round the lily pond; macaques in the deer forest's trees
-  put('crane', 2, () => { const a_ = rnd(0, 6.28); return V3(P.x + Math.cos(a_)*(P.r + 0.3), 0, P.z + Math.sin(a_)*(P.r + 0.3)); }, {hit:0.7, hitY:1.0});
+  put('crane', 2, () => { const a_ = rnd(0, 6.28); return V3(P.x + Math.cos(a_)*(world.pondR(a_) + 0.3), 0, P.z + Math.sin(a_)*(world.pondR(a_) + 0.3)); }, {hit:0.7, hitY:1.0});
   put('monkey', 3, o => areaLand(o.area, 3), {hit:0.5, hitY:0.4, area:BIO.forest});
   let forestTrees = []; F.setForestTrees = list => { forestTrees = list; };
   F.list.forEach(a => { if (a.kind === 'hippo'){ a.g.position.y = WATER_Y - 0.95*a.g.scale.y; } });
@@ -370,7 +370,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
           if (ud.head){ if (ud.head.userData.z0 === undefined) ud.head.userData.z0 = ud.head.position.z; ud.head.position.z += ((ud.head.userData.z0 - (shy ? 0.13 : 0)) - ud.head.position.z)*Math.min(1, dt*6); ud.head.rotation.y = shy ? 0 : Math.sin(a.t*0.6)*0.3; }
           if (ud.legs) ud.legs.forEach((l, i) => { l.rotation.y = a.state === 'sun' || shy ? 0 : Math.sin(a.t*3 + i*1.6)*0.45*(i % 2 ? -1 : 1); });
           if (a.state === 'sun'){ if (a.timer <= 0){ a.state = 'idle'; a.timer = rnd(8, 15); } break; }
-          a.ang += dt*0.15; const r = P.r*0.55, x = P.x + Math.cos(a.ang)*r, z = P.z + Math.sin(a.ang)*r;
+          a.ang += dt*0.15; const r = world.pondR(a.ang)*0.55, x = P.x + Math.cos(a.ang)*r, z = P.z + Math.sin(a.ang)*r;
           const d = V3(x - p.x, 0, z - p.z); if (d.length() > 0.02){ p.addScaledVector(d.normalize(), Math.min(d.length(), dt*0.4)); face(a, d.x, d.z, dt, 2); }
           p.y = WATER_Y - 0.12 + Math.sin(a.t)*0.02;
           if (a.timer <= 0){ const s = stones[Math.floor(Math.random()*stones.length)]; if (s){ p.set(s.x, WATER_Y + 0.18, s.z); a.state = 'sun'; a.timer = rnd(10, 20); } else a.timer = 10; }
@@ -544,7 +544,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
         case 'crane': {   // wades round the pond edge, probes for food, and now and then dances: wings open, bowing and leaping
           const neck = pt(a.g, 'crane_neck'), wl = pt(a.g, 'crane_wingL'), wr = pt(a.g, 'crane_wingR');
           if (a.timer <= 0){ const r_ = Math.random(); a.timer = rnd(4, 9);
-            if (r_ < 0.25){ a.state = 'dance'; a.timer = rnd(4, 6); } else if (r_ < 0.6){ a.state = 'walk'; const a_ = rnd(0, 6.28); a.dest = V3(P.x + Math.cos(a_)*(P.r + rnd(-0.3, 0.6)), 0, P.z + Math.sin(a_)*(P.r + rnd(-0.3, 0.6))); } else a.state = 'probe'; }
+            if (r_ < 0.25){ a.state = 'dance'; a.timer = rnd(4, 6); } else if (r_ < 0.6){ a.state = 'walk'; const a_ = rnd(0, 6.28); a.dest = V3(P.x + Math.cos(a_)*(world.pondR(a_) + rnd(-0.3, 0.6)), 0, P.z + Math.sin(a_)*(world.pondR(a_) + rnd(-0.3, 0.6))); } else a.state = 'probe'; }
           if (petD < 3 && a.state !== 'walk'){ a.state = 'walk'; a.timer = 4; a.dest = p.clone().addScaledVector(V3(p.x - pet.x, 0, p.z - pet.z).normalize(), 3); }
           const dance = a.state === 'dance' ? 1 : 0; a.dk = (a.dk || 0) + (dance - (a.dk || 0))*Math.min(1, dt*4);
           const flap = a.dk*(0.4 + Math.sin(a.t*5)*0.45);

@@ -16,6 +16,7 @@ const MARGIN = 15;   // wild land drawn past the edge of the world
 const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const lerp = (a, b, t) => a + (b - a)*t;
+const wrapA = a => Math.atan2(Math.sin(a), Math.cos(a));
 const sstep = (a, b, x) => { const t = clamp((x - a)/(b - a), 0, 1); return t*t*(3 - 2*t); };
 const bump = u => u >= 1 ? 0 : (1 - u*u)*(1 - u*u);
 const mixc = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
@@ -249,6 +250,11 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
     if (a > -1 && a < RAMP_L + 0.5 && b < RAMP_W/2 + 0.8) h = Math.max(h, P.h*clamp(1 - a/RAMP_L, 0, 1)*(1 - sstep(RAMP_W/2 - 0.2, RAMP_W/2 + 0.7, b)));
     return h;
   }
+  // distance from the pond's centre, stretched by direction so the pond is not a circle (its shoreline wanders in and out)
+  const pondD = (x, z) => { const P = D.bio.pond, dx = x - P.x, dz = z - P.z, a = Math.atan2(dz, dx), E = D.edge || [0, 1, 2, 3, 4, 5];
+    return Math.hypot(dx, dz)/(1 + 0.2*Math.sin(2*a + E[1]) + 0.13*Math.sin(3*a + E[4]) + 0.07*Math.sin(5*a + E[2])); };
+  W.pondD = pondD;
+  W.pondR = a => { const E = D.edge || [0, 1, 2, 3, 4, 5]; return D.bio.pond.r*(1 + 0.2*Math.sin(2*a + E[1]) + 0.13*Math.sin(3*a + E[4]) + 0.07*Math.sin(5*a + E[2])); };   // shoreline radius in a direction
   function H(x, z){
     let h = 0;
     for (const [hx, hz, r, hh] of D.hills) h += hh*bump(Math.hypot(x - hx, z - hz)/r);
@@ -258,7 +264,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
     h *= sstep(6.5, 10, Math.max(Math.abs(x), Math.abs(z)));   // home stays flat
     h = Math.max(h, platH(x, z));
     if (D.bio){
-      const P = D.bio.pond, pd = Math.hypot(x - P.x, z - P.z);   // a round lily pond with a gently sloping shore
+      const P = D.bio.pond, pd = pondD(x, z);   // the lily pond: an uneven outline with little bays, a gently sloping shore
       if (pd < P.r + 4){ h *= sstep(P.r, P.r + 3.5, pd); h -= 1.0*(1 - sstep(P.r*0.55, P.r + 0.9, pd)); }
       const sw = swampW(x, z);   // the swamp: low, nearly flat and soggy, with dark pools
       if (sw > 0){ h = lerp(h, -0.14 + 0.06*Math.sin(x*0.9)*Math.sin(z*0.8), sw);
@@ -286,7 +292,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
   W.H = H; W.riverX = riverX; W.riverDist = riverDist; W.shoreX = shoreX; W.slope = slope; W.inWorld = inWorld;
   W.isRiver = (x, z) => riverDist(x, z) < D.river.w/2 + 0.25;
   W.isSea = (x, z) => x > shoreX(z) + 0.8 && H(x, z) < WATER_Y + 0.03;
-  W.isPond = (x, z) => !!D.bio && Math.hypot(x - D.bio.pond.x, z - D.bio.pond.z) < D.bio.pond.r + 1 && H(x, z) < WATER_Y - 0.02;
+  W.isPond = (x, z) => !!D.bio && pondD(x, z) < D.bio.pond.r + 1 && H(x, z) < WATER_Y - 0.02;
   W.isSwampWater = (x, z) => !!D.bio && swampW(x, z) > 0.5 && H(x, z) < WATER_Y - 0.02;
   W.isWater = (x, z) => W.isRiver(x, z) || W.isSea(x, z) || W.isPond(x, z) || W.isSwampWater(x, z);
   W.inBio = (k, x, z) => plotKey(x, z) === BIO[k];
@@ -627,6 +633,27 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
   }
   // tap a fish and it leaps out of the water
   W.jumpFish = f => { if (f.jump > 0) return false; f.jump = 0.9; return true; };
+  // koi in the lily pond: drift about under the pads, scatter from the wombat, leap when tapped
+  const koi = [];
+  function updateKoi(dt, t, pet){
+    if (!D.bio) return;
+    const P = D.bio.pond, inPond = (x, z) => W.isPond(x, z) && pondD(x, z) < P.r - 0.6;
+    const pick = () => { for (let i=0;i<20;i++){ const a = Math.random()*6.28, r = Math.sqrt(Math.random())*W.pondR(a)*0.8, x = P.x + Math.cos(a)*r, z = P.z + Math.sin(a)*r; if (inPond(x, z)) return V3(x, 0, z); } return V3(P.x, 0, P.z); };
+    if (!koi.length && fishModel){ for (let i=0;i<(mobile ? 5 : 7);i++){ const fm = fishModel([0, 1, 2, 4, 6, 0, 1][i]); if (!fm) break; fm.g.scale.setScalar(1.5 + Math.random()*0.6); group.add(fm.g);
+        const k = {g:fm.g, tail:fm.tail, at:pick(), dest:pick(), sp:0.4 + Math.random()*0.3, depth:0.2 + Math.random()*0.2, ph:Math.random()*9, jump:0};
+        k.g.position.copy(k.at); k.hb = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), hbMat); k.hb.userData.kind = 'fish'; k.hb.userData.ref = k; group.add(k.hb); W.pick.unshift(k.hb); koi.push(k); } }
+    for (const k of koi){
+      const p = k.g.position, d = V3(k.dest.x - p.x, 0, k.dest.z - p.z), L = d.length();
+      let sp = k.sp; if (pet && Math.hypot(pet.x - p.x, pet.z - p.z) < 2.5){ k.dest = V3(p.x + (p.x - pet.x)*2, 0, p.z + (p.z - pet.z)*2); if (!inPond(k.dest.x, k.dest.z)) k.dest = pick(); sp = 1.6; }
+      if (L < 0.3) k.dest = pick();
+      else { d.normalize(); const nx = p.x + d.x*sp*dt, nz = p.z + d.z*sp*dt; if (inPond(nx, nz)){ p.x = nx; p.z = nz; } else k.dest = pick();
+        k.g.rotation.y += clamp(wrapA(Math.atan2(d.x, d.z) - k.g.rotation.y), -2*dt, 2*dt); }
+      const w = Math.sin(t*(5 + sp*5) + k.ph); k.tail.rotation.y = w*0.6;
+      p.y = WATER_Y - k.depth + Math.sin(t*1.1 + k.ph)*0.03;
+      if (k.jump > 0){ k.jump -= dt; const u = 1 - k.jump/0.9; p.y = WATER_Y - 0.1 + Math.sin(u*Math.PI)*0.9; k.g.rotation.x = -Math.cos(u*Math.PI)*0.9; } else k.g.rotation.x = 0;
+      k.hb.position.set(p.x, WATER_Y + 0.05, p.z);
+    }
+  }
   function updateFish(dt, t, pet){
     if (!fish.hbDone){ fish.hbDone = true; fish.forEach(f => { f.hb = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), hbMat); f.hb.userData.kind = 'fish'; f.hb.userData.ref = f; group.add(f.hb); W.pick.unshift(f.hb); }); }
     const bk = D.river.w/2;
@@ -847,7 +874,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
     SEE.time.value = t; updateGust(dt); updateBigWave(dt);
     if (riverMat){ riverMat.uniforms.uTime.value = t; riverMat.uniforms.uNight.value = o.night; riverMat.uniforms.uSun.value = 1 - o.night*0.8; }
     if (seaMat){ const u = seaMat.uniforms; u.uTime.value = t; u.uNight.value = o.night; u.uSun.value = 1 - o.night*0.8; u.uFog.value.copy(o.fog.color); u.uFogN.value = o.fog.near; u.uFogF.value = o.fog.far; }
-    updateFish(dt, t, o.pet);
+    updateFish(dt, t, o.pet); updateKoi(dt, t, o.pet);
     for (const m of stillMats){ m.uniforms.uTime.value = t; m.uniforms.uNight.value = o.night; m.uniforms.uSun.value = 1 - o.night*0.8; }
     for (let i=fading.length - 1; i>=0; i--){ const f = fading[i]; f.t += dt;
       if (f.grow){ const k = Math.min(1, f.t/0.5); f.g.scale.setScalar(Math.max(0.01, k < 1 ? k*1.15 : 1)); if (f.t > 0.5){ f.g.scale.setScalar(1); fading.splice(i, 1); } continue; }
