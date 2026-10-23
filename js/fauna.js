@@ -215,9 +215,6 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
     g.position.copy(landIn(BIO.forest)); g.position.y = gy(g.position.x, g.position.z); add('deer', g, {hit:1.0, hitY:1.0}); }
   for (let i=0;i<3;i++){ const g = (real && real('wolf')) || (clone && clone('wolf')); if (!g) break; g.scale.setScalar(i === 0 ? 1.1 : 0.95);
     const [hx, hz] = plotC(BIO.high); g.position.set(hx + rnd(-4, 4), 0, hz + rnd(-4, 4)); g.position.y = gy(g.position.x, g.position.z); add('wolf', g, {hit:0.9, hitY:0.7}); }
-  // moose wade and browse in the swamp (only with the realistic model; one bull with antlers)
-  for (let i=0;i<2;i++){ const g = real && real('moose'); if (!g) break; const ant = g.userData.parts.antlers; if (ant) ant.visible = i === 0; g.scale.setScalar(i === 0 ? 1.05 : 0.92);
-    g.position.copy(landIn(BIO.swamp)); g.position.y = gy(g.position.x, g.position.z); add('moose', g, {hit:1.3, hitY:1.4}); }
   // ---------- realistic rigged animals: play their own clips (blended), timed to how fast they really move ----------
   // a missing clip falls back to the next one; "walk:0" = the walk clip held still at its first frame
   const CLIP_FALLBACK = {idle:['idle', 'eat:0', 'walk:0'], walk:['walk', 'trot'], trot:['trot', 'walk'], run:['run', 'trot', 'walk'], eat:['eat', 'idle', 'walk:0'],
@@ -249,11 +246,15 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
   }
   // after the clips: the head turns toward what the animal is watching, and the jaw opens (crocodile snaps)
   const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _Y = V3(0, 1, 0);
+  const turnY = (b, ang) => { if (!b || !b.parent || Math.abs(ang) < 0.005) return; b.parent.updateWorldMatrix(true, false); b.parent.getWorldQuaternion(_q);
+    _q2.setFromAxisAngle(_Y, ang); b.quaternion.premultiply(_q.clone().invert().multiply(_q2).multiply(_q)); };   // a turn about the world's up axis, in the bone's own frame
   function realPost(a, dt){
-    const u = a.g.userData, h = u.head;
+    const u = a.g.userData;
+    if (u.act && u.act.timeScale === 0){   // a held pose (no standing clip of its own): keep it alive — looking about, tail swishing
+      if (Math.abs(a.look || 0) < 0.05) a.look = Math.sin(a.t*0.45 + (a.idx_ || 0))*0.6;
+      turnY(u.tail, Math.sin(a.t*1.6 + (a.idx_ || 0))*0.3); }
     a.lookK = (a.lookK || 0) + (clamp(a.look || 0, -1, 1) - (a.lookK || 0))*Math.min(1, dt*4);
-    if (h && Math.abs(a.lookK) > 0.01 && h.parent){ h.parent.updateWorldMatrix(true, false); h.parent.getWorldQuaternion(_q);
-      _q2.setFromAxisAngle(_Y, a.lookK); h.quaternion.premultiply(_q.clone().invert().multiply(_q2).multiply(_q)); }   // a turn about the world's up axis, in the bone's own frame
+    turnY(u.head, a.lookK);
     if (u.jawBone && u.jaw && u.jaw.rotation.x){ u.jawBone.parent.updateWorldMatrix(true, false); u.jawBone.parent.getWorldQuaternion(_q);
       const side = V3(1, 0, 0).applyQuaternion(a.g.quaternion); _q2.setFromAxisAngle(side, Math.abs(u.jaw.rotation.x));
       u.jawBone.quaternion.premultiply(_q.clone().invert().multiply(_q2).multiply(_q)); }
@@ -262,6 +263,10 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
   const legSwing = (a, amp, speed) => { if (isReal(a)) return; for (const n of ['FL', 'FR', 'BL', 'BR']){ const l = a.g.getObjectByName(a.kind + '_leg' + n); if (l) l.rotation.x = Math.sin(a.t*speed + (n[0] === 'F' ? 0 : Math.PI) + (n[1] === 'L' ? 0 : Math.PI*0.5))*amp; } };
   const onHigh = (x, z) => world.inBio('high', x, z) && gy(x, z) > D.bio.high.h - 0.6;
   const highSpot = () => { for (let i=0;i<40;i++){ const p = inPlot(BIO.high, 3); if (onHigh(p.x, p.z)) return p; } return inPlot(BIO.high, 4); };
+  // moose browse among the highland's pines with the wolves (only with the realistic model; one bull with antlers)
+  const mooseSpot = () => { for (let i=0;i<40;i++){ const p = inPlot(BIO.high, 3); if (!world.isWater(p.x, p.z) && world.slope(p.x, p.z) < 0.5) return p; } return highSpot(); };
+  for (let i=0;i<2;i++){ const g = real && real('moose'); if (!g) break; const ant = g.userData.parts.antlers; if (ant) ant.visible = i === 0; g.scale.setScalar(i === 0 ? 1.05 : 0.92);
+    g.position.copy(mooseSpot()); g.position.y = gy(g.position.x, g.position.z); add('moose', g, {hit:1.3, hitY:1.4}); }
   // ---------- the grassland (大草原): horses, two tigers (never more), peacocks, tortoises; hippos and capybaras along its river; snakes ----------
   // each species lives in its own part of the world, spread out: horses on the grassland, tigers in the deer forest, peacocks
   // and tortoises on their own plots, hippos and capybaras along different stretches of the river, snakes in the swamp and forest
@@ -280,8 +285,8 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
   put('tiger', 2, o => areaLand(o.area, 3), {hit:0.9, hitY:0.6, area:BIO.forest});   // never more than two
   put('peacock', 2, o => areaLand(o.area), {hit:0.5, hitY:0.8, area:'0,1'});
   put('tortoise', 2, o => areaLand(o.area), {hit:0.45, hitY:0.2, area:'-1,-1'});
-  put('capybara', 3, o => bankPt(o), {hit:0.55, hitY:0.35, per:i => ({zr:[[12, 25], [-6, 6], [-25, -12]][i]})});
-  put('hippo', 2, o => riverPt(o), {hit:1.6, hitY:0.6, per:i => ({zr:[[11, 25], [-7, 7]][i]})});
+  put('capybara', 3, o => bankPt(o), {hit:0.55, hitY:0.35, per:i => ({zr:[[12, 25], [-6, 6], [-25, -12]][i].map(v => v*PLOT/24)})});
+  put('hippo', 2, o => riverPt(o), {hit:1.6, hitY:0.6, per:i => ({zr:[[11, 25], [-7, 7]][i].map(v => v*PLOT/24)})});
   put('snake', 1, o => areaLand(o.area), {hit:0.5, hitY:0.05, area:BIO.forest}); put('snake', 1, o => landIn(o.area), {hit:0.5, hitY:0.05, area:BIO.swamp});
   // red-crowned cranes wading round the lily pond; macaques in the deer forest's trees
   put('crane', 2, () => { const a_ = rnd(0, 6.28); return V3(P.x + Math.cos(a_)*(P.r + 0.3), 0, P.z + Math.sin(a_)*(P.r + 0.3)); }, {hit:0.7, hitY:1.0});
@@ -459,12 +464,12 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
           a.g.rotation.x = a.state === 'graze' ? 0.12 + Math.sin(a.t*2)*0.02 : 0;
           p.y = gy(p.x, p.z) + (a.state === 'run' ? Math.abs(Math.sin(a.t*7))*0.25 : 0);
           break; }
-        case 'moose': {   // browses round the swamp pools, wades, plods off when the wombat crowds it
+        case 'moose': {   // browses on the highland, plods off when the wombat crowds it
           if (petD < 3.5 && a.state !== 'walk'){ a.state = 'walk'; a.timer = rnd(4, 6); a.dest = p.clone().addScaledVector(V3(p.x - pet.x, 0, p.z - pet.z).normalize(), 6); sound('moose', p); }
-          if (a.timer <= 0){ a.timer = rnd(6, 14); if (Math.random() < 0.5){ a.state = 'graze'; } else { a.state = 'walk'; a.dest = landIn(BIO.swamp); } if (Math.random() < 0.15) sound('moose', p); }
-          if (a.state === 'walk' && a.dest && goTo(a, a.dest, 0.9, dt, (x, z) => world.inBio('swamp', x, z), 2)) a.state = 'graze';
+          if (a.timer <= 0){ a.timer = rnd(6, 14); if (Math.random() < 0.5){ a.state = 'graze'; } else { a.state = 'walk'; a.dest = mooseSpot(); } if (Math.random() < 0.15) sound('moose', p); }
+          if (a.state === 'walk' && a.dest && goTo(a, a.dest, 0.9, dt, (x, z) => world.inBio('high', x, z) && !world.isWater(x, z) && world.slope(x, z) < 0.7, 2)) a.state = 'graze';
           if (pet && petD < 8) lookAt(a, pet.x, pet.z);
-          p.y = Math.max(gy(p.x, p.z), WATER_Y - 0.45*a.g.scale.y);   // wades in up to its knees
+          p.y = gy(p.x, p.z);
           break; }
         case 'wolf': {   // roam the highland, howl at night, shelter in the cave when it rains or storms
           const tail = a.g.getObjectByName('wolf_tail'), door = world.caveDoor;

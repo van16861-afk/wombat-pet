@@ -405,6 +405,10 @@ for (const [n, pr] of Object.entries(REAL_LOADS)){
       if (s.map){ s.map.colorSpace = THREE.NoColorSpace; s.map.needsUpdate = true; }
       o.material = new THREE.MeshStandardMaterial({name:s.name, map:s.map, color:new THREE.Color(1, 1, 1).multiplyScalar(cfg.bright || 1), roughness:0.85, metalness:0, alphaTest:s.alphaTest || (s.transparent ? 0.5 : 0), side:s.side});
       o.frustumCulled = false; });   // skinned: the bind-pose bounds don't follow the animation
+    // looping clips stay in place (some walk the body a stride forward and jump back each loop): the game moves the animal itself
+    for (const c of g.animations) if (!/^(lieDown|getUp|jump|attack)$/.test(c.name)) for (const t of c.tracks){
+      if (!t.name.endsWith('.position')) continue; const v = t.values, T = t.times, n = T.length, d = [v[3*n-3] - v[0], v[3*n-2] - v[1], v[3*n-1] - v[2]], span = T[n-1] - T[0] || 1;
+      for (let i=0;i<n;i++){ const u = (T[i] - T[0])/span; for (let k=0;k<3;k++) v[3*i+k] -= d[k]*u; } }
     const tmp = new THREE.Group(), box = new THREE.Box3(); g.scene.rotation.y = cfg.yaw || 0; tmp.add(g.scene);
     // measured on the skeleton in its first walking (or standing) frame: these files keep their scale in the bones, so mesh
     // bounds say nothing, and some rest poses lie on their side
@@ -428,7 +432,8 @@ function realClone(n){
   out.userData.mixer = new THREE.AnimationMixer(inner); out.userData.clips = Object.fromEntries(R.g.animations.map(c => [c.name, c])); out.userData.real = n;
   out.userData.parts = {}; for (const [k, m] of Object.entries(R.cfg.parts || {})) inner.traverse(o => { if (o.isMesh && o.material.name.startsWith(m)) out.userData.parts[k] = o; });
   inner.traverse(o => { if (o.isBone && /head/i.test(o.name) && !/nub|end/i.test(o.name) && !out.userData.head) out.userData.head = o;
-    if (o.isBone && /jaw/i.test(o.name) && !/end|lip/i.test(o.name) && !out.userData.jawBone) out.userData.jawBone = o; });
+    if (o.isBone && /jaw/i.test(o.name) && !/end|lip/i.test(o.name) && !out.userData.jawBone) out.userData.jawBone = o;
+    if (o.isBone && /tail/i.test(o.name) && !/end|nub|pony/i.test(o.name) && !out.userData.tail) out.userData.tail = o; });
   return out;
 }
 const FISH_LOOKS = [['#f08a3c', '#ffffff', '#f6b26b'], ['#f2efe8', '#e0483a', '#f3c9b0'], ['#e0483a', '#f6d0c0', '#f08a6a'], ['#4f86c6', '#cfe6ff', '#7fb2e0'], ['#f3d250', '#fff6c8', '#f6e08a'], ['#7a8c5a', '#c8d49a', '#a0b07a'], ['#c3ccd6', '#ffffff', '#dfe6ee'], ['#2f3a40', '#e8a33c', '#5a6a70']];
@@ -4393,8 +4398,8 @@ if (worldIsNew) S.world = newWorld(Math.floor(Math.random()*2147483647));
 world = createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fishModel, treeModels:TREE_MODELS, plants:NATURE_SMALL, onFeatGone:() => { NAV.dirty = true; }});
 const preV = S.world.v || 1;
 world.load(S.world);
-const grew = !worldIsNew && preV < 4;   // the save was made with 18-wide plots: spread our own things out the same way the world was
-if (grew){ const k = PLOT/18, s = v => +(v*k).toFixed(2), xz = a => { a[0] = s(a[0]); a[1] = s(a[1]); };
+const grew = !worldIsNew && preV < 5;   // the save was made with smaller plots (18 or 24 wide): spread our own things out the same way the world was
+if (grew){ const k = PLOT/(preV < 4 ? 18 : 24), s = v => +(v*k).toFixed(2), xz = a => { a[0] = s(a[0]); a[1] = s(a[1]); };
   (S.trees || []).forEach(t => { t.x = s(t.x); t.z = s(t.z); }); (S.weeds || []).forEach(xz); (S.poops || []).forEach(xz); (S.snowmen || []).forEach(xz); if (S.petPos) xz(S.petPos); }
 Object.keys(S.builds).forEach(id => S.builds[id] && build(id));
 if (grew) (S.trees || []).forEach(t => { if (inBuild(t.x, t.z, 0.8)){ const q = freeNear(V3(t.x, 0, t.z), 0.8); t.x = +q.x.toFixed(2); t.z = +q.z.toFixed(2); } });   // buildings stayed put
