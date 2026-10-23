@@ -16,6 +16,8 @@ Rigged, animated models from Sketchfab, reduced in polygons and texture size and
 | heron.glb | 蒼鷺 | [Great blue heron](https://sketchfab.com/3d-models/great-blue-heron-52cffc22bf2441468739ac3ba6d599aa) (rigged by `blender/rig_build.py`) | faerbogdan99 | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | crab.glb | 海灘的螃蟹 | [螃蟹](https://sketchfab.com/3d-models/fc28c7110c15496dbe05d9cff4ba6a21) (rigged by `blender/rig_build.py`) | LRURI01 | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | hermit.glb | 寄居蟹 | [Hermit Crab](https://sketchfab.com/3d-models/hermit-crab-7e71ce922fd44ab8b9221737e9618361) | kenchoo | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| seaturtle.glb | 赤蠵龜（北邊海灘） | [Model 47A - Loggerhead Sea Turtle](https://sketchfab.com/3d-models/c438e81e796d41d9a6ae4cc147ef8d4f) | DigitalLife3D | [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) |
+| penguin.glb | 企鵝（南邊海灘） | [Penguin](https://sketchfab.com/3d-models/penguin-2c079bc491fb4bb4942c0f87927f8d87) | Mateus Schwaab | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | croc.glb | 鱷魚 | [ALLIGATOR - Realistic 3D Model (DEMO FREE)](https://sketchfab.com/3d-models/alligator-realistic-3d-model-demo-free-80af5463728149baba78b12f70f6ff5c) | WildMesh 3D | [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) |
 
 The CC BY-NC models may not be used commercially.

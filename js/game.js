@@ -212,7 +212,7 @@ Object.values(LOADS).forEach(pr => pr.catch(() => {}));
 // Realistic rigged animals (Sketchfab, converted by blender/real_build.py; authors in assets/models/CREDITS.md). Each has its own
 // skeleton and clips (walk, run, graze, lie down...). `yaw` turns the model to face +Z; `like` is the old model whose size it takes.
 const REAL_CFG = {tiger:{yaw:Math.PI/2, like:'tiger', k:1.15}, deer:{like:'deer', k:1.45, parts:{antlers:'Chifre'}}, wolf:{like:'wolf', k:1.05},
-  moose:{like:'deer', k:1.9, parts:{antlers:'M_Moose_Antler'}}, horse:{like:'horse', k:1.25}, croc:{like:'croc', bright:1.8}, kangaroo:{like:'kangaroo', k:1.45}, heron:{like:'heron', k:1.1}, crab:{len:0.32}, hermit:{len:0.42}};
+  moose:{like:'deer', k:1.9, parts:{antlers:'M_Moose_Antler'}}, horse:{like:'horse', k:1.25}, croc:{like:'croc', bright:1.8}, kangaroo:{like:'kangaroo', k:1.45}, heron:{like:'heron', k:1.1}, crab:{len:0.32}, hermit:{len:0.42}, seaturtle:{len:1.3}, penguin:{h:0.85}};
 const REAL_LOADS = Object.fromEntries(Object.keys(REAL_CFG).map(n => [n, new GLTFLoader().setDRACOLoader(draco).loadAsync(`assets/models/real/${n}.glb`)]));
 Object.values(REAL_LOADS).forEach(pr => pr.catch(() => {}));
 let gltf;
@@ -419,7 +419,7 @@ for (const [n, pr] of Object.entries(REAL_LOADS)){
     mx.stopAllAction(); mx.uncacheRoot(g.scene);
     box.min.z -= (box.max.z - box.min.z)*0.06; box.max.z += (box.max.z - box.min.z)*0.06;   // the skin reaches a little past the end bones
     const old = ANIM[cfg.like] ? new THREE.Box3().setFromObject(ANIM[cfg.like], true) : null;
-    const s = (cfg.len ? cfg.len/(box.max.z - box.min.z) : old ? (old.max.z - old.min.z)/(box.max.z - box.min.z) : 1)*(cfg.k || 1);
+    const s = (cfg.h ? cfg.h/(box.max.y - box.min.y) : cfg.len ? cfg.len/(box.max.z - box.min.z) : old ? (old.max.z - old.min.z)/(box.max.z - box.min.z) : 1)*(cfg.k || 1);
     REAL[n] = {g, s, y:-box.min.y*s, x:-(box.min.x + box.max.x)/2*s, z:-(box.min.z + box.max.z)/2*s, cfg}; tmp.remove(g.scene);   // centred on the body, feet on the ground
   } catch(e){ console.warn(`real/${n}.glb not loaded`, e); }
 }
@@ -1473,7 +1473,7 @@ function updateAmbience(dt, t, night){
 // Real animal recordings (assets/sounds, credits in assets/sounds/CREDITS.md): each sound name has one or two short clips.
 // Until they have loaded (or if they fail) the synthesised versions below are used.
 const ANIMAL_CLIPS = {howl:['wolf1', 'wolf2'], croak:['frog1', 'frog2'], bellow:['croc1', 'croc2'], neigh:['horse1'], roar:['tiger1', 'tiger2'], peacock:['peacock1', 'peacock2'],
-  hoot:['owl1', 'owl2'], eagle:['eagle1'], gull:['gull1', 'gull2'], heron:['heron1'], deer:['deer1', 'deer2'], whale:['whale1'], emu:['emu1'], moose:['moose1', 'moose2']};
+  hoot:['owl1', 'owl2'], eagle:['eagle1'], gull:['gull1', 'gull2'], heron:['heron1'], deer:['deer1', 'deer2'], whale:['whale1'], emu:['emu1'], moose:['moose1', 'moose2'], penguin:['penguin1', 'penguin2']};
 const ACLIP = {}, clipBusy = {}; let aclipLoading = false;
 function loadAnimalClips(){
   if (aclipLoading || !SND.ctx) return; aclipLoading = true;
@@ -1506,6 +1506,7 @@ function sfx(name, at){   // `at`: where the sound comes from — quieter the fu
     case 'coin':  tone('square',1318,t,0.06,0.08,out); tone('square',1760,t+0.07,0.06,0.18,out); break;
     case 'happy': [72,76,79,84].forEach((m,i)=>tone('sine',mtof(m),t+i*0.07,0.16,0.4,out)); break;
     case 'sad':   [67,64,60].forEach((m,i)=>tone('sine',mtof(m),t+i*0.25,0.14,0.6,out)); break;
+    case 'penguin': for (const d of [0, 0.32, 0.6]){ o = tone('sawtooth', 520, t + d, 0.06, 0.24, out, 0.02); o.frequency.exponentialRampToValueAtTime(380, t + d + 0.22); } break;   // (until the recording has loaded) a braying squawk
     case 'horn': for (const [d, f] of [[0, 1], [1.35, 0.84]]){ const s = t + d; o = tone('sawtooth', 98*f, s, 0.22, 1.1, out, 0.12); o.frequency.linearRampToValueAtTime(94*f, s + 1.0); o = tone('square', 196*f, s, 0.05, 1.0, out, 0.15); } break;   // a ship's horn: two long, low blasts
     case 'whoosh': noiseHit(t, 0.3, 0.25, 'bandpass', 1500, out); break;
     case 'splash': noiseHit(t, 0.35, 0.35, 'bandpass', 1100, out, null, 0.8); [0.08,0.16,0.22].forEach(d => { const q = tone('sine', rnd(900,1400), t+d, 0.08, 0.08, out); q.frequency.exponentialRampToValueAtTime(rnd(400,600), t+d+0.07); }); break;
@@ -2227,8 +2228,64 @@ function updateBoats(dt, t){
     if (y.honked < 2 && Math.abs(z - camTarget.z) < (y.honked ? 12 : 26) && y.t > (y.honked ? y.hT + 6 : 0)){ y.honked++; y.hT = y.t; sfx('horn', V3(world.shoreX(z), 0, z)); }
     if (y.t*3.2 > PLOT*5.2){ scene.remove(y.g); boats.yacht = null; boats.yachtT = rnd(240, 600); } }
 }
+// ---------- two stretches of beach with their own residents: sea turtles to the north, a penguin colony to the south ----------
+const BEACH_LIFE = [];
+function playRig(rg, name, ts = 1){
+  if (rg.cur !== name && rg.clips[name]){ const a = rg.mixer.clipAction(rg.clips[name]); a.reset().fadeIn(0.25).play(); if (rg.act) rg.act.fadeOut(0.25); rg.act = a; rg.cur = name; }
+  if (rg.act) rg.act.timeScale = ts;
+}
+const BEACH_NAMES = {seaturtle:'赤蠵龜（海龜）', penguin:'企鵝'};
+function pokeBeachLife(o){   // tap: the penguin squawks and pecks, the turtle heads back to the sea
+  const first = !stat('meet:' + o.kind); track('meet:' + o.kind); if (first) toast(`遇見了${BEACH_NAMES[o.kind]}！`);
+  floatSprite(emojiTex(o.kind === 'penguin' ? '🐧' : '🐢'), o.g.position.clone().add(V3(0, 1.2, 0)), {size:0.55, vy:0.6, max:1.4});
+  if (o.kind === 'penguin'){ o.state = 'peck'; o.timer = 2; o.dest = null; sfx('penguin', o.g.position); }
+  else if (o.state !== 'swim'){ o.state = 'toSea'; o.dest = V3(world.shoreX(o.g.position.z) + 4, 0, o.g.position.z); }
+}
+function setupBeachLife(){
+  if (BEACH_LIFE.length) return;
+  const zr = b => [b*PLOT - PLOT*0.4, b*PLOT + PLOT*0.4];
+  const add = (kind, n, b, sc) => { for (let i=0;i<n;i++){ const g = realClone(kind); if (!g) return; const [z0, z1] = zr(b), z = rnd(z0, z1);
+    g.scale.setScalar(sc*rnd(0.9, 1.1)); g.position.set(world.shoreX(z) + (kind === 'seaturtle' ? rnd(1.5, 5) : -rnd(1, 4)), 0, z); scene.add(g);
+    const hb = new THREE.Mesh(new THREE.SphereGeometry(kind === 'seaturtle' ? 0.7 : 0.45, 8, 6), hbMat); hb.position.y = 0.3; hb.userData.kind = 'beachlife'; g.add(hb);
+    const o = {kind, g, rg:g.userData, zr:[z0, z1], state:kind === 'seaturtle' ? 'swim' : 'idle', t:rnd(0, 9), timer:rnd(2, 8), dest:null, hb}; hb.userData.ref = o; beachHit.push(hb); BEACH_LIFE.push(o); } };
+  add('seaturtle', 2, -1, 1); add('penguin', 5, 1, 1);
+}
+function updateBeachLife(dt, t){
+  for (const o of BEACH_LIFE){
+    const p = o.g.position, sx = world.shoreX(p.z), wet = p.x > sx + 0.6, camD = Math.hypot(p.x - camTarget.x, p.z - camTarget.z);
+    o.g.visible = camD < 70; if (!o.g.visible) continue;
+    o.t += dt; o.timer -= dt;
+    const near = petActive() && root.visible && Math.hypot(p.x - pos.x, p.z - pos.z) < 3.2;
+    const zIn = z => clamp(z, o.zr[0], o.zr[1]);
+    if (o.kind === 'seaturtle'){   // swims the shallows; now and then hauls out on the sand to rest; back to the sea if disturbed
+      if (near && o.state !== 'swim'){ o.state = 'toSea'; o.dest = V3(sx + 4, 0, p.z); }
+      if (o.timer <= 0){ o.timer = rnd(10, 25);
+        if (o.state === 'swim'){ if (Math.random() < 0.4){ o.state = 'crawl'; const z = zIn(p.z + rnd(-3, 3)); o.dest = V3(world.shoreX(z) - rnd(1.5, 3.5), 0, z); } else { const z = zIn(p.z + rnd(-6, 6)); o.dest = V3(world.shoreX(z) + rnd(1.5, 6), 0, z); } }
+        else if (o.state === 'rest'){ o.state = 'toSea'; o.dest = V3(sx + 4, 0, p.z); } }
+      if (o.dest){ const d = V3(o.dest.x - p.x, 0, o.dest.z - p.z), L = d.length(), sp = wet ? 0.9 : 0.25;
+        if (L > 0.2){ p.addScaledVector(d.normalize(), Math.min(L, sp*dt)); o.g.rotation.y += clamp(wrapA(Math.atan2(d.x, d.z) - o.g.rotation.y), -1.5*dt, 1.5*dt); }
+        else { o.dest = null; if (o.state === 'crawl'){ o.state = 'rest'; o.timer = rnd(15, 35); } else if (o.state === 'toSea') o.state = 'swim'; } }
+      playRig(o.rg, 'swim', o.state === 'rest' ? 0 : wet ? 0.8 : 0.45);   // the same flippers row in water and drag it over the sand
+      p.y = wet ? WATER_Y - 0.12 + Math.sin(o.t*1.4)*0.03 : gy(p.x, p.z) + 0.02;
+    } else {   // penguins: waddle about together, peck at the sand, belly-slide into the sea for a swim and come back
+      if (o.timer <= 0){ o.timer = rnd(3, 8); const r_ = Math.random();
+        if (o.state === 'swim'){ o.state = 'walk'; const z = zIn(p.z + rnd(-3, 3)); o.dest = V3(world.shoreX(z) - rnd(1, 4), 0, z); }
+        else if (r_ < 0.2){ o.state = 'slide'; const z = zIn(p.z + rnd(-2, 2)); o.dest = V3(world.shoreX(z) + rnd(2.5, 5), 0, z); }
+        else if (r_ < 0.5){ o.state = 'walk'; const z = zIn(p.z + rnd(-4, 4)); o.dest = V3(world.shoreX(z) - rnd(0.8, 4.5), 0, z); }
+        else if (r_ < 0.75){ o.state = 'peck'; o.dest = null; } else { o.state = 'idle'; o.dest = null; } }
+      if (near && o.state !== 'swim' && !o.scared){ o.scared = true; o.state = 'walk'; o.dest = p.clone().addScaledVector(V3(p.x - pos.x, 0, p.z - pos.z).normalize(), 2.5); o.dest.z = zIn(o.dest.z); sfx('penguin', p); setTimeout(() => o.scared = false, 6000); }
+      if (o.dest){ const d = V3(o.dest.x - p.x, 0, o.dest.z - p.z), L = d.length(), sp = o.state === 'slide' || wet ? 2.0 : 0.7;
+        if (L > 0.15){ p.addScaledVector(d.normalize(), Math.min(L, sp*dt)); o.g.rotation.y += clamp(wrapA(Math.atan2(d.x, d.z) - o.g.rotation.y), -4*dt, 4*dt); }
+        else { o.dest = null; if (o.state === 'slide'){ o.state = 'swim'; o.timer = rnd(8, 18); const z = zIn(p.z + rnd(-4, 4)); o.dest = V3(world.shoreX(z) + rnd(3, 7), 0, z); } else if (o.state === 'walk') o.state = 'idle'; } }
+      playRig(o.rg, wet || o.state === 'slide' ? 'slide' : o.state === 'peck' ? 'peck' : o.dest ? 'walk' : 'idle');
+      p.y = wet ? WATER_Y - 0.3 + Math.sin(o.t*2)*0.03 : gy(p.x, p.z) - (o.state === 'slide' ? 0.15 : 0);
+      if (Math.random() < dt*0.01) sfx('penguin', p);
+    }
+    o.rg.mixer.update(dt);
+  }
+}
 function updateBeach(dt, t){
-  updateBoats(dt, t);
+  updateBoats(dt, t); setupBeachLife(); updateBeachLife(dt, t);
   for (const c of crabs){
     const p = c.g.position, near = petActive() && root.visible && Math.hypot(p.x - pos.x, p.z - pos.z) < 2.2*Math.max(petS, 0.6);
     if (c.hermit && near) c.hide = 2.5;
@@ -4160,7 +4217,7 @@ const GUIDE = [
     <rect x="40" y="40" width="70" height="80" rx="8" fill="var(--chip)" stroke="var(--ink)" stroke-width="2"/><rect x="52" y="40" width="46" height="26" fill="var(--ink)" opacity=".8"/><rect x="54" y="88" width="42" height="28" rx="3" fill="var(--line)"/>${T(75,145,'自動存檔',12)}
     <rect x="150" y="60" width="44" height="22" rx="11" fill="#e45b5b"/><rect x="172" y="60" width="22" height="22" rx="11" fill="#f6f3ec"/>${T(172,110,'健康低：餵藥',12)}
     <path d="M250 120 v-38 a20 20 0 0 1 40 0 v38z" fill="#a3a59d"/><circle cx="258" cy="122" r="4" fill="#e0607e"/><circle cx="282" cy="122" r="4" fill="#f3d250"/>${T(270,145,'告別後孵新蛋',12)}`),
-    html:`<ul><li>進度每 5 秒自動存在<b>這台裝置</b>裡；到「設定」用 Google 登入後，還會同步到<b>雲端</b>，電腦和手機可以接著玩。離開期間的時間也會算進去。</li><li>你不在的時候牠最多只會變得很虛弱，不會因為沒人照顧而死掉；但年紀還是會增加。</li><li>健康低於 35 會生病，按畫面下方的「餵藥」（10 代幣）。</li><li>牠走完一生或病死之後，會留下一個小墓碑。代幣、衣服、建設都會留給下一隻，再孵一顆新蛋。</li><li>設定 →「全部重新開始」會清掉所有東西，從一顆蛋重來。</li><li><b>聲音來源</b>：音樂用 FluidR3 音色庫（MIT 授權）；動物叫聲是 Wikimedia Commons 和 Freesound 上的真實錄音，作者和授權見<a href="assets/sounds/CREDITS.md" target="_blank">動物聲音來源</a>。</li><li><b>3D 模型來源</b>：寫實動物來自 Sketchfab 的創作者（老虎、鹿、狼、駝鹿、馬、鱷魚、袋鼠、蒼鷺、螃蟹、寄居蟹），場景植物是 Quaternius 的免費素材，作者和授權見<a href="assets/models/CREDITS.md" target="_blank">模型來源</a>。</li></ul><p class="note">清除瀏覽器資料或換手機，存檔就會不見。</p>`}
+    html:`<ul><li>進度每 5 秒自動存在<b>這台裝置</b>裡；到「設定」用 Google 登入後，還會同步到<b>雲端</b>，電腦和手機可以接著玩。離開期間的時間也會算進去。</li><li>你不在的時候牠最多只會變得很虛弱，不會因為沒人照顧而死掉；但年紀還是會增加。</li><li>健康低於 35 會生病，按畫面下方的「餵藥」（10 代幣）。</li><li>牠走完一生或病死之後，會留下一個小墓碑。代幣、衣服、建設都會留給下一隻，再孵一顆新蛋。</li><li>設定 →「全部重新開始」會清掉所有東西，從一顆蛋重來。</li><li><b>聲音來源</b>：音樂用 FluidR3 音色庫（MIT 授權）；動物叫聲是 Wikimedia Commons 和 Freesound 上的真實錄音，作者和授權見<a href="assets/sounds/CREDITS.md" target="_blank">動物聲音來源</a>。</li><li><b>3D 模型來源</b>：寫實動物來自 Sketchfab 的創作者（老虎、鹿、狼、駝鹿、馬、鱷魚、袋鼠、蒼鷺、螃蟹、寄居蟹、海龜、企鵝），場景植物是 Quaternius 的免費素材，作者和授權見<a href="assets/models/CREDITS.md" target="_blank">模型來源</a>。</li></ul><p class="note">清除瀏覽器資料或換手機，存檔就會不見。</p>`}
 ];
 const guideEl = $('#guide'); let gPage = 0;
 function openGuide(p=0){ gPage = p; guideEl.hidden = false; renderGuide(); $('#gNext').focus(); }
@@ -4358,6 +4415,7 @@ function up(e){
     else if (k === 'shell') pickShell(tapObj.userData.ref);
     else if (k === 'bottle') openBottle(tapObj.userData.ref);
     else if (k === 'crab') pokeCrab(tapObj.userData.ref);
+    else if (k === 'beachlife') pokeBeachLife(tapObj.userData.ref);
     else if (k === 'animal') pokeAnimal(tapObj.userData.ref);
     else if (k === 'food' || k === 'bowl') callToFood(k, tapObj.userData.ref);
     else if (k === 'fish'){ const f = tapObj.userData.ref; if (world.jumpFish(f)){ sfx('splash'); for (let i=0;i<8;i++){ const a = Math.random()*Math.PI*2; floatSprite(radialTex('rgba(225,240,248,1)','rgba(225,240,248,0)'), f.g.position.clone().setY(WATER_Y + 0.1), {size:0.25, vx:Math.cos(a)*1.4, vz:Math.sin(a)*1.4, vy:rnd(2,3), g:9, max:0.7, grow:0}); }
@@ -4536,7 +4594,7 @@ if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
 if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
-if (new URLSearchParams(location.search).has('debug')) window.W = {boats, wear, art, setArt, inBuild, freeNear, poopNow, spawnWeed, weedSpotOK, overBridge, moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+if (new URLSearchParams(location.search).has('debug')) window.W = {boats, BEACH_LIFE, wear, art, setArt, inBuild, freeNear, poopNow, spawnWeed, weedSpotOK, overBridge, moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   sim:(secs) => { skipRender = true; try { for (let i=0;i<secs*30;i++) step(true); } finally { skipRender = false; } clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};

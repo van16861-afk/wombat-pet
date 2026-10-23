@@ -18,9 +18,11 @@ MODELS = {
     "croc":  ("alligator", 8000, {"idle": "AmericanAlligator_Idle", "walk": "AmericanAlligator_Trot_F"}, []),
     "eagle": ("baldeagle", 7000, {"fly": "GltfAnimation 0"}, []),
     "hermit": ("hermit_k", 4000, {"walk": "Animation"}, []),
+    "seaturtle": ("seaturtle", 6000, {"swim": "Swim Cycle"}, []),
+    "penguin": ("penguin", 3500, {"idle": "Iddle", "walk": "Walk", "slide": "Slide", "peck": "Bite", "fall": "Fall"}, []),
 }
 # these keep the file's own rest pose (Blender's bind-pose guess tips them on their side)
-RAW_BIND = {"wolf", "croc", "moose", "horse"}
+RAW_BIND = {"wolf", "croc", "moose", "horse", "penguin"}
 os.makedirs(OUT, exist_ok=True)
 only = [s for s in os.environ.get("ONLY", "").split(",") if s]
 
