@@ -55,9 +55,9 @@ SEE.time = {value:0};
 // Wind: grass rolls in slow waves all the time, and now and then a gust sweeps across the land (a band moving along
 // the wind direction): grass bends flat and shines, tree tops lean and shake as it passes. gust = (dirX, dirZ, front, strength)
 SEE.gust = {value:new THREE.Vector4(-0.85, 0.5, -999, 0)};
-export function swaying(m, height = 2.5, amp = 0.3, wave = 0.2){
+export function swaying(m, height = 2.5, amp = 0.3, wave = 0.2, see = true){   // see: false for grass and low plants (they never hide the wombat)
   m.onBeforeCompile = sh => {
-    seeCompile(sh); sh.uniforms.uWind = SEE.time; sh.uniforms.uGust = SEE.gust;
+    if (see) seeCompile(sh); sh.uniforms.uWind = SEE.time; sh.uniforms.uGust = SEE.gust;
     sh.fragmentShader = 'varying float vSheen;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n diffuseColor.rgb *= 1.0 + vSheen;');
     sh.vertexShader = 'uniform float uWind; uniform vec4 uGust; varying float vSheen;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
       vec4 swayW = vec4(0.0, 0.0, 0.0, 1.0);
@@ -75,7 +75,7 @@ export function swaying(m, height = 2.5, amp = 0.3, wave = 0.2){
       transformed.x += uGust.x*bend*${amp.toFixed(2)}; transformed.z += uGust.y*bend*${amp.toFixed(2)}; transformed.y -= bend*${(amp*0.35).toFixed(3)};
       vSheen = bend*0.45;`);
   };
-  m.customProgramCacheKey = () => 'sway' + height + '|' + amp + '|' + wave;
+  m.customProgramCacheKey = () => 'sway' + height + '|' + amp + '|' + wave + (see ? '' : '|nosee');
   return m;
 }
 // Painted leaf clusters (a soft alpha cut-out) used for every tree canopy, so trees look leafy instead of faceted.
@@ -180,7 +180,7 @@ export function newWorld(seed){
   return upgradeWorld(D);
 }
 // Special regions on the 4 × 4 map: a lily pond, a swamp, the Australian outback and a beaver stream on the river.
-export const BIO = {pond:'0,-2', swamp:'-2,-1', aus:'-2,1', beaver:'-1,-2', forest:'-2,0', high:'-2,-2', savanna:'-1,1'};
+export const BIO = {pond:'0,-2', swamp:'-2,-1', aus:'-2,1', beaver:'-1,-2', forest:'-2,0', high:'-2,-2', savanna:'-1,1', meadow:'0,1'};   // meadow: the flower meadow (花海) south of home
 // v1 worlds were 3 × 3: grow them to 4 × 4 (new plots to the west and north) without moving anything already there.
 export function upgradeWorld(D){
   if (D.v < 2){
@@ -217,6 +217,11 @@ export function upgradeWorld(D){
     const R5 = rng(D.seed + 505); D.edge = [0, 1, 2, 3, 4, 5].map(() => +(R5()*6.28).toFixed(2));   // phases for the uneven highland / plateau outlines
     D.bridges.forEach(b => b.z = s(b.z)); D.feats.forEach(o => { o.x = s(o.x); o.z = s(o.z); });
     D.v = 5; }
+  if (D.v < 6){   // a bigger lily pond and swamp (more and larger pools)
+    const B = D.bio, R6 = rng(D.seed + 606), [sx, sz] = plotCenter(BIO.swamp);
+    B.pond.r = +(B.pond.r*1.35).toFixed(2); B.pools.forEach(a => { a[2] = +(a[2]*1.2).toFixed(2); });
+    for (let i=0;i<3;i++) B.pools.push([+(sx + (R6() - 0.5)*PLOT*0.6).toFixed(1), +(sz + (R6() - 0.5)*PLOT*0.6).toFixed(1), +(2.6 + R6()*1.6).toFixed(2)]);
+    D.v = 6; }
   return D;
 }
 
@@ -274,7 +279,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
     return h;
   }
   const plotW = (k, x, z, inner = 7, outer = 9.4) => { const [cx, cz] = plotCenter(k); return 1 - sstep(inner*PS, outer*PS, Math.max(Math.abs(x - cx), Math.abs(z - cz))); };   // (sizes given for 18-wide plots)
-  const swampW = (x, z) => plotW(BIO.swamp, x, z);
+  const swampW = (x, z) => plotW(BIO.swamp, x, z, 8.2, 9.8);   // (almost the whole plot)
   W.plotW = plotW; W.swampW = swampW;
   const slope = (x, z) => Math.hypot(H(x + 0.3, z) - H(x - 0.3, z), H(x, z + 0.3) - H(x, z - 0.3))/0.6;
   const inWorld = (x, z) => x > X0 + 0.25 && x < X1 - 0.25 && z > Z0 + 0.25 && z < Z1 - 0.25;
@@ -362,7 +367,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
     { const [cx, cz] = plotCenter(BIO.savanna), n = Math.round((mobile ? 1600 : 3400)*DENS); let c = 0;   // the grassland: tall golden grass everywhere
       for (let k=0; k<n*3 && c < n; k++){ const x = cx + (R() - 0.5)*PLOT, z = cz + (R() - 0.5)*PLOT; if (W.isWater(x, z) || surf(x, z)[1] < 0.6) continue; list.push([x, z, 1]); c++; } }
     { const p = geo.attributes.position, c = new Float32Array(p.count*3); for (let i=0;i<p.count;i++){ const k = 0.62 + 0.5*clamp(p.getY(i)/0.36, 0, 1); c[i*3] = k; c[i*3+1] = k; c[i*3+2] = k*0.85; } geo.setAttribute('color', new THREE.BufferAttribute(c, 3)); }   // darker at the root, light at the tip
-    const m = new THREE.InstancedMesh(geo, swaying(new THREE.MeshLambertMaterial({vertexColors:true}), 0.34, 0.2, 0.75), list.length);
+    const m = new THREE.InstancedMesh(geo, swaying(new THREE.MeshLambertMaterial({vertexColors:true}), 0.34, 0.2, 0.75, false), list.length);
     list.forEach(([x, z, tall], i) => { const s = 0.7 + R()*0.6, sy = tall ? 1.5 + R()*0.9 : 0.8 + R()*0.4; M.compose(V3(x, H(x, z) - 0.02, z), q.setFromAxisAngle(V3(0, 1, 0), R()*6.28), V3(s*(tall ? 1.3 : 1), s*sy, s*(tall ? 1.3 : 1))); m.setMatrixAt(i, M);
       m.setColorAt(i, col.set(tall ? ['#e2cf86', '#d8c27a', '#e8d898', '#cdb56c'][i % 4] : GRASS_COLS[i % GRASS_COLS.length]).multiplyScalar((0.85 + R()*0.15)*(W.isOpen(x, z) || !inWorld(x, z) ? 1 : 0.8))); });
     group.add(m); tufts = m; W.tufts = m;
@@ -385,7 +390,12 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
       const kind = Math.floor(R()*KINDS.length), n = 10 + Math.floor(R()*18), rad = 0.8 + R()*1.8;   // one kind per patch, a stray other one now and then
       for (let i=0;i<n;i++){ const a = R()*6.28, r = Math.sqrt(R())*rad, x = cx + Math.cos(a)*r, z = cz + Math.sin(a)*r;
         if (W.isWater(x, z) || surf(x, z)[1] < 0.6) continue; list.push([x, z, R() < 0.12 ? Math.floor(R()*KINDS.length) : kind]); } }
-    const mat = () => swaying(new THREE.MeshLambertMaterial({vertexColors:true}), 0.45, 0.2, 0.75);
+    { const [mx, mz] = plotCenter(BIO.meadow), n = Math.round((mobile ? 2600 : 6500)*DENS); let c = 0;   // the flower meadow (花海): broad drifts of colour
+      for (let k=0; k<n*3 && c < n; k++){ const x = mx + (R() - 0.5)*PLOT, z = mz + (R() - 0.5)*PLOT;
+        if (R() > W.plotW(BIO.meadow, x, z, 6.2, 9.4) || W.isWater(x, z) || surf(x, z)[1] < 0.5) continue;
+        const band = Math.sin(x*0.16 + Math.sin(z*0.11)*2.2) + 0.6*Math.sin(z*0.21 - x*0.07);   // wavy stripes, a different colour in each
+        list.push([x, z, R() < 0.15 ? Math.floor(R()*KINDS.length) : (Math.floor((band + 1.6)*2.2) % KINDS.length + KINDS.length) % KINDS.length]); c++; } }
+    const mat = () => swaying(new THREE.MeshLambertMaterial({vertexColors:true}), 0.45, 0.2, 0.75, false);
     const stems = new THREE.InstancedMesh(stemGeo, mat(), list.length), heads = new THREE.InstancedMesh(head, mat(), list.length), spikes = new THREE.InstancedMesh(spike, mat(), list.length);
     paint(stemGeo, [0.42, 0.62, 0.3]);
     const M = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color(), zero = new THREE.Matrix4().makeScale(0, 0, 0);
@@ -415,6 +425,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
     place(plants.flower, Math.round(520*S_), grassy, 0.7, 1.15, true);                                         // flower groups in patches
     place(plants.fern, Math.round(700*S_), grassy, 0.7, 1.3, true);                                            // ferns, clover, leafy plants
     place(plants.mush, Math.round(120*S_), (x, z) => grassy(x, z) && plotKey(x, z) === BIO.forest, 0.8, 1.4, true);   // mushrooms in the deer forest
+    place(plants.flower, Math.round(900*S_), (x, z) => grassy(x, z) && plotKey(x, z) === BIO.meadow, 0.9, 1.5, true);   // the flower meadow's big flower clumps
   }
 
   // --- shared nature models ---
@@ -638,7 +649,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
   // --- the sea: waves rolling onto the beach, foam at the waterline ---
   let seaMat = null;
   function buildSea(){
-    const geo = new THREE.PlaneGeometry(130, 160, 1, 1); geo.rotateX(-Math.PI/2); geo.translate(12 + 65, WATER_Y + 0.01, 0);
+    const geo = new THREE.PlaneGeometry(170, 220, 1, 1); geo.rotateX(-Math.PI/2); geo.translate(12 + 85, WATER_Y + 0.01, (Z0 + Z1)/2);   // well past the world on every side
     seaMat = new THREE.ShaderMaterial({transparent:true, depthWrite:false, uniforms:{uTime:{value:0}, uNight:{value:0}, uSun:{value:1}, uC:{value:new THREE.Vector4(D.coast.x, D.coast.a, D.coast.f, D.coast.p)},
       uFog:{value:new THREE.Color('#d9e1d2')}, uFogN:{value:30}, uFogF:{value:90}, uBig:{value:new THREE.Vector3(99, 0, 0)}},
       vertexShader:`varying vec3 vWP; void main(){ vec4 w = modelMatrix*vec4(position,1.0); vWP = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }`,
@@ -694,7 +705,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
     if (!D.bio) return;
     const P = D.bio.pond, pg = new THREE.CircleGeometry(P.r + 1.4, 48); pg.rotateX(-Math.PI/2); pg.translate(P.x, WATER_Y, P.z);
     stillWater(pg, '0.22, 0.48, 0.45', '0.42, 0.68, 0.58', 0.5, false).userData.kind = 'pond';
-    const [cx, cz] = plotCenter(BIO.swamp), sg = new THREE.PlaneGeometry(19*PS, 19*PS); sg.rotateX(-Math.PI/2); sg.translate(cx, WATER_Y - 0.01, cz);
+    const [cx, cz] = plotCenter(BIO.swamp), sg = new THREE.PlaneGeometry(20*PS, 20*PS); sg.rotateX(-Math.PI/2); sg.translate(cx, WATER_Y - 0.01, cz);
     stillWater(sg, '0.2, 0.26, 0.16', '0.32, 0.38, 0.22', 0.78, true).userData.kind = 'swamp';
   }
 
@@ -768,7 +779,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
   W.plotName = k => {
     const [a, b] = k.split(',').map(Number), dir = (b < 0 ? '北' : b > 0 ? '南' : '') + (a < 0 ? '西' : a > 0 ? '東' : '');
     const [cx, cz] = plotCenter(k), P = D.plat;
-    const special = {[BIO.pond]:'荷花池塘', [BIO.swamp]:'沼澤', [BIO.aus]:'澳洲草原', [BIO.beaver]:'河狸溪', [BIO.forest]:'鹿的森林', [BIO.high]:'狼的高地', [BIO.savanna]:'大草原'}[k]; if (special) return special;
+    const special = {[BIO.pond]:'荷花池塘', [BIO.swamp]:'沼澤', [BIO.aus]:'澳洲草原', [BIO.beaver]:'河狸溪', [BIO.forest]:'鹿的森林', [BIO.high]:'狼的高地', [BIO.savanna]:'大草原', [BIO.meadow]:'花海'}[k]; if (special) return special;
     const what = a === -2 ? '森林' : a === -1 ? '河畔' : a > 0 ? '海岸' : Math.abs(P.z - cz) < 6 ? '高台' : D.pits.some(([x, z]) => Math.abs(x - cx) < 9 && Math.abs(z - cz) < 9) ? '窪地' : '山丘';
     return `${dir}邊的${what}`;
   };

@@ -364,7 +364,7 @@ function natMat(src, leaf, height){
   const key = src.name + '|' + leaf + '|' + height; if (natMats[key]) return natMats[key];
   if (src.map){ src.map.colorSpace = THREE.NoColorSpace; src.map.needsUpdate = true; }   // this scene works in display values
   const m = new THREE.MeshLambertMaterial({map:src.map || null, color:'#ffffff', alphaTest:leaf ? 0.45 : 0, side:leaf ? THREE.DoubleSide : THREE.FrontSide});
-  return natMats[key] = leaf ? swaying(m, height, 0.4, 0.12) : seeThrough(m);
+  return natMats[key] = leaf ? swaying(m, height, 0.4, 0.12, height > 1.5) : seeThrough(m);   // (grass, flowers and ferns: no see-through)
 }
 // one kit model -> {trunk, canopy (all non-bark parts merged, one material group each), trunkMat, canopyMat}
 function natModel(name, height, round){
@@ -433,7 +433,10 @@ function realClone(n){
   out.userData.parts = {}; for (const [k, m] of Object.entries(R.cfg.parts || {})) inner.traverse(o => { if (o.isMesh && o.material.name.startsWith(m)) out.userData.parts[k] = o; });
   inner.traverse(o => { if (o.isBone && /head/i.test(o.name) && !/nub|end/i.test(o.name) && !out.userData.head) out.userData.head = o;
     if (o.isBone && /jaw/i.test(o.name) && !/end|lip/i.test(o.name) && !out.userData.jawBone) out.userData.jawBone = o;
-    if (o.isBone && /tail/i.test(o.name) && !/end|nub|pony/i.test(o.name) && !out.userData.tail) out.userData.tail = o; });
+    if (o.isBone && /tail/i.test(o.name) && !/end|nub|pony/i.test(o.name) && !out.userData.tail) out.userData.tail = o;
+    if (o.isBone && /neck/i.test(o.name) && !/end|nub/i.test(o.name) && !out.userData.neck) out.userData.neck = o; });
+  const tails = []; for (let b = out.userData.tail; b && tails.length < 3; b = b.children.find(c => c.isBone && /tail/i.test(c.name) && !/end|nub/i.test(c.name))) tails.push(b);
+  out.userData.tails = tails;   // the first few tail bones, for a swish that runs down the tail
   return out;
 }
 const FISH_LOOKS = [['#f08a3c', '#ffffff', '#f6b26b'], ['#f2efe8', '#e0483a', '#f3c9b0'], ['#e0483a', '#f6d0c0', '#f08a6a'], ['#4f86c6', '#cfe6ff', '#7fb2e0'], ['#f3d250', '#fff6c8', '#f6e08a'], ['#7a8c5a', '#c8d49a', '#a0b07a'], ['#c3ccd6', '#ffffff', '#dfe6ee'], ['#2f3a40', '#e8a33c', '#5a6a70']];
@@ -1958,6 +1961,16 @@ function rockBurst(at, r){   // tumbling stone chunks with simple physics, plus 
       if (m.position.y < g0){ m.position.y = g0; v.y = Math.abs(v.y)*0.3; v.x *= 0.6; v.z *= 0.6; spin.multiplyScalar(0.6); }
       m.rotation.x += spin.x*dt; m.rotation.y += spin.y*dt; m.rotation.z += spin.z*dt; if (t > this.dur - 0.4) m.scale.multiplyScalar(0.92); }, done(){ scene.remove(m); }}); }
   dust(at.x, at.z, 14, r*0.8); }
+function ninjaPuff(at){   // smoke balls and a whirl of leaves (the wombat's vanishing trick)
+  const p = V3(at.x, gy(at.x, at.z) + 0.5, at.z);
+  for (let i=0;i<10;i++) floatSprite(radialTex('rgba(235,235,230,0.95)', 'rgba(235,235,230,0)'), p.clone().add(V3(rnd(-0.4, 0.4), rnd(-0.2, 0.5), rnd(-0.4, 0.4))),
+    {size:rnd(0.7, 1.2), vx:rnd(-1.2, 1.2), vz:rnd(-1.2, 1.2), vy:rnd(0.3, 1.2), max:0.7, grow:1.6});
+  leafBurst(p, 10);
+}
+function ninjaStreak(a, b){   // a fast streak along the dash
+  const from = V3(a.x, gy(a.x, a.z) + 0.5, a.z), to = V3(b.x, gy(b.x, b.z) + 0.5, b.z), n = Math.max(3, Math.round(from.distanceTo(to)*1.5));
+  for (let i=0;i<n;i++) floatSprite(radialTex('rgba(255,255,255,0.9)', 'rgba(255,255,255,0)'), from.clone().lerp(to, (i + 0.5)/n), {size:0.55, vy:0, max:0.3, grow:0.5, delay:i*0.012});
+}
 function leafBurst(at, n){ for (let i=0;i<n;i++){ floatSprite(i % 3 ? radialTex('rgba(110,170,70,1)', 'rgba(110,170,70,0)') : emojiTex('🍃'), at.clone().add(V3(rnd(-0.3, 0.3), rnd(0, 0.5), rnd(-0.3, 0.3))),
   {size:i % 3 ? rnd(0.12, 0.22) : rnd(0.25, 0.4), vx:rnd(-3, 3), vz:rnd(-3, 3), vy:rnd(1.5, 4), g:6, max:1.4, grow:0}); } }
 function skillStep(dt){
@@ -2880,9 +2893,11 @@ function weatherNow(){
   return S.weather.type;
 }
 function badWeather(){ const w = weatherNow(); return w === 'rain' || w === 'storm'; }
+const HAPPY_GAIN = 0.6; let lastHappy = null;
 function sim(m, offline){
   if (S.dead || S.stage === 'egg') return;
   const st = S.st, k = offline ? 0.25 : 1, w = weatherNow();
+  if (lastHappy != null && st.happy > lastHappy) st.happy = lastHappy + (st.happy - lastHappy)*HAPPY_GAIN;   // every boost to mood counts a bit less, so it builds up slowly
   const fBaby = S.stage === 'baby' ? 1.25 : 1, fOld = S.stage === 'ultimate' ? 1.15 : 1, dirty = cleanVal() < 40;
   st.hunger -= 0.7*m*k*fBaby*fOld*(S.form === 'chubby' ? 1.15 : 1);
   st.thirst -= 0.9*m*k*(w==='rain'||w==='storm' ? 0.6 : 1)*fOld;
@@ -2915,6 +2930,7 @@ function sim(m, offline){
       for (let i=0;i<12;i++){ const x = a*PLOT + rnd(-PLOT/2 + 1, PLOT/2 - 1), z = b*PLOT + rnd(-PLOT/2 + 1, PLOT/2 - 1); if (!groundOK(x, z) || world.isBeach(x, z) || world.isMud(x, z) || obstacles().some(o => Math.hypot(o.c.x - x, o.c.z - z) < o.r + 1.2) || Math.hypot(x - pos.x, z - pos.z) < 2.5) continue;
         if (Object.entries(S.place || {}).some(([id, p]) => { const bd = bdef(id); return bd && bd.size && S.builds[id] && cellsOf(bd, p).some(([cx, cz]) => Math.hypot(cx - x, cz - z) < 1.5); })) continue;
         world.addBush(x, z, k); NAV.dirty = true; break; } } }
+  lastHappy = clamp(st.happy, 0, 100);
 }
 function decideForm(next){
   const c = S.care, st = S.st;
@@ -3369,10 +3385,20 @@ function think(dt){
         B.water = null; B.mode = 'idle'; B.timer = 2; spawnHearts(1); track('drink');
       }
       break; }
-    case 'skillGo': {
+    case 'skillGo': {   // a ninja dash: a puff of smoke and leaves, gone, a streak — and it pops up right beside the target
       const k = B.skill; if (!k){ B.mode = 'idle'; break; }
-      const r = walkTo(k.at.x, k.at.z, dt, sp*1.2, k.reach); moving = r.moving;
-      if (r.dist < k.reach + 0.25 || r.arrived || B.timer <= 0){ B.mode = 'skillDo'; k.t = 0; }
+      if (!k.tp){ const d = V3(pos.x - k.at.x, 0, pos.z - k.at.z); if (d.lengthSq() < 1e-4) d.set(0, 0, 1); d.normalize(); let dest = null;
+        for (const a of [0, 0.6, -0.6, 1.2, -1.2, 2, -2, Math.PI]){ const dd = d.clone().applyAxisAngle(V3(0, 1, 0), a), q = V3(k.at.x + dd.x*(k.reach + 0.1), 0, k.at.z + dd.z*(k.reach + 0.1));
+          if (groundOK(q.x, q.z) && !world.isWater(q.x, q.z) && !inBuild(q.x, q.z, 0.3)){ dest = q; break; } }
+        k.tp = {t:0, from:pos.clone(), dest, walk:!dest}; if (dest){ ninjaPuff(pos); sfx('whoosh'); } }
+      const tp = k.tp;
+      if (tp.walk){ const r = walkTo(k.at.x, k.at.z, dt, sp*1.2, k.reach); moving = r.moving;   // nowhere to land: walk over as before
+        if (r.dist < k.reach + 0.25 || r.arrived || B.timer <= 0){ B.mode = 'skillDo'; k.t = 0; } break; }
+      tp.t += dt;
+      if (tp.t > 0.1 && root.visible && !tp.moved){ root.visible = false; shadow.g.visible = false; }
+      if (tp.t > 0.16 && !tp.moved){ tp.moved = true; ninjaStreak(tp.from, tp.dest); pos.x = tp.dest.x; pos.z = tp.dest.z; root.rotation.y = Math.atan2(k.at.x - pos.x, k.at.z - pos.z); }
+      if (tp.t > 0.3 && !tp.shown){ tp.shown = true; root.visible = true; shadow.g.visible = true; ninjaPuff(pos); sfx('pop'); vel.y = 2.2; }
+      if (tp.t > 0.55){ B.mode = 'skillDo'; k.t = 0; }
       break; }
     case 'skillDo': skillStep(dt); moving = true; break;
     case 'graze': {
@@ -4415,6 +4441,7 @@ if (!S.world.trim){ S.world.trim = 1; const keep = id => (id*2654435761 >>> 0) %
   S.world.feats = S.world.feats.filter(d => world.isOpenKey(d.p) || keep(d.id)); S.world.feats.forEach(d => { if (d.k === 'rock') d.s = +(d.s*0.72).toFixed(2); });
   S.trees = S.trees.filter((t, i) => !t.p || world.isOpenKey(t.p) || i % 3 !== 0); }
 if (!S.world.forestMore){ S.world.forestMore = 1; S.trees.push(...world.moreTrees(BIO.forest, 9, S.trees)); }   // the deer forest is thick with trees
+if (!S.world.meadowed){ S.world.meadowed = 1; S.trees = S.trees.filter((t, i) => t.p !== BIO.meadow || i % 4 === 0); }   // the flower meadow is open, with just a few trees
 seedWorldNature();
 // even out what there is to clear: every plot gets 4–7 rocks and bushes (once; cleared ones don't come back)
 if (!S.world.balanced){ S.world.balanced = 1; const taken = (x, z, r) => S.trees.some(t => Math.hypot(t.x - x, t.z - z) < r + 1.6) || Math.hypot(x - pos.x, z - pos.z) < 2;

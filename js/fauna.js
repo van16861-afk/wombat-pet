@@ -36,7 +36,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
   const P = D.bio.pond, pads = [], stones = [];
   { const padGeo = new THREE.CircleGeometry(0.42, 18, 0.35, Math.PI*2 - 0.35); padGeo.rotateX(-Math.PI/2);
     const padM = mat('#4f8f3a', 0.6), lotus = mat('#f2a6be', 0.5), lotusC = mat('#f3d250', 0.5);
-    for (let i=0;i<16;i++){ const a = rnd(0, 6.28), r = Math.sqrt(Math.random())*(P.r - 0.8), x = P.x + Math.cos(a)*r, z = P.z + Math.sin(a)*r;
+    for (let i=0, nPads = Math.min(40, Math.round(16*(P.r/5)**2)); i<nPads; i++){ const a = rnd(0, 6.28), r = Math.sqrt(Math.random())*(P.r - 0.8), x = P.x + Math.cos(a)*r, z = P.z + Math.sin(a)*r;
       if (pads.some(p => Math.hypot(p.x - x, p.z - z) < 0.9)) continue;
       const g = new THREE.Group(), m = new THREE.Mesh(padGeo, padM); m.scale.setScalar(rnd(0.8, 1.4)); g.add(m);
       if (Math.random() < 0.35){ const f = new THREE.Group(); for (let k=0;k<6;k++){ const p = ball(0.09, lotus, 0.5, 1, 0.3); p.position.set(Math.cos(k)*0.06, 0.08, Math.sin(k)*0.06); p.rotation.set(Math.sin(k)*0.5, 0, Math.cos(k)*0.5); f.add(p); }
@@ -252,16 +252,16 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
     _q2.setFromAxisAngle(_Y, ang); b.quaternion.premultiply(_q.clone().invert().multiply(_q2).multiply(_q)); };   // a turn about the world's up axis, in the bone's own frame
   function realPost(a, dt){
     const u = a.g.userData;
-    if (u.act && u.act.timeScale === 0){   // a held pose (no standing clip of its own): keep it alive — looking about, tail swishing
-      if (Math.abs(a.look || 0) < 0.05) a.look = Math.sin(a.t*0.45 + (a.idx_ || 0))*0.6;
-      turnY(u.tail, Math.sin(a.t*1.6 + (a.idx_ || 0))*0.3); }
-    a.lookK = (a.lookK || 0) + (clamp(a.look || 0, -1, 1) - (a.lookK || 0))*Math.min(1, dt*4);
-    turnY(u.head, a.lookK);
+    if (u.act && u.act.timeScale === 0){   // a held pose (no standing clip of its own): keep it alive — looking about, a lazy tail swish
+      if (Math.abs(a.look || 0) < 0.05) a.look = Math.sin(a.t*0.35 + (a.idx_ || 0))*0.45;
+      (u.tails || []).forEach((b, i) => turnY(b, Math.sin(a.t*1.1 + (a.idx_ || 0) - i*0.7)*0.1)); }   // a wave running down the tail
+    a.lookK = (a.lookK || 0) + (clamp(a.look || 0, -0.7, 0.7) - (a.lookK || 0))*Math.min(1, dt*2.5);
+    if (u.neck && u.neck !== u.head){ turnY(u.neck, a.lookK*0.4); turnY(u.head, a.lookK*0.6); } else turnY(u.head, a.lookK);   // neck and head share the turn
     if (u.jawBone && u.jaw && u.jaw.rotation.x){ u.jawBone.parent.updateWorldMatrix(true, false); u.jawBone.parent.getWorldQuaternion(_q);
       const side = V3(1, 0, 0).applyQuaternion(a.g.quaternion); _q2.setFromAxisAngle(side, Math.abs(u.jaw.rotation.x));
       u.jawBone.quaternion.premultiply(_q.clone().invert().multiply(_q2).multiply(_q)); }
   }
-  const lookAt = (a, x, z) => { a.look = wrapA(Math.atan2(x - a.g.position.x, z - a.g.position.z) - a.g.rotation.y); };
+  const lookAt = (a, x, z) => { const d = wrapA(Math.atan2(x - a.g.position.x, z - a.g.position.z) - a.g.rotation.y); a.look = Math.abs(d) < 1.6 ? d : 0; };   // only what is in front: no whipping round to look behind
   const legSwing = (a, amp, speed) => { if (isReal(a)) return; for (const n of ['FL', 'FR', 'BL', 'BR']){ const l = a.g.getObjectByName(a.kind + '_leg' + n); if (l) l.rotation.x = Math.sin(a.t*speed + (n[0] === 'F' ? 0 : Math.PI) + (n[1] === 'L' ? 0 : Math.PI*0.5))*amp; } };
   const onHigh = (x, z) => world.inBio('high', x, z) && gy(x, z) > D.bio.high.h - 0.6;
   const highSpot = () => { for (let i=0;i<40;i++){ const p = inPlot(BIO.high, 3); if (onHigh(p.x, p.z)) return p; } return inPlot(BIO.high, 4); };
@@ -536,7 +536,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
           if ((a.state === 'prowl' || a.state === 'leave') && a.dest){ moving = !goTo(a, a.dest, a.state === 'leave' ? 2.2 : 0.9, dt, aOK(a), 2.5);
             if (!moving){ if (a.state === 'prowl' && a.timer > 0) a.dest = areaLand(a.area, 3); else { a.state = 'look'; a.timer = rnd(2, 4); } } }   // keeps walking from spot to spot; pauses to look round
           legSwing(a, moving ? 0.45 : 0, a.state === 'leave' ? 9 : 5);
-          if (isReal(a)){ if (pet && petD < 9) lookAt(a, pet.x, pet.z); else if (a.state === 'look') a.look = Math.sin(a.t*0.5)*0.8; p.y = gy(p.x, p.z); break; }
+          if (isReal(a)){ if (pet && petD < 9) lookAt(a, pet.x, pet.z); else if (a.state === 'look') a.look = Math.sin(a.t*0.35)*0.45; p.y = gy(p.x, p.z); break; }
           const lie = a.state === 'rest' ? 1 : 0; a.lie = (a.lie || 0) + clamp(lie - (a.lie || 0), -dt*0.7, dt*0.55);   // slow, like a big cat settling
           { const back = clamp(a.lie*1.9, 0, 1), front = clamp(a.lie*1.9 - 0.9, 0, 1);   // lying down goes rear first (it sits), then the front legs slide forward
             for (const n of ['FL', 'FR', 'BL', 'BR']){ const l = pt(a.g, 'tiger_leg' + n); if (l && a.lie > 0.02) l.rotation.x = n[0] === 'F' ? -1.25*front : 1.3*back; }
