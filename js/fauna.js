@@ -366,7 +366,14 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, lod}){
           break; }
         case 'kangaroo': {
           const body = a.g.userData.body;
-          if (a.state === 'hop'){ body.rotation.x = 0.5; if (stepHop(a, dt)){ if (a.left > 0){ a.left--; const dir = a.to.clone().sub(a.from).setY(0).normalize(); const nx = V3(a.to.x + dir.x*1.4, 0, a.to.z + dir.z*1.4);
+          { const lL = pt(a.g, 'kangaroo_legL'), lR = pt(a.g, 'kangaroo_legR'), tl = pt(a.g, 'kangaroo_tail');   // jointed hop: crouch, kick back, tuck, swing forward, land
+            const u = a.state === 'hop' ? clamp(a.hopT/a.hopDur, 0, 1) : -1;
+            const leg = u < 0 ? 0 : u < 0.2 ? lerp(-0.45, 0.95, u/0.2) : u < 0.7 ? lerp(0.95, -0.55, (u - 0.2)/0.5) : lerp(-0.55, -0.35, (u - 0.7)/0.3);
+            const lean = u < 0 ? 0 : u < 0.2 ? lerp(0.25, 0.75, u/0.2) : u < 0.8 ? 0.75 : lerp(0.75, 0.3, (u - 0.8)/0.2);
+            if (lL){ lL.rotation.x = leg; lR.rotation.x = leg; }
+            if (tl) tl.rotation.x = u < 0 ? Math.sin(a.t*0.8)*0.05 : 0.5*Math.sin(Math.PI*u) - 0.1;   // the tail lifts to balance in the air
+            if (a.state === 'hop') body.rotation.x = lean; }
+          if (a.state === 'hop'){ if (stepHop(a, dt)){ if (a.left > 0){ a.left--; const dir = a.to.clone().sub(a.from).setY(0).normalize(); const nx = V3(a.to.x + dir.x*1.4, 0, a.to.z + dir.z*1.4);
             if (world.inBio('aus', nx.x, nx.z) && !world.isWater(nx.x, nx.z)){ nx.y = gy(nx.x, nx.z); hop(a, nx, 0.45, 0.6); } else a.left = 0; } else { a.state = 'idle'; a.timer = rnd(2, 6); } } break; }
           body.rotation.x += ((Math.sin(a.t*0.35 + a.idx_) > 0.3 ? 0.55 + Math.sin(a.t*5)*0.03 : 0) - body.rotation.x)*Math.min(1, dt*3); body.position.y = Math.sin(a.t*1.3)*0.01;   // leans down to graze
           if (a.timer <= 0 || petD < 3){ a.timer = rnd(2, 6); const away = petD < 3 ? V3(p.x - pet.x, 0, p.z - pet.z).normalize() : V3(rnd(-1, 1), 0, rnd(-1, 1)).normalize();
@@ -448,14 +455,19 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, lod}){
             break; }
           if (a.timer <= 0){ const r_ = Math.random(), deer = F.list.filter(d0 => d0.kind === 'deer' && d0.g.visible && d0.state !== 'caught' && d0.g.position.distanceTo(p) < 16);
             if (deer.length && a.huntCd <= 0 && r_ < 0.4){ a.state = 'stalk'; a.st = 0; a.prey = deer[Math.floor(Math.random()*deer.length)]; }
-            else if (r_ < 0.6){ a.state = 'rest'; a.timer = rnd(8, 16); } else { a.state = 'prowl'; a.timer = rnd(6, 12); a.dest = areaLand(a.area, 3); } }
+            else if (r_ < 0.62){ a.state = 'prowl'; a.timer = rnd(14, 26); a.dest = areaLand(a.area, 3); }   // mostly it patrols its forest
+            else if (r_ < 0.82){ a.state = 'look'; a.timer = rnd(3, 6); }                                        // stands still, ears and head turning
+            else { a.state = 'rest'; a.timer = rnd(14, 26); } }
           let moving = false;
-          if ((a.state === 'prowl' || a.state === 'leave') && a.dest){ moving = !goTo(a, a.dest, a.state === 'leave' ? 2.2 : 0.9, dt, aOK(a), 2.5); if (!moving){ a.state = 'rest'; a.timer = rnd(5, 10); } }
+          if ((a.state === 'prowl' || a.state === 'leave') && a.dest){ moving = !goTo(a, a.dest, a.state === 'leave' ? 2.2 : 0.9, dt, aOK(a), 2.5);
+            if (!moving){ if (a.state === 'prowl' && a.timer > 0) a.dest = areaLand(a.area, 3); else { a.state = 'look'; a.timer = rnd(2, 4); } } }   // keeps walking from spot to spot; pauses to look round
           legSwing(a, moving ? 0.45 : 0, a.state === 'leave' ? 9 : 5);
-          const lie = a.state === 'rest' ? 1 : 0; a.lie = (a.lie || 0) + (lie - (a.lie || 0))*Math.min(1, dt*2);
-          for (const n of ['FL', 'FR', 'BL', 'BR']){ const l = pt(a.g, 'tiger_leg' + n); if (l && a.lie > 0.02) l.rotation.x = (n[0] === 'F' ? -1.25 : 1.3)*a.lie; }   // legs tucked forward/back when lying
+          const lie = a.state === 'rest' ? 1 : 0; a.lie = (a.lie || 0) + clamp(lie - (a.lie || 0), -dt*0.7, dt*0.55);   // slow, like a big cat settling
+          { const back = clamp(a.lie*1.9, 0, 1), front = clamp(a.lie*1.9 - 0.9, 0, 1);   // lying down goes rear first (it sits), then the front legs slide forward
+            for (const n of ['FL', 'FR', 'BL', 'BR']){ const l = pt(a.g, 'tiger_leg' + n); if (l && a.lie > 0.02) l.rotation.x = n[0] === 'F' ? -1.25*front : 1.3*back; }
+            a.g.rotation.x = a.lie > 0.02 ? -0.32*back*(1 - front) : a.g.rotation.x; a.lieY = 0.22*back + 0.18*front; }
           if (head){ const look = pet && petD < 9 ? wrapA(Math.atan2(pet.x - p.x, pet.z - p.z) - a.g.rotation.y) : Math.sin(a.t*0.3)*0.5; head.rotation.y += (clamp(look, -1, 1) - head.rotation.y)*Math.min(1, dt*3); }
-          p.y = gy(p.x, p.z) - a.lie*0.4;
+          p.y = gy(p.x, p.z) - (a.lieY || 0);
           if (pet && petD < 9 && a.state === 'rest' && Math.random() < dt*0.05) sound('roar', p);
           break; }
         case 'crane': {   // wades round the pond edge, probes for food, and now and then dances: wings open, bowing and leaping

@@ -702,11 +702,21 @@ def kangaroo():
     p.add(bm_ball(0.15, at=(0, -0.12, 1.43), scale=(0.9, 1.25, 0.9)), BR, 0.8).add(bm_ball(0.07, at=(0, -0.3, 1.38), scale=(1, 1.2, 0.85)), BR, 0.6)
     for s in (1, -1):
         p.add(bm_ball(0.06, at=(0.08*s, -0.05, 1.62), scale=(0.6, 0.4, 1.7), rot=R(-0.25*s, 3, 'Y')), BR, 0.6)              # ears
-        p.add(bm_ball(0.17, at=(0.16*s, 0.12, 0.45), scale=(0.75, 1.3, 1.25)), BR, 1.0)                                     # thighs
-        p.add(limb((0.16*s, 0.05, 0.3), (0.17*s, -0.05, 0.05), 0.07, 0.05), BR, 0.7).add(limb((0.17*s, 0.05, 0.03), (0.17*s, -0.35, 0.02), 0.05, 0.035), '#8a5a38', 0.4)   # long feet
         p.add(limb((0.12*s, -0.2, 1.08), (0.13*s, -0.32, 0.88), 0.04, 0.03), BR, 0.6)                                       # little arms
-    p.add(limb((0, 0.3, 0.45), (0, 0.85, 0.08), 0.13, 0.05), BR, 0.8)                                                       # tail
+    p.add(bm_ball(0.2, at=(0, 0.12, 0.55), scale=(1.05, 1.0, 0.9)), BR, 1.0)                                              # hips (legs hang from here)
     body = p.build(g, shade=shade)
+    # jointed hind legs (thigh, shin, long foot) turning at the hip, and a thick tail turning at its root: the game animates the hops
+    for s, side in ((1, "L"), (-1, "R")):
+        lg = empty("kangaroo_leg" + side, g, (0.16*s, 0.1, 0.52))
+        lp = Piece("kangaroo_leg%sP_fur" % side, 0.012, target=900)
+        lp.add(bm_ball(0.16, at=(0, 0.02, -0.06), scale=(0.75, 1.3, 1.2)), BR, 1.0)                                      # big thigh
+        lp.add(limb((0, 0.04, -0.2), (0, 0.08, -0.45), 0.075, 0.05), BR, 0.7)                                             # shin
+        lp.add(limb((0, 0.07, -0.48), (0, -0.33, -0.5), 0.055, 0.036), '#8a5a38', 0.4)                                     # long foot
+        lp.build(lg)
+    tl = empty("kangaroo_tail", g, (0, 0.28, 0.48))
+    tp = Piece("kangaroo_tailP_fur", 0.012, target=700)
+    tp.add(limb((0, 0, 0), (0, 0.3, -0.2), 0.12, 0.085), BR, 0.8).add(limb((0, 0.3, -0.2), (0, 0.58, -0.4), 0.085, 0.045), BR, 0.7)
+    tp.build(tl)
     solid("kangaroo_nose", bm_ball(0.03, scale=(1.3, 0.8, 0.9)), mat("Nose", '#1e1612', 0.15), g, (0, -0.37, 1.4), 0)
     eyes("kangaroo", body, g, (0.0, -0.12, 1.43), (0.075, -0.13, 0.05), 0.021, lid=0.32, low=0.14)
     j = empty("kangaroo_joey", g, (0, -0.24, 0.88))
