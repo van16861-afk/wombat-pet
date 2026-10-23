@@ -13,7 +13,7 @@ const wrapA = a => { while (a > Math.PI) a -= 2*Math.PI; while (a < -Math.PI) a 
 const SIDES = [[1, 'L'], [-1, 'R']];
 export const WILD_NAMES = {cicada:'蟬', mantis:'螳螂', longhorn:'天牛', grasshopper:'蚱蜢', cricket:'蟋蟀', fish:'河裡的魚', gull:'海鷗', dolphin:'海豚', whale:'鯨魚', owl:'貓頭鷹', eagle:'老鷹', lizard:'蜥蜴', seafish:'熱帶魚', rabbit:'野兔', beetle:'甲蟲', worm:'蚯蚓'};
 
-export function createWildlife({scene, world, clone, hbMat, fx, lod, mat}){
+export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat}){
   const L = {list:[], pick:[]}, group = new THREE.Group(); scene.add(group);
   const gy = world.gy, shore = world.shoreX;
   const part = (g, n) => { const c = g.userData.parts || (g.userData.parts = {}); if (!(n in c)) c[n] = g.getObjectByName(n) || null; return c[n]; };
@@ -56,7 +56,7 @@ export function createWildlife({scene, world, clone, hbMat, fx, lod, mat}){
   for (let i=0;i<8;i++){ const [b, s, f] = SEA_LOOKS[i % SEA_LOOKS.length], g = clone('fish', {FishBody:b, FishSpot:s, FishFin:f}); if (!g) break; g.scale.setScalar(1.5);
     const z = rnd(Z0 + 4, Z1 - 4); g.position.set(shore(z) + rnd(3.5, 7), WATER_Y - 0.25, z); add('seafish', g, {hit:0.4, tail:part(g, 'fish_tail'), cz:z, cx:g.position.x, ang:rnd(0, 6.28), sp:rnd(0.3, 0.6)}); }
   // owls (night) and eagles (day) use the trees game.js passes in; lizards and some beetles use the rocks
-  for (let i=0;i<2;i++){ const g = clone('owl'); if (!g) break; g.scale.setScalar(1.5); g.visible = false; add('owl', g, {hit:0.5, hitY:0.3, perch:null}); }
+  for (let i=0;i<2;i++){ const g = (real && real('owl')) || clone('owl'); if (!g) break; g.scale.setScalar(g.userData.mixer ? 1 : 1.5); g.visible = false; add('owl', g, {hit:0.5, hitY:0.3, perch:null}); }
   for (let i=0;i<2;i++){ const g = clone('eagle'); if (!g) break; g.scale.setScalar(1.9); g.rotation.order = 'YXZ'; g.position.set(rnd(-20, 10), 12, rnd(-30, 10));
     add('eagle', g, {hit:1.2, state:'soar', cx:rnd(-20, 10), cz:rnd(-30, 10), rad:rnd(7, 12), h:rnd(10, 14), ang:rnd(0, 6.28), timer:rnd(8, 20)}); }
   for (let i=0;i<4;i++){ const g = clone('lizard'); if (!g) break; g.scale.setScalar(2.2); g.visible = false; add('lizard', g, {hit:0.4, rock:null, tail:part(g, 'lizard_tail')}); }
@@ -343,6 +343,11 @@ export function createWildlife({scene, world, clone, hbMat, fx, lod, mat}){
           if (!a.g.visible) break;
           const tr = a.perch; p.set(tr.x + Math.sin(tr.ry || 0)*0.25*tr.s, gy(tr.x, tr.z) + (tr.euc ? 3.25 : 2.85)*tr.s, tr.z + Math.cos(tr.ry || 0)*0.25*tr.s);   // on the treetop
           a.g.rotation.y = Math.atan2(cam.x - p.x, cam.z - p.z);   // owls keep an eye on you
+          const rg = a.g.userData; if (rg.mixer){   // the realistic owl: its own clips — sitting, a long head swivel, hooting
+            if (a.timer <= 0){ a.timer = rnd(4, 9); const r_ = Math.random(); a.clipName = r_ < 0.45 ? 'look' : r_ < 0.7 ? 'hoot' : 'idle'; a.clipT = 0; if (a.clipName === 'hoot') o.onSound && o.onSound('hoot', p); }
+            a.clipT = (a.clipT || 0) + dt; const want = a.clipName && rg.clips[a.clipName] && a.clipT < rg.clips[a.clipName].duration ? a.clipName : 'idle';
+            if (rg.cur !== want){ const ac = rg.mixer.clipAction(rg.clips[want]); ac.reset().fadeIn(0.3).play(); if (rg.act) rg.act.fadeOut(0.3); rg.act = ac; rg.cur = want; }
+            rg.mixer.update(dt); break; }
           const head = part(a.g, 'owl_head'); if (head){ if (a.timer <= 0){ a.timer = rnd(2, 6); a.look = rnd(-1.6, 1.6); if (Math.random() < 0.3) o.onSound && o.onSound('hoot', p); } head.rotation.y += ((a.look || 0) - head.rotation.y)*Math.min(1, dt*4); }
           break; }
         case 'eagle': a.g.visible = !night || a.state === 'perch'; if (!night || a.state !== 'soar') eagle(a, dt, o); break;
@@ -372,7 +377,7 @@ export function createWildlife({scene, world, clone, hbMat, fx, lod, mat}){
     if (k === 'worms') L.list.filter(a => a.kind === 'worm').forEach(a => { a.timer = 0; a.forceWet = true; });
     return e; };
   L.poke = a => {
-    if (a.kind === 'owl') { const h = part(a.g, 'owl_head'); if (h) h.rotation.y = Math.PI*0.9; }
+    if (a.kind === 'owl') { if (a.g.userData.mixer){ a.clipName = 'look'; a.clipT = 0; a.timer = 6; } else { const h = part(a.g, 'owl_head'); if (h) h.rotation.y = Math.PI*0.9; } }
     if (a.kind === 'lizard'){ a.state = 'flee'; a.timer = 0.8; }
     if (a.kind === 'gull' && a.state === 'land'){ a.state = 'up'; a.st = 0; }
     if (a.kind === 'rabbit' && !['hidden', 'gone', 'caught'].includes(a.state)){ a.state = 'flee'; a.hop = null; }

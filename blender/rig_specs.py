@@ -165,3 +165,23 @@ SPECS["flamingo"] = {"src": "flamingo", "budget": 7000, "turn": 90, "clips": _fl
         {"n": f"shin{k}", "p": f"thigh{k}", "h": (0.69, 0.27, 0.06*sg), "t": (0.87, 0.1, 0.06*sg), "zone": lambda f, u, s, sg=sg: f > 0.66 and u < 0.3 and s*sg > -0.02},
         {"n": f"foot{k}", "p": f"shin{k}", "h": (0.87, 0.1, 0.06*sg), "t": (0.99, 0.1, 0.06*sg), "zone": lambda f, u, s, sg=sg: f > 0.84 and s*sg > -0.02})],
 ]}
+
+# ---------------------------------------------------------------- barn owl (Sketchfab "Realistic Barn Owl" by Pigcraft, CC BY 4.0): perches, swivels its head, hoots
+def _owl_clips(lp):
+    idle = [(i/8, {"root": (0.015*math.sin(i/8*2*math.pi), 0, 0), "wingL": (0, 0, 0.03*max(0, math.sin(i/8*4*math.pi))), "wingR": (0, 0, -0.03*max(0, math.sin(i/8*4*math.pi))),
+                   "head": (0.04*math.sin(i/8*2*math.pi + 1), 0.15*math.sin(i/8*2*math.pi), 0)}) for i in range(9)]
+    turn = lambda y: {"neck": (0, 0.3*y, 0), "head": (0, 0.7*y, 0)}
+    look = [(0, {}), (0.12, turn(1.5)), (0.42, turn(1.55)), (0.55, turn(-1.5)), (0.85, turn(-1.55)), (1.0, {})]   # owls swivel a long way round
+    hoot = [(0, {}), (0.2, {"head": (0.2, 0, 0), "neck": (0.1, 0, 0)}), (0.35, {}), (0.55, {"head": (0.2, 0, 0), "neck": (0.1, 0, 0)}), (0.7, {}), (1.0, {})]
+    return {"idle": (4.0, idle), "look": (5.0, look), "hoot": (1.6, hoot)}
+SPECS["owl"] = {"src": "owl", "budget": 7000, "clips": _owl_clips, "bones": [
+    {"n": "root", "h": (0.45, 0.27, 0), "t": (0.3, 0.59, 0)},
+    {"n": "neck", "p": "root", "h": (0.3, 0.59, 0), "t": (0.28, 0.69, 0), "zone": lambda f, u, s: u > 0.55 and f < 0.5},
+    {"n": "head", "p": "neck", "h": (0.28, 0.69, 0), "t": (0.01, 0.78, 0), "zone": lambda f, u, s: u > 0.64 and f < 0.48},
+    {"n": "tail", "p": "root", "h": (0.8, 0.2, 0), "t": (0.99, 0.14, 0), "zone": lambda f, u, s: f > 0.78 and u < 0.3},
+    {"n": "wingL", "p": "root", "h": (0.34, 0.6, 0.75), "t": (0.93, 0.18, 0.75), "zone": lambda f, u, s: s > 0.45 and u < 0.66},
+    {"n": "wingR", "p": "root", "h": (0.34, 0.6, -0.75), "t": (0.93, 0.18, -0.75), "zone": lambda f, u, s: s < -0.45 and u < 0.66},
+    *[b for k, sg in (("L", 1), ("R", -1)) for b in (
+        {"n": f"shin{k}", "p": "root", "h": (0.41, 0.26, 0.3*sg), "t": (0.41, 0.09, 0.3*sg), "zone": lambda f, u, s, sg=sg: u < 0.2 and s*sg > -0.05},
+        {"n": f"foot{k}", "p": f"shin{k}", "h": (0.41, 0.09, 0.3*sg), "t": (0.28, 0.02, 0.3*sg), "zone": lambda f, u, s, sg=sg: u < 0.08 and s*sg > -0.05})],
+]}
