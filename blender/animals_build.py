@@ -1205,10 +1205,14 @@ def crane():
     bird_legs("crane", g, (0.06, 0.02, 0.98), 0.5, 0.016, 0.011, '#2e2e30', toe=0.075)
     for s_, side in ((1, "L"), (-1, "R")):   # a long broad wing (white, black secondaries along the trailing edge); folded back along the body at rest
         w = empty("crane_wing" + side, g, (0.12*s_, -0.05, 1.08))
-        wp = Piece("crane_wing%s_feather" % side, 0.009, target=900)
-        wp.add(bm_tube([(0.0, 0.1, 0.03, 0), (0.18, 0.16, 0.026, 0), (0.42, 0.17, 0.02, 0), (0.62, 0.13, 0.016, 0), (0.78, 0.06, 0.01, 0)], axis='X', at=(0, 0.1, 0)), WH, 1.0)
-        for k in range(6): wp.add(bm_ball(0.03, at=(0.62 + k*0.03, 0.06 + k*0.012, 0), scale=(2.4, 0.8, 0.3)), BK, 0.8)   # black primary tips
+        wp = Piece("crane_wing%s_feather" % side, 0.009, target=700)          # inner wing (shoulder to wrist): white with black secondaries trailing
+        wp.add(bm_tube([(0.0, 0.1, 0.03, 0), (0.18, 0.16, 0.026, 0), (0.4, 0.17, 0.022, 0), (0.44, 0.16, 0.02, 0)], axis='X', at=(0, 0.1, 0)), WH, 1.0)
         wo = wp.build(w, shade=lambda co, c, f: (mixc(c, lin(BK), sstep(0.17, 0.24, co.y)*sstep(0.1, 0.25, co.x)), f)); wo.scale.x = s_
+        h = empty("crane_hand" + side, w, (0.42*s_, 0, 0))                        # outer wing ("hand"), turning at the wrist so the tip lags behind each beat
+        hp = Piece("crane_hand%s_feather" % side, 0.009, target=600)
+        hp.add(bm_tube([(0.0, 0.16, 0.02, 0), (0.2, 0.13, 0.016, 0), (0.36, 0.06, 0.01, 0)], axis='X', at=(0, 0.1, 0)), WH, 1.0)
+        for k in range(6): hp.add(bm_ball(0.03, at=(0.2 + k*0.03, 0.06 + k*0.012, 0), scale=(2.4, 0.8, 0.3)), BK, 0.8)   # black primary tips
+        ho = hp.build(h); ho.scale.x = s_
     return g
 
 # ---------- Formosan macaque (grey-brown fur, pinkish bare face, short tail; sits on branches, walks on all fours) ----------
