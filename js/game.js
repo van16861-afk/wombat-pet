@@ -65,7 +65,7 @@ const sun = new THREE.DirectionalLight(0xffffff, 0.75*LI); sun.position.copy(L).
 const art = createGhibli({renderer, scene, camera, mobile});
 function setArt(v){ art.set(v !== 'plain');
   if (art.on){ hemi.color.set('#eef4ff'); hemi.groundColor.set('#55776a'); } else { hemi.color.set(0xfff8ec); hemi.groundColor.set(0x6d7562); }   // cool blue-green shade under leaves and bellies
-  if (world && world.tufts) world.tufts.material.color.set(art.on ? '#b4dc84' : '#ffffff'); }   // meadow-green grass blades instead of straw
+  if (world && world.tufts) world.tufts.material.color.set('#ffffff'); }
 
 // ---------- canvas textures ----------
 function canvasTex(w, h, draw){ const cv = document.createElement('canvas'); cv.width = w; cv.height = h; draw(cv.getContext('2d'), w, h); return new THREE.CanvasTexture(cv); }
@@ -1610,7 +1610,12 @@ function cleanPoop(c){
 
 const weeds = [], fxPull = [];
 const bladeGeo = new THREE.ConeGeometry(0.04, 0.42, 4); bladeGeo.translate(0,0.21,0);
-const weedMats = [mat('#4c6b35'), mat('#5f7f3e'), mat('#3f5c2c')];
+const weedMats = [mat('#2f5a24'), mat('#3d6b2b'), mat('#28501f')];   // darker than the meadow so weeds stand out
+const weedLeafGeo = (() => { const g = new THREE.SphereGeometry(0.11, 8, 5); g.scale(0.55, 0.12, 1.9); g.translate(0, 0.02, 0.2); return g; })();   // long jagged-ish leaf lying out from the centre
+const weedStalkGeo = (() => { const g = new THREE.CylinderGeometry(0.012, 0.018, 0.62, 5); g.translate(0, 0.31, 0); return g; })();
+const weedFlowerGeo = (() => { const g = new THREE.SphereGeometry(0.075, 10, 6); g.scale(1, 0.55, 1); return g; })();
+const weedPuffGeo = new THREE.IcosahedronGeometry(0.085, 1), weedThistleGeo = new THREE.SphereGeometry(0.06, 8, 6);
+const weedYellow = mat('#f2c531', 0.6), weedPuff = new THREE.MeshStandardMaterial({color:'#f4f2ea', roughness:0.9, transparent:true, opacity:0.9}), weedPurple = mat('#9a5fb4', 0.7);
 // Litter that belongs to a special area: it grows or washes up there and can be cleared like weeds (a little more money).
 const LITTER = {
   tumble:{name:'風滾草', where:'aus'}, branch:{name:'枯樹枝', where:'forest'}, scree:{name:'碎石堆', where:'high'}, thorn:{name:'帶刺灌木', where:'savanna'},
@@ -1636,11 +1641,14 @@ function makeWeed(x, z, s, kind){
   if (kind && LITTER[kind]){ g.add(litterMesh(kind)); const y = LITTER[kind].still ? WATER_Y + 0.01 : gy(x, z); g.position.set(x, y, z); g.scale.setScalar(s); g.rotation.y = rnd(0, 6.28); scene.add(g);
     const hb = new THREE.Mesh(new THREE.SphereGeometry(0.45, 8, 6), hbMat); hb.position.y = 0.2; hb.userData.kind = 'weed'; g.add(hb);
     const w = {g, x, z, s, hb, kind}; hb.userData.ref = w; weeds.push(w); return w; }
-  for (let i=0;i<6;i++){ const b = new THREE.Mesh(bladeGeo, weedMats[i%3]); b.position.set(rnd(-0.1,0.1),0,rnd(-0.1,0.1)); b.rotation.set(rnd(-0.6,0.6),0,rnd(-0.6,0.6)); b.scale.y = rnd(0.6,1.3); g.add(b); }
-  if (Math.random() < 0.35){ const f = new THREE.Mesh(new THREE.SphereGeometry(0.06,8,6), mat('#f3d250',0.6)); f.position.set(0,0.42,0); g.add(f); }
-  g.position.set(x, gy(x, z), z); g.scale.setScalar(s); scene.add(g);
+  const n = 7 + Math.floor(Math.random()*3), a0 = rnd(0, 6.28);
+  for (let i=0;i<n;i++){ const l = new THREE.Mesh(weedLeafGeo, weedMats[i%3]), a = a0 + i/n*Math.PI*2; l.rotation.set(0, a, 0); l.rotateX(-rnd(0.25, 0.6)); l.scale.setScalar(rnd(0.8, 1.2)); g.add(l); }   // the leaf rosette
+  const sp = Math.random(), stalk = new THREE.Mesh(weedStalkGeo, weedMats[1]); stalk.rotation.z = rnd(-0.15, 0.15); g.add(stalk);
+  const top = new THREE.Mesh(sp < 0.45 ? weedFlowerGeo : sp < 0.8 ? weedPuffGeo : weedThistleGeo, sp < 0.45 ? weedYellow : sp < 0.8 ? weedPuff : weedPurple);
+  top.position.set(-Math.sin(stalk.rotation.z)*0.62, Math.cos(stalk.rotation.z)*0.62, 0); g.add(top);
+  g.position.set(x, gy(x, z), z); g.scale.setScalar(s*1.45); scene.add(g);   // weeds are drawn bigger than their saved size
   const hb = new THREE.Mesh(new THREE.SphereGeometry(0.4,8,6), hbMat); hb.position.y = 0.2; hb.userData.kind = 'weed'; g.add(hb);
-  const w = {g, x, z, s, hb}; hb.userData.ref = w; weeds.push(w); return w;
+  const w = {g, x, z, s, vs:s*1.45, hb}; hb.userData.ref = w; weeds.push(w); return w;
 }
 // tumbleweeds roll slowly across the outback in the wind
 function rollTumbleweeds(dt){
@@ -1677,7 +1685,7 @@ function spawnWeed(){
 function pullWeed(w){
   if (!weeds.includes(w)) return;
   weeds.splice(weeds.indexOf(w),1); S.care.nature = (S.care.nature || 0) + 1; w.hb.userData.kind = null; track('weed');
-  const hand = makeHand(), at = w.g.position.clone(), top = 0.5*w.s;
+  const hand = makeHand(), at = w.g.position.clone(), top = 0.5*(w.vs || w.s);
   hand.rotation.y = Math.atan2(camera.position.x - at.x, camera.position.z - at.z) + Math.PI; const base = at.y; hand.position.set(at.x, base + 1.8, at.z); scene.add(hand);
   tools.push({t:0, dur:1.25, update(t){
     if (t < 0.35) hand.position.y = base + lerp(1.8, top + 0.12, ease(t/0.35));                         // reach down
@@ -1685,7 +1693,7 @@ function pullWeed(w){
     else { const u = ease(clamp((t-0.5)/0.6, 0, 1)); hand.position.y = base + lerp(top + 0.12, 1.9, u);   // yank it out
       w.g.position.y = hand.position.y - top - 0.12; w.g.rotation.z = Math.sin(t*30)*0.15*(1-u);
       if (!this.popped){ this.popped = true; sfx('pop'); addCoins(w.kind ? 3 : 2, at.clone().add(V3(0,0.6,0))); if (w.kind) track('litter'); } }
-    if (t > 1.0){ const f = Math.max(0.01, 1 - (t-1.0)/0.25); hand.scale.setScalar(f); w.g.scale.setScalar(w.s*f); }
+    if (t > 1.0){ const f = Math.max(0.01, 1 - (t-1.0)/0.25); hand.scale.setScalar(f); w.g.scale.setScalar((w.vs || w.s)*f); }
   }, done(){ scene.remove(hand, w.g); }});
 }
 // The clean button (without the one-tap upgrade) points out every poop and weed with a big bobbing marker for a while,
@@ -3204,7 +3212,7 @@ function think(dt){
       if (!f || !foods.includes(f)){ B.mode = 'idle'; B.timer = 1.5; break; }
       const fi = foodInfo(f.kind || 'grass');
       f.eat -= dt/2.6; f.g.scale.setScalar(Math.max(0.05, f.eat));
-      st.hunger = clamp(st.hunger + fi.hunger*dt/2.6, 0, 100);
+      st.hunger = clamp(st.hunger + fi.hunger*FILL*dt/2.6, 0, 100);
       B.nomT -= dt; if (B.nomT <= 0){ B.nomT = 0.38; sfx('nom'); }
       if (f.eat <= 0){
         scene.remove(f.g, f.sh.g); foods.splice(foods.indexOf(f),1); B.food = null;
@@ -3229,7 +3237,7 @@ function think(dt){
       break; }
     case 'drink': {
       const di_ = foodInfo(bowl && (bowl.kind !== 'water' || !BG.pond || pondBad()) ? bowl.kind : 'water');
-      st.thirst = clamp(st.thirst + di_.thirst*dt/2.4, 0, 100);
+      st.thirst = clamp(st.thirst + di_.thirst*FILL*dt/2.4, 0, 100);
       if (B.timer <= 0) foodBonus({...di_, thirst:0});   // the thirst was already added while drinking
       B.nomT -= dt; if (B.nomT <= 0){ B.nomT = 0.45; sfx('drink'); }
       if (bowl && (bowl.kind !== 'water' || !BG.pond || pondBad())){ bowl.left -= dt/2.4; bowl.w.position.y = 0.06 + 0.11*Math.max(0, bowl.left); }
@@ -3247,7 +3255,7 @@ function think(dt){
       break; }
     case 'skillDo': skillStep(dt); moving = true; break;
     case 'graze': {
-      st.hunger = clamp(st.hunger + dt*0.9, 0, 100); B.nomT -= dt; if (B.nomT <= 0){ B.nomT = 0.6; sfx('nom'); }
+      st.hunger = clamp(st.hunger + dt*0.35, 0, 100); B.nomT -= dt; if (B.nomT <= 0){ B.nomT = 0.6; sfx('nom'); }
       if (Math.random() < dt*0.4) floatSprite(radialTex('rgba(120,170,80,0.9)', 'rgba(120,170,80,0)'), headTop().add(V3(rnd(-0.3, 0.3), -0.9*petS, rnd(-0.3, 0.3))), {size:0.15, vy:0.6, max:0.6, grow:0});
       if (B.timer <= 0){ B.mode = 'idle'; B.timer = rnd(2, 4); if (Math.random() < 0.45) S.poopQ.push(rnd(1.5, 4)); }
       break; }
@@ -3477,6 +3485,8 @@ function updateWorld(dt, t){
 }
 
 // ---------- HUD ----------
+// a meal or a drink fills up a bit over half of its listed amount (it filled the bars up too fast)
+const FILL = 0.55;
 const STAT_DEFS = [['hunger','飽足'],['thirst','水分'],['happy','心情'],['energy','體力'],['clean','清潔'],['health','健康'],['aff','親暱']];
 const statsEl = $('#stats');
 statsEl.innerHTML = STAT_DEFS.map(([k,l]) => `<div class="stat"><span>${l}</span><div class="track"><div class="fill" id="f_${k}"></div></div><span class="num" id="n_${k}"></span></div>`).join('')

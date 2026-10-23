@@ -83,6 +83,7 @@ export function createWildlife({scene, world, clone, hbMat, fx, lod, mat}){
   // A plot never has more than two kinds of insect at once.
   for (const [k, hab, n] of [['cicada', 'tree', 3], ['longhorn', 'tree', 2], ['mantis', 'bush', 4], ['grasshopper', 'ground', 4], ['cricket', 'ground', 3]])
     for (let i=0;i<n;i++){ const g = clone('bug_' + k); if (!g) break; g.scale.setScalar(2.6); g.rotation.order = 'YXZ'; g.visible = false;
+      if (k === 'mantis') g.scale.setScalar(3.6);   // bigger, so it can be spotted on a green bush
       add(k, g, {hit:0.3, hitY:0.05, bug:true, sp:k, hab, onTree:hab === 'tree', spot:null, state:'away', timer:rnd(0, 3)}); }
   // earthworms come up after rain (built here: a soft tube that wriggles in the vertex shader)
   const wormGeo = new THREE.CylinderGeometry(0.022, 0.022, 0.4, 8, 24, false); wormGeo.rotateZ(Math.PI/2);

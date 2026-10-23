@@ -334,18 +334,18 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
   }
 
   // --- grass tufts on the grassy parts ---
-  const GRASS_COLS = ['#cfd391', '#d9d199', '#c4cb8a', '#e0d7a2', '#bcc684'];   // straw-coloured tufts (green ones looked like weeds)
+  const GRASS_COLS = ['#a9d86b', '#9ed062', '#b8e27c', '#c4e88c', '#94c95c', '#b0dc74'];   // fresh light-green meadow grass (weeds are now dark broad-leaf plants, so these can be green)
   let tufts = null;
   function buildTufts(R){
     const blade = (a, tilt, h) => { const g = new THREE.ConeGeometry(0.028, h, 3); g.translate(0, h/2, 0); g.rotateZ(tilt); g.rotateY(a); return g; };
-    const geo = mergeGeometries([blade(0, 0.25, 0.3), blade(2.1, 0.3, 0.24), blade(4.2, 0.2, 0.34), blade(1.0, -0.15, 0.22)]);
-    const N = mobile ? 5500 : 13000, M = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color(), list = [];
+    const geo = mergeGeometries([blade(0, 0.25, 0.32), blade(2.1, 0.3, 0.26), blade(4.2, 0.2, 0.36), blade(1.0, -0.15, 0.24), blade(3.1, 0.35, 0.3), blade(5.2, -0.3, 0.28)]);
+    const N = mobile ? 7500 : 17000, M = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color(), list = [];
     for (let k=0; k<N*3 && list.length < N; k++){
       const x = lerp(X0 - 3, X1 + 3, R()), z = lerp(Z0 - 3, Z1 + 3, R());
       if (W.isWater(x, z) || surf(x, z)[1] < 0.75) continue; list.push([x, z]); }
     { const [cx, cz] = plotCenter(BIO.savanna), n = mobile ? 1600 : 3400; let c = 0;   // the grassland: tall golden grass everywhere
       for (let k=0; k<n*3 && c < n; k++){ const x = cx + (R() - 0.5)*PLOT, z = cz + (R() - 0.5)*PLOT; if (W.isWater(x, z) || surf(x, z)[1] < 0.6) continue; list.push([x, z, 1]); c++; } }
-    { const p = geo.attributes.position, c = new Float32Array(p.count*3); for (let i=0;i<p.count;i++){ const k = 0.5 + 0.5*clamp(p.getY(i)/0.34, 0, 1); c[i*3] = k; c[i*3+1] = k; c[i*3+2] = k*0.92; } geo.setAttribute('color', new THREE.BufferAttribute(c, 3)); }   // darker at the root, light at the tip
+    { const p = geo.attributes.position, c = new Float32Array(p.count*3); for (let i=0;i<p.count;i++){ const k = 0.62 + 0.5*clamp(p.getY(i)/0.36, 0, 1); c[i*3] = k; c[i*3+1] = k; c[i*3+2] = k*0.85; } geo.setAttribute('color', new THREE.BufferAttribute(c, 3)); }   // darker at the root, light at the tip
     const m = new THREE.InstancedMesh(geo, swaying(new THREE.MeshLambertMaterial({vertexColors:true}), 0.34, 0.2, 0.75), list.length);
     list.forEach(([x, z, tall], i) => { const s = 0.7 + R()*0.6, sy = tall ? 1.5 + R()*0.9 : 0.8 + R()*0.4; M.compose(V3(x, H(x, z) - 0.02, z), q.setFromAxisAngle(V3(0, 1, 0), R()*6.28), V3(s*(tall ? 1.3 : 1), s*sy, s*(tall ? 1.3 : 1))); m.setMatrixAt(i, M);
       m.setColorAt(i, col.set(tall ? ['#e2cf86', '#d8c27a', '#e8d898', '#cdb56c'][i % 4] : GRASS_COLS[i % GRASS_COLS.length]).multiplyScalar((0.85 + R()*0.15)*(W.isOpen(x, z) || !inWorld(x, z) ? 1 : 0.8))); });

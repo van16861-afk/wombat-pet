@@ -40,7 +40,7 @@ const skyMat = new THREE.ShaderMaterial({
 // --- the painting pass ---
 const PaintShader = {
   defines:{R:3},
-  uniforms:{tDiffuse:{value:null}, tDepth:{value:null}, uRes:{value:new THREE.Vector2(1, 1)}, uAmt:{value:0.92}, uNight:{value:0}, uTime:{value:0}, uCover:{value:0.5},
+  uniforms:{tDiffuse:{value:null}, tDepth:{value:null}, uRes:{value:new THREE.Vector2(1, 1)}, uAmt:{value:0.8}, uNight:{value:0}, uTime:{value:0}, uCover:{value:0.5},
     uInvProj:{value:new THREE.Matrix4()}, uCamWorld:{value:new THREE.Matrix4()}},
   vertexShader:`varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position, 1.0); }`,
   fragmentShader:NOISE + `
@@ -61,7 +61,7 @@ const PaintShader = {
       vec3 c = clamp(mix(src, paint, uAmt), 0.0, 1.0);
       // faint ink edges where the brightness changes sharply
       float l0 = dot(tx(vec2(-1, 0)), vec3(0.33)) - dot(tx(vec2(1, 0)), vec3(0.33)), l1 = dot(tx(vec2(0, -1)), vec3(0.33)) - dot(tx(vec2(0, 1)), vec3(0.33));
-      c *= 1.0 - smoothstep(0.08, 0.35, length(vec2(l0, l1)))*0.22;
+      c *= 1.0 - smoothstep(0.1, 0.4, length(vec2(l0, l1)))*0.12;
       // soft cloud shadows drifting across the land (world position rebuilt from the depth buffer)
       float z = texture2D(tDepth, vUv).x;
       if (z < 0.9999){ vec4 vp = uInvProj*vec4(vUv*2.0 - 1.0, z*2.0 - 1.0, 1.0); vp /= vp.w; vec3 wp = (uCamWorld*vp).xyz;
@@ -77,9 +77,8 @@ const PaintShader = {
       lum = dot(c, vec3(0.299, 0.587, 0.114)); c = clamp(mix(vec3(lum), c, 1.32), 0.0, 1.0);
       // watercolour paper: low-frequency blotches plus fine grain
       vec2 px = vUv*uRes;
-      float bl = fbm(px/70.0), bl2 = fbm(px/18.0 + 31.0);
-      c *= 0.95 + 0.08*bl + 0.04*(bl2 - 0.5) + 0.025*(h21(px) - 0.5);
-      c = mix(c, c*c*1.25, smoothstep(0.55, 0.8, bl)*0.18);   // darker pigment pooling in places, like wet washes drying
+      float bl = fbm(px/160.0);
+      c *= 0.985 + 0.03*bl + 0.008*(h21(px) - 0.5);   // only a faint paper feel (stronger grain and pooling read as dirt)
       // soft vignette
       vec2 q = vUv - 0.5; c *= 1.0 - dot(q, q)*0.35;
       gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
