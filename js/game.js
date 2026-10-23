@@ -2,6 +2,7 @@
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import { cloud } from './cloud.js';
 import { createGhibli } from './ghibli.js';
 import { createFauna, SPECIES } from './fauna.js';
@@ -208,6 +209,12 @@ ldStep('載入模型 0 / 5', 0.08);
 const draco = new DRACOLoader().setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/libs/draco/gltf/');   // animals and trees are Draco-compressed
 const LOADS = Object.fromEntries(['wombat', 'props', 'animals', 'trees', 'nature'].map(n => [n, ldTrack(new GLTFLoader().setDRACOLoader(draco).loadAsync(`assets/models/${n}.glb`))]));
 Object.values(LOADS).forEach(pr => pr.catch(() => {}));
+// Realistic rigged animals (Sketchfab, converted by blender/real_build.py; authors in assets/models/CREDITS.md). Each has its own
+// skeleton and clips (walk, run, graze, lie down...). `yaw` turns the model to face +Z; `like` is the old model whose size it takes.
+const REAL_CFG = {tiger:{yaw:Math.PI/2, like:'tiger', k:1.15}, deer:{like:'deer', k:1.45, parts:{antlers:'Chifre'}}, wolf:{like:'wolf', k:1.05},
+  moose:{like:'deer', k:1.9, parts:{antlers:'M_Moose_Antler'}}, horse:{like:'horse', k:1.25}, croc:{like:'croc', bright:1.8}};
+const REAL_LOADS = Object.fromEntries(Object.keys(REAL_CFG).map(n => [n, new GLTFLoader().setDRACOLoader(draco).loadAsync(`assets/models/real/${n}.glb`)]));
+Object.values(REAL_LOADS).forEach(pr => pr.catch(() => {}));
 let gltf;
 try { gltf = await LOADS.wombat; }
 catch(e){ $('#petSub').textContent = '袋熊模型載入失敗，請重新整理頁面。'; console.error(e); return; }
@@ -390,6 +397,39 @@ function animalClone(name, recolor){
   if (!ANIM[name]) return null; const c = ANIM[name].clone(true);
   if (recolor) c.traverse(o => { if (o.isMesh && recolor[o.material.name]){ o.material = o.material.clone(); o.material.color.set(recolor[o.material.name]); } });
   return c;
+}
+const REAL = {};
+for (const [n, pr] of Object.entries(REAL_LOADS)){
+  try { const g = await pr, cfg = REAL_CFG[n];
+    g.scene.traverse(o => { if (!o.isMesh) return; const s = o.material;   // textures arrive as colour data: keep them as display values like the rest of the scene
+      if (s.map){ s.map.colorSpace = THREE.NoColorSpace; s.map.needsUpdate = true; }
+      o.material = new THREE.MeshStandardMaterial({name:s.name, map:s.map, color:new THREE.Color(1, 1, 1).multiplyScalar(cfg.bright || 1), roughness:0.85, metalness:0, alphaTest:s.alphaTest || (s.transparent ? 0.5 : 0), side:s.side});
+      o.frustumCulled = false; });   // skinned: the bind-pose bounds don't follow the animation
+    const tmp = new THREE.Group(), box = new THREE.Box3(); g.scene.rotation.y = cfg.yaw || 0; tmp.add(g.scene);
+    // measured on the skeleton in its first walking (or standing) frame: these files keep their scale in the bones, so mesh
+    // bounds say nothing, and some rest poses lie on their side
+    const mx = new THREE.AnimationMixer(g.scene), c0 = g.animations.find(c => c.name === 'walk') || g.animations.find(c => c.name === 'idle') || g.animations[0];
+    if (c0){ mx.clipAction(c0).play(); mx.update(0); }
+    tmp.updateMatrixWorld(true);
+    const v_ = new THREE.Vector3(); tmp.traverse(o => { if (o.isBone) box.expandByPoint(o.getWorldPosition(v_)); });
+    mx.stopAllAction(); mx.uncacheRoot(g.scene);
+    box.min.z -= (box.max.z - box.min.z)*0.06; box.max.z += (box.max.z - box.min.z)*0.06;   // the skin reaches a little past the end bones
+    const old = ANIM[cfg.like] ? new THREE.Box3().setFromObject(ANIM[cfg.like], true) : null;
+    const s = (old ? (old.max.z - old.min.z)/(box.max.z - box.min.z) : 1)*(cfg.k || 1);
+    REAL[n] = {g, s, y:-box.min.y*s, x:-(box.min.x + box.max.x)/2*s, z:-(box.min.z + box.max.z)/2*s, cfg}; tmp.remove(g.scene);   // centred on the body, feet on the ground
+  } catch(e){ console.warn(`real/${n}.glb not loaded`, e); }
+}
+// a copy of a realistic animal: an outer group (moved and turned by the behaviour code) holding the scaled model,
+// with userData.mixer / clips for fauna.js and userData.parts for named meshes (antlers)
+function realClone(n){
+  const R = REAL[n]; if (!R) return null;
+  const inner = cloneSkinned(R.g.scene); inner.scale.setScalar(R.s); inner.position.set(R.x, R.y, R.z);
+  const out = new THREE.Group(); out.add(inner);
+  out.userData.mixer = new THREE.AnimationMixer(inner); out.userData.clips = Object.fromEntries(R.g.animations.map(c => [c.name, c])); out.userData.real = n;
+  out.userData.parts = {}; for (const [k, m] of Object.entries(R.cfg.parts || {})) inner.traverse(o => { if (o.isMesh && o.material.name.startsWith(m)) out.userData.parts[k] = o; });
+  inner.traverse(o => { if (o.isBone && /head/i.test(o.name) && !/nub|end/i.test(o.name) && !out.userData.head) out.userData.head = o;
+    if (o.isBone && /jaw/i.test(o.name) && !/end|lip/i.test(o.name) && !out.userData.jawBone) out.userData.jawBone = o; });
+  return out;
 }
 const FISH_LOOKS = [['#f08a3c', '#ffffff', '#f6b26b'], ['#f2efe8', '#e0483a', '#f3c9b0'], ['#e0483a', '#f6d0c0', '#f08a6a'], ['#4f86c6', '#cfe6ff', '#7fb2e0'], ['#f3d250', '#fff6c8', '#f6e08a'], ['#7a8c5a', '#c8d49a', '#a0b07a'], ['#c3ccd6', '#ffffff', '#dfe6ee'], ['#2f3a40', '#e8a33c', '#5a6a70']];
 const fishModel = i => { const [b, s, f] = FISH_LOOKS[i % FISH_LOOKS.length], g = animalClone('fish', {FishBody:b, FishSpot:s, FishFin:f}); return g ? {g, tail:g.getObjectByName('fish_tail')} : null; };
@@ -1476,6 +1516,7 @@ function sfx(name, at){   // `at`: where the sound comes from — quieter the fu
     case 'spout': noiseHit(t, 1.0, 0.25, 'highpass', 1500, out, SND.noiseLong); break;
     case 'scurry': for (let i=0;i<5;i++) noiseHit(t+i*0.04, 0.03, 0.08, 'highpass', 5000, out); break;
     case 'howl': { const g_ = c.createGain(); g_.gain.value = 1; g_.connect(out); o = tone('sine', 420, t, 0.09, 2.4, g_, 0.5); o.frequency.linearRampToValueAtTime(620, t + 0.8); o.frequency.linearRampToValueAtTime(560, t + 1.8); o.frequency.linearRampToValueAtTime(380, t + 2.6); break; }
+    case 'moose': for (let i=0;i<2;i++){ const s = t + i*0.75; o = tone('sawtooth', 150, s, 0.09, 0.62, out, 0.12); o.frequency.exponentialRampToValueAtTime(92, s + 0.55); o = tone('triangle', 300, s, 0.05, 0.5, out, 0.1); o.frequency.exponentialRampToValueAtTime(180, s + 0.45); } break;   // (no free recording found yet) two low nasal grunts
     case 'growl': noiseHit(t, 0.7, 0.18, 'lowpass', 260, out, SND.noiseLong); o = tone('sawtooth', 70, t, 0.05, 0.6, out, 0.1); break;
     case 'capy': for (const d of [0, 0.22]){ o = tone('sine', 620, t + d, 0.06, 0.18, out, 0.03); o.frequency.linearRampToValueAtTime(520, t + d + 0.16); } noiseHit(t, 0.5, 0.03, 'lowpass', 300, out, SND.noiseLong); break;
     case 'hippo': o = tone('sawtooth', 85, t, 0.09, 0.6, out, 0.05); o.frequency.linearRampToValueAtTime(60, t + 0.5); noiseHit(t, 0.5, 0.06, 'lowpass', 250, out, SND.noiseLong); for (const d of [0.7, 0.95, 1.2]) tone('sawtooth', 95, t + d, 0.06, 0.15, out, 0.02); break;
@@ -2099,7 +2140,7 @@ function pickShell(s){
   if (S.shells === 1 || S.shells % 10 === 0) toast(`撿到貝殼了！目前一共撿了 ${S.shells} 個。`);
 }
 let wetUntil = 0;
-const ANIMAL_ICON = {crane:'🦩', monkey:'🐒', cicada:'🪰', mantis:'🦗', longhorn:'🪲', grasshopper:'🦗', cricket:'🦗', horse:'🐎', tiger:'🐅', hippo:'🦛', capybara:'🐹', tortoise:'🐢', snake:'🐍', peacock:'🦚', rabbit:'🐇', beetle:'🪲', worm:'🪱', fish:'🐟', deer:'🦌', wolf:'🐺', gull:'🐦', dolphin:'🐬', whale:'🐋', owl:'🦉', eagle:'🦅', lizard:'🦎', seafish:'🐠', frog:'🐸', dragonfly:'🪰', turtle:'🐢', croc:'🐊', heron:'🪿', beaver:'🦫', kangaroo:'🦘', quokka:'😊', emu:'🦤', koala:'🐨', crab:'🦀'};
+const ANIMAL_ICON = {crane:'🦩', monkey:'🐒', cicada:'🪰', mantis:'🦗', longhorn:'🪲', grasshopper:'🦗', cricket:'🦗', horse:'🐎', tiger:'🐅', hippo:'🦛', capybara:'🐹', tortoise:'🐢', snake:'🐍', peacock:'🦚', rabbit:'🐇', beetle:'🪲', worm:'🪱', fish:'🐟', deer:'🦌', moose:'🫎', wolf:'🐺', gull:'🐦', dolphin:'🐬', whale:'🐋', owl:'🦉', eagle:'🦅', lizard:'🦎', seafish:'🐠', frog:'🐸', dragonfly:'🪰', turtle:'🐢', croc:'🐊', heron:'🪿', beaver:'🦫', kangaroo:'🦘', quokka:'😊', emu:'🦤', koala:'🐨', crab:'🦀'};
 function pokeAnimal(a){
   const k = (a.kind in WILD_NAMES ? wild : fauna).poke(a), first = !stat('meet:' + k);
   track('meet:' + k); if (!a.tappedOnce){ a.tappedOnce = true; track('meetU:' + k); learnSkills(); }   // different animals of a kind (for skills) floatSprite(emojiTex(ANIMAL_ICON[k] || '❗'), a.g.position.clone().add(V3(0, 1.4, 0)), {size:0.55, vy:0.6, max:1.4});
@@ -4028,7 +4069,7 @@ const GUIDE = [
     <rect x="40" y="40" width="70" height="80" rx="8" fill="var(--chip)" stroke="var(--ink)" stroke-width="2"/><rect x="52" y="40" width="46" height="26" fill="var(--ink)" opacity=".8"/><rect x="54" y="88" width="42" height="28" rx="3" fill="var(--line)"/>${T(75,145,'自動存檔',12)}
     <rect x="150" y="60" width="44" height="22" rx="11" fill="#e45b5b"/><rect x="172" y="60" width="22" height="22" rx="11" fill="#f6f3ec"/>${T(172,110,'健康低：餵藥',12)}
     <path d="M250 120 v-38 a20 20 0 0 1 40 0 v38z" fill="#a3a59d"/><circle cx="258" cy="122" r="4" fill="#e0607e"/><circle cx="282" cy="122" r="4" fill="#f3d250"/>${T(270,145,'告別後孵新蛋',12)}`),
-    html:`<ul><li>進度每 5 秒自動存在<b>這台裝置</b>裡；到「設定」用 Google 登入後，還會同步到<b>雲端</b>，電腦和手機可以接著玩。離開期間的時間也會算進去。</li><li>你不在的時候牠最多只會變得很虛弱，不會因為沒人照顧而死掉；但年紀還是會增加。</li><li>健康低於 35 會生病，按畫面下方的「餵藥」（10 代幣）。</li><li>牠走完一生或病死之後，會留下一個小墓碑。代幣、衣服、建設都會留給下一隻，再孵一顆新蛋。</li><li>設定 →「全部重新開始」會清掉所有東西，從一顆蛋重來。</li><li><b>聲音來源</b>：音樂用 FluidR3 音色庫（MIT 授權）；動物叫聲是 Wikimedia Commons 上的真實錄音，作者和授權見<a href="assets/sounds/CREDITS.md" target="_blank">動物聲音來源</a>。</li></ul><p class="note">清除瀏覽器資料或換手機，存檔就會不見。</p>`}
+    html:`<ul><li>進度每 5 秒自動存在<b>這台裝置</b>裡；到「設定」用 Google 登入後，還會同步到<b>雲端</b>，電腦和手機可以接著玩。離開期間的時間也會算進去。</li><li>你不在的時候牠最多只會變得很虛弱，不會因為沒人照顧而死掉；但年紀還是會增加。</li><li>健康低於 35 會生病，按畫面下方的「餵藥」（10 代幣）。</li><li>牠走完一生或病死之後，會留下一個小墓碑。代幣、衣服、建設都會留給下一隻，再孵一顆新蛋。</li><li>設定 →「全部重新開始」會清掉所有東西，從一顆蛋重來。</li><li><b>聲音來源</b>：音樂用 FluidR3 音色庫（MIT 授權）；動物叫聲是 Wikimedia Commons 上的真實錄音，作者和授權見<a href="assets/sounds/CREDITS.md" target="_blank">動物聲音來源</a>。</li><li><b>3D 模型來源</b>：寫實動物來自 Sketchfab 的創作者（老虎、鹿、狼、駝鹿、馬、鱷魚），場景植物是 Quaternius 的免費素材，作者和授權見<a href="assets/models/CREDITS.md" target="_blank">模型來源</a>。</li></ul><p class="note">清除瀏覽器資料或換手機，存檔就會不見。</p>`}
 ];
 const guideEl = $('#guide'); let gPage = 0;
 function openGuide(p=0){ gPage = p; guideEl.hidden = false; renderGuide(); $('#gNext').focus(); }
@@ -4372,7 +4413,7 @@ if (!S.world.balanced){ S.world.balanced = 1; const taken = (x, z, r) => S.trees
 // (seedWorldNature above fills any plot that has no rocks, bushes or trees yet: new worlds, and the plots added when the world grew to 4 × 4)
 S.trees.filter(d => world.isOpenKey(d.p || '0,0')).forEach(makeTree); applyBumps();
 world.showFeats();
-const fauna = createFauna({scene, world, mat, hbMat, onSound: (n, at) => sfx(n, at), clone: n => animalClone(n), lod:furLOD});
+const fauna = createFauna({scene, world, mat, hbMat, onSound: (n, at) => sfx(n, at), clone: n => animalClone(n), real: n => realClone(n), lod:furLOD});
 const koalaPerches = () => fauna.setPerches([...trees.filter(tr => tr.d.euc && !tr.cut).map(tr => tr.d), ...world.lockedEucs(BIO.aus)]);
 koalaPerches();
 const wild = createWildlife({scene, world, clone:animalClone, hbMat, mat, lod:furLOD, fx:{

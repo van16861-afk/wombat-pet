@@ -1,0 +1,33 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Model view</title>
+<style>html,body{margin:0;height:100%;background:#cfe3c4;font:12px sans-serif}#i{position:fixed;left:6px;top:6px;background:#fff9;padding:4px;white-space:pre}</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+</head><body><div id="i"></div>
+<script type="module">
+// dev tool: view a GLB. ?f=path&a=clipIndexOrName&t=time&yaw=deg ; several files: f=a.glb,b.glb (side by side)
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+const q = new URLSearchParams(location.search), files = (q.get('f') || '').split(',');
+const R = new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true}); R.setSize(innerWidth, innerHeight); document.body.appendChild(R.domElement);
+const S = new THREE.Scene(); S.background = new THREE.Color('#cfe3c4'); S.add(new THREE.HemisphereLight('#ffffff', '#667755', 2.2)); const sun = new THREE.DirectionalLight('#fff', 2); sun.position.set(3, 5, 4); S.add(sun);
+const C = new THREE.PerspectiveCamera(35, innerWidth/innerHeight, 0.01, 1000);
+const L = new GLTFLoader(); const dr = new DRACOLoader(); dr.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/libs/draco/'); L.setDRACOLoader(dr);
+const mixers = [], info = []; let x = 0, maxH = 0;
+for (const f of files){
+  const g = await L.loadAsync(f); const m = g.scene;
+  const b = new THREE.Box3().setFromObject(m), sz = b.getSize(new THREE.Vector3());
+  const s = 1/Math.max(sz.x, sz.y, sz.z); m.scale.setScalar(s); m.rotation.y = (+q.get('yaw') || 0)*Math.PI/180;
+  const b2 = new THREE.Box3().setFromObject(m); m.position.set(x - (b2.min.x + b2.max.x)/2, -b2.min.y, -(b2.min.z + b2.max.z)/2); x += 1.3; maxH = Math.max(maxH, b2.max.y - b2.min.y);
+  let tris = 0; m.traverse(o => { if (o.isMesh) o.frustumCulled = false; if (o.isMesh) tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count)/3; });
+  info.push(`${f.split('/').pop()} size ${sz.x.toFixed(2)},${sz.y.toFixed(2)},${sz.z.toFixed(2)} tris ${tris|0} clips ${g.animations.length}`);
+  if (g.animations.length){ const mx = new THREE.AnimationMixer(m), a = q.get('a') ?? '0';
+    const clip = isNaN(+a) ? g.animations.find(c => c.name.includes(a)) : g.animations[+a]; if (clip){ const ac = mx.clipAction(clip); ac.play(); mx.setTime(+q.get('t') || 0); info.push('  playing ' + clip.name); }
+    mixers.push(mx); }
+  S.add(m);
+}
+document.getElementById('i').textContent = info.join('\n');
+const cx = (x - 1.3)/2; C.position.set(cx + 1.6, 0.9, 2.4 + x*0.4); C.lookAt(cx, maxH*0.35, 0);
+const clock = new THREE.Clock(), still = q.has('t');
+(function loop(){ if (!still) mixers.forEach(m => m.update(clock.getDelta())); R.render(S, C); requestAnimationFrame(loop); })();
+</script></body></html>
