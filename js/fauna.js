@@ -252,11 +252,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
     _q2.setFromAxisAngle(_Y, ang); b.quaternion.premultiply(_q.clone().invert().multiply(_q2).multiply(_q)); };   // a turn about the world's up axis, in the bone's own frame
   function realPost(a, dt){
     const u = a.g.userData;
-    if (u.act && u.act.timeScale === 0){   // a held pose (no standing clip of its own): keep it alive — looking about, a lazy tail swish
-      if (Math.abs(a.look || 0) < 0.05) a.look = Math.sin(a.t*0.35 + (a.idx_ || 0))*0.45;
-      (u.tails || []).forEach((b, i) => turnY(b, Math.sin(a.t*1.1 + (a.idx_ || 0) - i*0.7)*0.1)); }   // a wave running down the tail
-    a.lookK = (a.lookK || 0) + (clamp(a.look || 0, -0.7, 0.7) - (a.lookK || 0))*Math.min(1, dt*2.5);
-    if (u.neck && u.neck !== u.head){ turnY(u.neck, a.lookK*0.4); turnY(u.head, a.lookK*0.6); } else turnY(u.head, a.lookK);   // neck and head share the turn
+    // (no hand-made head or tail turns: on some rigs, e.g. the 3ds Max biped tiger, they spun the head round; the clips alone move the body)
     if (u.jawBone && u.jaw && u.jaw.rotation.x){ u.jawBone.parent.updateWorldMatrix(true, false); u.jawBone.parent.getWorldQuaternion(_q);
       const side = V3(1, 0, 0).applyQuaternion(a.g.quaternion); _q2.setFromAxisAngle(side, Math.abs(u.jaw.rotation.x));
       u.jawBone.quaternion.premultiply(_q.clone().invert().multiply(_q2).multiply(_q)); }

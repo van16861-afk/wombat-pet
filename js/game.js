@@ -212,7 +212,7 @@ Object.values(LOADS).forEach(pr => pr.catch(() => {}));
 // Realistic rigged animals (Sketchfab, converted by blender/real_build.py; authors in assets/models/CREDITS.md). Each has its own
 // skeleton and clips (walk, run, graze, lie down...). `yaw` turns the model to face +Z; `like` is the old model whose size it takes.
 const REAL_CFG = {tiger:{yaw:Math.PI/2, like:'tiger', k:1.15}, deer:{like:'deer', k:1.45, parts:{antlers:'Chifre'}}, wolf:{like:'wolf', k:1.05},
-  moose:{like:'deer', k:1.9, parts:{antlers:'M_Moose_Antler'}}, horse:{like:'horse', k:1.25}, croc:{like:'croc', bright:1.8}, kangaroo:{like:'kangaroo', k:1.45}, heron:{like:'heron', k:1.1}, crab:{len:0.32}, hermit:{len:0.42}, seaturtle:{len:1.3}, penguin:{h:0.85}};
+  moose:{like:'deer', k:1.9, parts:{antlers:'M_Moose_Antler'}}, horse:{like:'horse', k:1.25}, croc:{like:'croc', bright:1.8}, kangaroo:{like:'kangaroo', k:1.45}, heron:{like:'heron', k:1.1}, crab:{len:0.32}, hermit:{len:0.42}, seaturtle:{len:1.3}, penguin:{h:0.85}, flamingo:{len:1.3}};
 const REAL_LOADS = Object.fromEntries(Object.keys(REAL_CFG).map(n => [n, new GLTFLoader().setDRACOLoader(draco).loadAsync(`assets/models/real/${n}.glb`)]));
 Object.values(REAL_LOADS).forEach(pr => pr.catch(() => {}));
 let gltf;
@@ -1473,7 +1473,7 @@ function updateAmbience(dt, t, night){
 // Real animal recordings (assets/sounds, credits in assets/sounds/CREDITS.md): each sound name has one or two short clips.
 // Until they have loaded (or if they fail) the synthesised versions below are used.
 const ANIMAL_CLIPS = {howl:['wolf1', 'wolf2'], croak:['frog1', 'frog2'], bellow:['croc1', 'croc2'], neigh:['horse1'], roar:['tiger1', 'tiger2'], peacock:['peacock1', 'peacock2'],
-  hoot:['owl1', 'owl2'], eagle:['eagle1'], gull:['gull1', 'gull2'], heron:['heron1'], deer:['deer1', 'deer2'], whale:['whale1'], emu:['emu1'], moose:['moose1', 'moose2'], penguin:['penguin1', 'penguin2']};
+  hoot:['owl1', 'owl2'], eagle:['eagle1'], gull:['gull1', 'gull2'], heron:['heron1'], deer:['deer1', 'deer2'], whale:['whale1'], emu:['emu1'], moose:['moose1', 'moose2'], penguin:['penguin1', 'penguin2'], flamingo:['flamingo1', 'flamingo2']};
 const ACLIP = {}, clipBusy = {}; let aclipLoading = false;
 function loadAnimalClips(){
   if (aclipLoading || !SND.ctx) return; aclipLoading = true;
@@ -2206,7 +2206,24 @@ function makeYacht(){
   const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.4, 6), white); mast.position.set(0, 2.9, -1.1); g.add(mast);
   g.scale.setScalar(1.6); scene.add(g); return {g, t:0, honked:0};
 }
+// a flock of flamingos flies over now and then, in a loose V, calling
+const flock = {birds:null, t:0, wait:rnd(60, 160)};
+function updateFlock(dt){
+  if (!flock.birds){ flock.wait -= dt; if (flock.wait > 0 || !REAL.flamingo) return;
+    const a = rnd(0, 6.28), dir = V3(Math.sin(a), 0, Math.cos(a)), mid = V3(camTarget.x + rnd(-15, 15), 0, camTarget.z + rnd(-15, 15)), side = V3(dir.z, 0, -dir.x);
+    flock.birds = []; flock.t = 0; flock.dir = dir; flock.start = mid.clone().addScaledVector(dir, -70); flock.h = rnd(4.2, 5.8);   // (the camera looks down from about 11 up: lower than that or they fly out of sight)
+    for (let i=0, n = 5 + Math.floor(Math.random()*4); i<n; i++){ const g = realClone('flamingo'); if (!g) break; const row = Math.ceil(i/2), sgn = i % 2 ? 1 : -1;
+      g.scale.setScalar(rnd(0.9, 1.1)); scene.add(g); flock.birds.push({g, off:side.clone().multiplyScalar(sgn*row*2.4).addScaledVector(dir, -row*2.2).add(V3(0, rnd(-0.6, 0.6), 0)), ph:rnd(0, 3), glide:0}); }
+    sfx('flamingo', mid); return; }
+  flock.t += dt; const along = flock.t*7.5, base = flock.start.clone().addScaledVector(flock.dir, along);
+  for (const b of flock.birds){ const p = base.clone().add(b.off); b.g.position.set(p.x, flock.h + b.off.y + Math.sin(flock.t*0.8 + b.ph)*0.4, p.z); b.g.rotation.y = Math.atan2(flock.dir.x, flock.dir.z);
+    b.glide -= dt; if (b.glide < -rnd(3, 6)) b.glide = rnd(1.5, 3);   // flap a while, then glide a while
+    playRig(b.g.userData, b.glide > 0 ? 'glide' : 'fly', 1); b.g.userData.mixer.update(dt); }
+  if (Math.random() < dt*0.08) sfx('flamingo', base);
+  if (along > 140){ flock.birds.forEach(b => scene.remove(b.g)); flock.birds = null; flock.wait = rnd(150, 400); }
+}
 function updateBoats(dt, t){
+  updateFlock(dt);
   const sea = z => world.shoreX(z), cz = (Z0 + Z1)/2;
   // the canoe paddles out, the man casts and waits (now and then a fish), then paddles away
   if (!boats.canoe){ boats.canoeT -= dt; if (boats.canoeT <= 0){ const z = rnd(Z0 + 10, Z1 - 10), c = makeCanoe(); c.spot = V3(sea(z) + rnd(7.5, 11), WATER_Y, z); c.from = c.spot.clone().add(V3(30, 0, rnd(-10, 10))); c.stay = rnd(80, 160); c.g.position.copy(c.from); boats.canoe = c; } }
@@ -4217,7 +4234,7 @@ const GUIDE = [
     <rect x="40" y="40" width="70" height="80" rx="8" fill="var(--chip)" stroke="var(--ink)" stroke-width="2"/><rect x="52" y="40" width="46" height="26" fill="var(--ink)" opacity=".8"/><rect x="54" y="88" width="42" height="28" rx="3" fill="var(--line)"/>${T(75,145,'自動存檔',12)}
     <rect x="150" y="60" width="44" height="22" rx="11" fill="#e45b5b"/><rect x="172" y="60" width="22" height="22" rx="11" fill="#f6f3ec"/>${T(172,110,'健康低：餵藥',12)}
     <path d="M250 120 v-38 a20 20 0 0 1 40 0 v38z" fill="#a3a59d"/><circle cx="258" cy="122" r="4" fill="#e0607e"/><circle cx="282" cy="122" r="4" fill="#f3d250"/>${T(270,145,'告別後孵新蛋',12)}`),
-    html:`<ul><li>進度每 5 秒自動存在<b>這台裝置</b>裡；到「設定」用 Google 登入後，還會同步到<b>雲端</b>，電腦和手機可以接著玩。離開期間的時間也會算進去。</li><li>你不在的時候牠最多只會變得很虛弱，不會因為沒人照顧而死掉；但年紀還是會增加。</li><li>健康低於 35 會生病，按畫面下方的「餵藥」（10 代幣）。</li><li>牠走完一生或病死之後，會留下一個小墓碑。代幣、衣服、建設都會留給下一隻，再孵一顆新蛋。</li><li>設定 →「全部重新開始」會清掉所有東西，從一顆蛋重來。</li><li><b>聲音來源</b>：音樂用 FluidR3 音色庫（MIT 授權）；動物叫聲是 Wikimedia Commons 和 Freesound 上的真實錄音，作者和授權見<a href="assets/sounds/CREDITS.md" target="_blank">動物聲音來源</a>。</li><li><b>3D 模型來源</b>：寫實動物來自 Sketchfab 的創作者（老虎、鹿、狼、駝鹿、馬、鱷魚、袋鼠、蒼鷺、螃蟹、寄居蟹、海龜、企鵝），場景植物是 Quaternius 的免費素材，作者和授權見<a href="assets/models/CREDITS.md" target="_blank">模型來源</a>。</li></ul><p class="note">清除瀏覽器資料或換手機，存檔就會不見。</p>`}
+    html:`<ul><li>進度每 5 秒自動存在<b>這台裝置</b>裡；到「設定」用 Google 登入後，還會同步到<b>雲端</b>，電腦和手機可以接著玩。離開期間的時間也會算進去。</li><li>你不在的時候牠最多只會變得很虛弱，不會因為沒人照顧而死掉；但年紀還是會增加。</li><li>健康低於 35 會生病，按畫面下方的「餵藥」（10 代幣）。</li><li>牠走完一生或病死之後，會留下一個小墓碑。代幣、衣服、建設都會留給下一隻，再孵一顆新蛋。</li><li>設定 →「全部重新開始」會清掉所有東西，從一顆蛋重來。</li><li><b>聲音來源</b>：音樂用 FluidR3 音色庫（MIT 授權）；動物叫聲是 Wikimedia Commons 和 Freesound 上的真實錄音，作者和授權見<a href="assets/sounds/CREDITS.md" target="_blank">動物聲音來源</a>。</li><li><b>3D 模型來源</b>：寫實動物來自 Sketchfab 的創作者（老虎、鹿、狼、駝鹿、馬、鱷魚、袋鼠、蒼鷺、螃蟹、寄居蟹、海龜、企鵝、紅鶴），場景植物是 Quaternius 的免費素材，作者和授權見<a href="assets/models/CREDITS.md" target="_blank">模型來源</a>。</li></ul><p class="note">清除瀏覽器資料或換手機，存檔就會不見。</p>`}
 ];
 const guideEl = $('#guide'); let gPage = 0;
 function openGuide(p=0){ gPage = p; guideEl.hidden = false; renderGuide(); $('#gNext').focus(); }
@@ -4594,7 +4611,7 @@ if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
 if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
-if (new URLSearchParams(location.search).has('debug')) window.W = {boats, BEACH_LIFE, wear, art, setArt, inBuild, freeNear, poopNow, spawnWeed, weedSpotOK, overBridge, moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+if (new URLSearchParams(location.search).has('debug')) window.W = {flock, boats, BEACH_LIFE, wear, art, setArt, inBuild, freeNear, poopNow, spawnWeed, weedSpotOK, overBridge, moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   sim:(secs) => { skipRender = true; try { for (let i=0;i<secs*30;i++) step(true); } finally { skipRender = false; } clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};

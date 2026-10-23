@@ -139,3 +139,29 @@ def _crab_bones():
                       {"n": f"knee{k}{i}", "p": f"leg{k}{i}", "h": (fl, 0.86, 0.74*sg), "t": (fl, 0.0, 0.98*sg), "zone": lambda f, u, s, zf=zf: zf(f, u, s) and abs(s) > 0.7}]
     return bones
 SPECS["crab"] = {"src": "crab", "budget": 5000, "turn": -90, "clips": _crab_clips, "bones": _crab_bones()}
+
+# ---------------------------------------------------------------- flamingo in flight (Sketchfab model by iRahulRajput, CC BY 4.0): flock flying over
+def _flamingo_clips(lp):
+    def flap(k):   # k 0 = wings up (as modelled) .. 1 = full downstroke; the hands follow a little behind
+        return {"wingL": (0, 0, 1.15*k), "wingR": (0, 0, -1.15*k), "handL": (0, 0, 0.35*k), "handR": (0, 0, -0.35*k)}
+    fly = []
+    for i in range(9):
+        t = i/8; down = 0.5 - 0.5*math.cos(t*2*math.pi); lag = 0.5 - 0.5*math.cos(t*2*math.pi - 0.9)
+        f = flap(down); f["handL"] = (0, 0, 0.35*lag); f["handR"] = (0, 0, -0.35*lag)
+        fly.append((t, {**f, "root": (0.04*math.sin(t*2*math.pi), 0, 0), "neck1": (-0.05*math.sin(t*2*math.pi), 0, 0)}))
+    glide = [(t, {**flap(0.55), "neck1": (0.02*math.sin(t*2*math.pi), 0, 0)}) for t in (0, 0.5, 1)]
+    return {"fly": (0.9, fly), "glide": (3.0, glide)}
+SPECS["flamingo"] = {"src": "flamingo", "budget": 7000, "turn": 90, "clips": _flamingo_clips, "bones": [
+    {"n": "root", "h": (0.64, 0.375, 0), "t": (0.42, 0.42, 0)},
+    {"n": "neck1", "p": "root", "h": (0.42, 0.42, 0), "t": (0.27, 0.365, 0), "zone": lambda f, u, s: f < 0.4 and abs(s) < 0.2},
+    {"n": "neck2", "p": "neck1", "h": (0.27, 0.365, 0), "t": (0.12, 0.40, 0), "zone": lambda f, u, s: f < 0.3 and abs(s) < 0.2},
+    {"n": "head", "p": "neck2", "h": (0.12, 0.40, 0), "t": (0.01, 0.41, 0), "zone": lambda f, u, s: f < 0.15},
+    {"n": "wingL", "p": "root", "h": (0.5, 0.45, 0.11), "t": (0.65, 0.75, 0.6), "zone": lambda f, u, s: s > 0.15 and u > 0.42},
+    {"n": "handL", "p": "wingL", "h": (0.65, 0.75, 0.6), "t": (0.58, 0.97, 0.99), "zone": lambda f, u, s: s > 0.5},
+    {"n": "wingR", "p": "root", "h": (0.5, 0.45, -0.11), "t": (0.42, 0.75, -0.56), "zone": lambda f, u, s: s < -0.15 and u > 0.42},
+    {"n": "handR", "p": "wingR", "h": (0.42, 0.75, -0.56), "t": (0.29, 0.8, -0.99), "zone": lambda f, u, s: s < -0.5},
+    *[b for k, sg in (("L", 1), ("R", -1)) for b in (
+        {"n": f"thigh{k}", "p": "root", "h": (0.64, 0.37, 0.06*sg), "t": (0.69, 0.27, 0.06*sg), "zone": lambda f, u, s, sg=sg: f > 0.62 and u < 0.36 and s*sg > -0.02},
+        {"n": f"shin{k}", "p": f"thigh{k}", "h": (0.69, 0.27, 0.06*sg), "t": (0.87, 0.1, 0.06*sg), "zone": lambda f, u, s, sg=sg: f > 0.66 and u < 0.3 and s*sg > -0.02},
+        {"n": f"foot{k}", "p": f"shin{k}", "h": (0.87, 0.1, 0.06*sg), "t": (0.99, 0.1, 0.06*sg), "zone": lambda f, u, s, sg=sg: f > 0.84 and s*sg > -0.02})],
+]}

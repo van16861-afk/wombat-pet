@@ -19,5 +19,6 @@ Short clips (trimmed, volume-levelled, converted to mp3) from recordings on Wiki
 | emu1 | [Dromaius novaehollandiae Lue0043 03.wav](https://commons.wikimedia.org/wiki/File:Dromaius_novaehollandiae_Lue0043_03.wav) | Hans Lütgens | [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/) |
 | moose1, moose2 | [Moose_Elk.mp3](https://freesound.org/people/gleith/sounds/486554/) (Freesound) | gleith | CC0 |
 | penguin1, penguin2 | [Humboldt Penguins](https://freesound.org/people/GirlWithSoundRecorder/sounds/700949/) (Freesound) | GirlWithSoundRecorder | CC0 |
+| flamingo1, flamingo2 | [Flamingos](https://freesound.org/people/Breviceps/sounds/535778/) (Freesound) | Breviceps | CC0 |
 
 The CC BY-SA clips are shared under the same licence as their sources.
