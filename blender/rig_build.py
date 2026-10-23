@@ -50,6 +50,7 @@ def prep(name, src, budget, flip=False, turn=0):
         bpy.context.view_layer.objects.active = ob; bpy.ops.object.modifier_apply(modifier="Dec")
     for im in bpy.data.images:
         if im.size[0] > 1024: im.scale(1024, max(1, 1024*im.size[1]//im.size[0]))
+    for m in bpy.data.materials: m.use_backface_culling = False   # heavy reduction flips a few faces: draw both sides so they don't show as holes
     print("PREP", name, "tris", tris, "->", sum(len(p.vertices) - 2 for p in me.polygons), "size", tuple(round(v, 3) for v in ob.dimensions))
     return ob
 
@@ -103,6 +104,8 @@ def key(arm, act, frame, poses):
         pb.rotation_quaternion = q; pb.keyframe_insert("rotation_quaternion", frame=frame)
         lift = poses.get(pb.name, (0, 0, 0, None))[3] if len(poses.get(pb.name, ())) > 3 else None
         pb.location = rest @ Vector(lift) if lift else Vector((0, 0, 0)); pb.keyframe_insert("location", frame=frame)
+        sc = poses.get(pb.name, ())[4] if len(poses.get(pb.name, ())) > 4 else None   # optional 5th item: scale in the bone's own axes (x = across, e.g. a peacock spreading its train)
+        pb.scale = Vector(sc) if sc else Vector((1, 1, 1)); pb.keyframe_insert("scale", frame=frame)
 
 def clip(arm, name, seconds, frames):
     """frames: list of (t 0..1, poses); the last pose should match the first for loops."""

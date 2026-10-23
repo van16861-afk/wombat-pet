@@ -628,6 +628,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
           const k = a.show > 0 ? Math.min(1, (6 - a.show)*2, a.show*2) : 0; a.fanK = (a.fanK || 0) + (k - (a.fanK || 0))*Math.min(1, dt*5);
           if (fan){ fan.visible = a.fanK > 0.02; fan.scale.setScalar(Math.max(0.02, a.fanK)); fan.rotation.y = Math.sin(a.t*18)*0.02*a.fanK; }
           if (train) train.visible = a.fanK < 0.5;
+          if (isReal(a)) a.pose = a.show > 0 ? 'display' : a.state === 'peck' ? 'peck' : null;   // its own clips: the train rises and spreads into a fan
           if (a.show > 0 && pet){ face(a, pet.x - p.x, pet.z - p.z, dt, 2); break; }
           if (a.timer <= 0){ a.timer = rnd(3, 7); if (Math.random() < 0.5){ a.state = 'walk'; a.dest = areaLand(a.area); } else a.state = 'peck'; }
           if (neck) neck.rotation.x = a.state === 'peck' ? Math.max(0, Math.sin(a.t*5))*1.1 : 0;

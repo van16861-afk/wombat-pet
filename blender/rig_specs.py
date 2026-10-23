@@ -60,7 +60,7 @@ SPECS["kangaroo"] = {"src": "kangaroo", "budget": 7000, "clips": _kangaroo_clips
 ]}
 
 # models still waiting for their bones (prep only)
-for _n, _b, _fl in [("heron", 7000, False), ("flamingo", 7000, False), ("crab", 5000, False), ("owl", 7000, False), ("peacock", 9000, False)]:
+for _n, _b, _fl in [("heron", 7000, False), ("flamingo", 7000, False), ("crab", 5000, False), ("owl", 7000, False), ("peacock", 60000, False)]:
     SPECS.setdefault(_n, {"src": _n, "budget": _b, "flip": _fl, "bones": [], "clips": lambda lp: {}})
 
 # ---------------------------------------------------------------- birds: shared helpers
@@ -184,4 +184,27 @@ SPECS["owl"] = {"src": "owl", "budget": 7000, "clips": _owl_clips, "bones": [
     *[b for k, sg in (("L", 1), ("R", -1)) for b in (
         {"n": f"shin{k}", "p": "root", "h": (0.41, 0.26, 0.3*sg), "t": (0.41, 0.09, 0.3*sg), "zone": lambda f, u, s, sg=sg: u < 0.2 and s*sg > -0.05},
         {"n": f"foot{k}", "p": f"shin{k}", "h": (0.41, 0.09, 0.3*sg), "t": (0.28, 0.02, 0.3*sg), "zone": lambda f, u, s, sg=sg: u < 0.08 and s*sg > -0.05})],
+]}
+
+# ---------------------------------------------------------------- Indian peafowl (Sketchfab "Indian Peacock" by Pigcraft, CC BY 4.0)
+def _peacock_clips(lp):
+    bob = lambda t: {"neck": (0.18*math.sin(t*4*math.pi), 0, 0), "head": (-0.12*math.sin(t*4*math.pi), 0, 0)}
+    walk = _walk_cycle(8, 0.4, 0.8, lambda t: {**bob(t), "tail1": (0.04*math.sin(t*4*math.pi), 0, 0)})
+    idle = [(i/8, {"neck": (0.03*math.sin(i/8*2*math.pi), 0.2*math.sin(i/8*2*math.pi + 1), 0), "head": (0, 0.3*math.sin(i/8*2*math.pi + 2), 0), "root": (0.01*math.sin(i/8*2*math.pi), 0, 0)}) for i in range(9)]
+    pk = {"neck": (0.9, 0, 0), "head": (0.5, 0, 0), "root": (0.15, 0, 0)}
+    peck = [(0, {}), (0.3, pk), (0.4, {**pk, "head": (0.65, 0, 0)}), (0.5, pk), (0.6, {**pk, "head": (0.65, 0, 0)}), (1.0, {})]
+    fan = lambda shake=0: {"tail1": (1.25 + shake, 0, 0, None, (2.4, 1, 1)), "tail2": (0.25, 0, 0, None, (1.5, 1.05, 1)), "tail3": (0.1, 0, 0, None, (1.3, 1.05, 1)),
+                           "wingL": (0, 0, 0.25), "wingR": (0, 0, -0.25), "neck": (-0.1, 0, 0)}
+    display = [(0, {})] + [(0.15 + i*0.07, fan(0.04*((-1)**i))) for i in range(11)] + [(1.0, {})]   # up and spread, a shimmering shiver, then down
+    return {"idle": (3.6, idle), "walk": (1.0, walk), "peck": (1.0, peck), "display": (6.0, display)}
+SPECS["peacock"] = {"src": "peacock", "budget": 60000, "clips": _peacock_clips, "bones": [
+    {"n": "root", "h": (0.31, 0.42, 0), "t": (0.13, 0.58, 0)},
+    {"n": "neck", "p": "root", "h": (0.13, 0.58, 0), "t": (0.1, 0.83, 0), "zone": lambda f, u, s: f < 0.22 and u > 0.5},
+    {"n": "head", "p": "neck", "h": (0.1, 0.83, 0), "t": (0.005, 0.86, 0), "zone": lambda f, u, s: f < 0.2 and u > 0.76},
+    {"n": "tail1", "p": "root", "h": (0.37, 0.5, 0), "t": (0.56, 0.35, 0), "zone": lambda f, u, s: f > 0.36},
+    {"n": "tail2", "p": "tail1", "h": (0.56, 0.35, 0), "t": (0.78, 0.19, 0), "zone": lambda f, u, s: f > 0.54},
+    {"n": "tail3", "p": "tail2", "h": (0.78, 0.19, 0), "t": (0.99, 0.1, 0), "zone": lambda f, u, s: f > 0.76},
+    {"n": "wingL", "p": "root", "h": (0.18, 0.55, 0.85), "t": (0.38, 0.35, 0.85), "zone": lambda f, u, s: s > 0.5 and f < 0.42 and u > 0.3},
+    {"n": "wingR", "p": "root", "h": (0.18, 0.55, -0.85), "t": (0.38, 0.35, -0.85), "zone": lambda f, u, s: s < -0.5 and f < 0.42 and u > 0.3},
+    *_bird_legs((0.25, 0.29), (0.24, 0.22), (0.23, 0.025), (0.17, 0.01), 0.25, 0.3),
 ]}
