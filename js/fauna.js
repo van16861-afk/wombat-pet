@@ -104,6 +104,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
     g.userData.jaw = jaw; return g;
   }
   function heron(){
+    const rh = real && real('heron'); if (rh) return rh;   // realistic rig
     const hm = model('heron', m => { m.userData.neck = m.getObjectByName('heron_neck'); }); if (hm) return hm;
     const g = new THREE.Group(), grey = mat('#a7adb4', 0.7), white = mat('#eef0f0', 0.7), yel = mat('#e0b23c', 0.5);
     const b = ball(0.22, grey, 0.8, 0.8, 1.5); b.position.y = 1.0; g.add(b);
@@ -395,8 +396,10 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
           break; }
         case 'heron': {
           const hd = a.g.userData.head, bk = a.g.userData.beak;
-          const neck = a.g.userData.neck; if (neck && a.stab > 0){ a.stab -= dt; neck.rotation.x = Math.sin((1 - a.stab/0.6)*Math.PI)*1.2; } else if (neck) neck.rotation.x *= 0.9;
-          if (!neck && a.stab > 0){ a.stab -= dt; const k = Math.sin((1 - a.stab/0.6)*Math.PI); hd.position.y = 1.64 - k*0.9; bk.position.y = 1.64 - k*0.9; hd.position.z = 0.32 + k*0.2; bk.position.z = 0.5 + k*0.2; }
+          const neck = isReal(a) ? null : a.g.userData.neck;
+          if (isReal(a)){ if (a.stab > 0){ a.stab -= dt; if (a.g.userData.curName !== 'stab') clip(a, 'stab', 1, true); a.pose = true; } }   // its own spear-strike clip
+          else if (neck && a.stab > 0){ a.stab -= dt; neck.rotation.x = Math.sin((1 - a.stab/0.6)*Math.PI)*1.2; } else if (neck) neck.rotation.x *= 0.9;
+          if (!isReal(a) && !neck && a.stab > 0){ a.stab -= dt; const k = Math.sin((1 - a.stab/0.6)*Math.PI); hd.position.y = 1.64 - k*0.9; bk.position.y = 1.64 - k*0.9; hd.position.z = 0.32 + k*0.2; bk.position.z = 0.5 + k*0.2; }
           if (petD < 3 && a.state !== 'walk'){ a.state = 'walk'; a.dest = p.clone().add(V3(p.x - pet.x, 0, p.z - pet.z).setLength(4)); }
           if (a.state === 'walk'){ const d = V3(a.dest.x - p.x, 0, a.dest.z - p.z), L = d.length(); if (L > 0.1 && world.swampW(p.x + d.x/L, p.z + d.z/L) > 0.3){ p.addScaledVector(d.normalize(), dt*0.9); face(a, d.x, d.z, dt, 3); p.y = Math.max(gy(p.x, p.z), WATER_Y - 0.25); } else { a.state = 'idle'; a.timer = rnd(2, 5); } }
           else if (a.timer <= 0){ a.timer = rnd(3, 8); a.stab = 0.6; if (Math.random() < 0.3) sound('heron', p); }

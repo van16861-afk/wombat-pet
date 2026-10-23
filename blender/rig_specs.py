@@ -58,3 +58,54 @@ SPECS["kangaroo"] = {"src": "kangaroo", "budget": 7000, "clips": _kangaroo_clips
     {"n": "tail3", "p": "tail2", "h": (0.70, 0.035, 0), "t": (0.87, 0.016, 0), "zone": lambda f, u, s: f > 0.66},
     {"n": "tail4", "p": "tail3", "h": (0.87, 0.016, 0), "t": (1.0, 0.01, 0), "zone": lambda f, u, s: f > 0.84},
 ]}
+
+# models still waiting for their bones (prep only)
+for _n, _b, _fl in [("heron", 7000, False), ("flamingo", 7000, False), ("crab", 5000, False), ("owl", 7000, False), ("peacock", 9000, False)]:
+    SPECS.setdefault(_n, {"src": _n, "budget": _b, "flip": _fl, "bones": [], "clips": lambda lp: {}})
+
+# ---------------------------------------------------------------- birds: shared helpers
+def _bird_legs(hip, knee, foot, toe, side, zone_u):
+    out = []
+    for k, sg in (("L", 1), ("R", -1)):
+        sd = _side(k)
+        out += [{"n": f"thigh{k}", "p": "root", "h": (*hip, side*sg), "t": (*knee, side*sg), "zone": lambda f, u, s, sd=sd: u < zone_u and sd(s)},
+                {"n": f"shin{k}", "p": f"thigh{k}", "h": (*knee, side*sg), "t": (*foot, side*sg), "zone": lambda f, u, s, sd=sd: u < zone_u*0.75 and sd(s)},
+                {"n": f"foot{k}", "p": f"shin{k}", "h": (*foot, side*sg), "t": (*toe, side*sg), "zone": lambda f, u, s, sd=sd: u < 0.05 and sd(s)}]
+    return out
+def _bird_wings(sh, wr, tip, side, zone):
+    out = []
+    for k, sg in (("L", 1), ("R", -1)):
+        z = (lambda f, u, s, zone=zone: zone(f, u, s) and s > 0.3) if k == "L" else (lambda f, u, s, zone=zone: zone(f, u, s) and s < -0.3)
+        out += [{"n": f"wing{k}", "p": "chest", "h": (*sh, side*sg), "t": (*wr, side*sg), "zone": z},
+                {"n": f"hand{k}", "p": f"wing{k}", "h": (*wr, side*sg), "t": (*tip, side*sg), "zone": z}]
+    return out
+def _walk_cycle(steps, swing, lift, extra=lambda w: {}):
+    fr = []
+    for i in range(steps + 1):
+        t = i/steps; w = math.sin(t*2*math.pi)
+        fr.append((t, {"thighL": (-swing*w, 0, 0), "thighR": (swing*w, 0, 0), "shinL": (lift*max(0, w), 0, 0), "shinR": (lift*max(0, -w), 0, 0),
+                       "footL": (-0.3*max(0, w), 0, 0), "footR": (-0.3*max(0, -w), 0, 0), **extra(t)}))
+    return fr
+
+# ---------------------------------------------------------------- great blue heron (Sketchfab "Great blue heron" by faerbogdan99, CC BY 4.0)
+def _heron_clips(lp):
+    idle = []
+    for i in range(9):
+        t = i/8; w = math.sin(t*2*math.pi)
+        idle.append((t, {"chest": (0.02*w, 0, 0), "neck1": (0.04*w, 0.1*math.sin(t*2*math.pi + 1), 0), "head": (0.06*math.sin(t*4*math.pi), 0.35*math.sin(t*2*math.pi + 2), 0),
+                         "tail": (0.05*w, 0, 0)}))
+    walk = _walk_cycle(8, 0.42, 0.9, lambda t: {"neck1": (0.12*math.sin(t*4*math.pi), 0, 0), "neck3": (-0.12*math.sin(t*4*math.pi), 0, 0), "root": (0.03*math.sin(t*4*math.pi), 0, 0)})
+    strike = {"root": (0.2, 0, 0), "neck1": (0.55, 0, 0), "neck2": (0.75, 0, 0), "neck3": (-0.35, 0, 0), "head": (0.25, 0, 0)}
+    stab = [(0.0, {}), (0.3, {"neck1": (-0.15, 0, 0), "neck2": (-0.25, 0, 0)}), (0.45, strike), (0.65, strike), (1.0, {})]
+    return {"idle": (3.6, idle), "walk": (1.3, walk), "stab": (0.8, stab)}
+SPECS["heron"] = {"src": "heron", "budget": 7000, "clips": _heron_clips, "bones": [
+    {"n": "root", "h": (0.6, 0.45, 0), "t": (0.42, 0.62, 0)},
+    {"n": "chest", "p": "root", "h": (0.42, 0.62, 0), "t": (0.37, 0.705, 0)},
+    {"n": "neck1", "p": "chest", "h": (0.37, 0.705, 0), "t": (0.31, 0.79, 0), "zone": lambda f, u, s: u > 0.66 and f < 0.5},
+    {"n": "neck2", "p": "neck1", "h": (0.31, 0.79, 0), "t": (0.42, 0.86, 0), "zone": lambda f, u, s: u > 0.74 and f < 0.5},
+    {"n": "neck3", "p": "neck2", "h": (0.42, 0.86, 0), "t": (0.395, 0.955, 0), "zone": lambda f, u, s: u > 0.8 and f < 0.52},
+    {"n": "head", "p": "neck3", "h": (0.395, 0.955, 0), "t": (0.02, 0.91, 0), "zone": lambda f, u, s: u > 0.86},
+    {"n": "tail", "p": "root", "h": (0.86, 0.48, 0), "t": (0.995, 0.41, 0), "zone": lambda f, u, s: f > 0.84 and u > 0.3},
+    *_bird_wings((0.46, 0.67), (0.8, 0.55), (0.975, 0.43), 0.85, lambda f, u, s: f > 0.42 and u > 0.38),
+    *_bird_legs((0.6, 0.44), (0.648, 0.296), (0.61, 0.03), (0.47, 0.008), 0.22, 0.42),
+]}

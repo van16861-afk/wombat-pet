@@ -42,8 +42,10 @@ def prep(name, src, budget, flip=False):
     me.transform(Matrix.Scale(s, 4) @ Matrix.Translation(-c))
     # decimate
     tris = sum(len(p.vertices) - 2 for p in me.polygons)
-    if tris > budget:
-        d = ob.modifiers.new("Dec", 'DECIMATE'); d.ratio = budget/tris; d.use_collapse_triangulate = True
+    for _ in range(4):   # very dense scans need more than one pass
+        now = sum(len(p.vertices) - 2 for p in me.polygons)
+        if now <= budget*1.1: break
+        d = ob.modifiers.new("Dec", 'DECIMATE'); d.ratio = budget/now; d.use_collapse_triangulate = True
         bpy.context.view_layer.objects.active = ob; bpy.ops.object.modifier_apply(modifier="Dec")
     for im in bpy.data.images:
         if im.size[0] > 1024: im.scale(1024, max(1, 1024*im.size[1]//im.size[0]))
