@@ -265,7 +265,8 @@ try {
   pg.scene.updateMatrixWorld(true);
   pg.scene.children.forEach(o => {   // some props were modelled away from Blender's origin: centre each one on its own footprint
     const c = new THREE.Box3().setFromObject(o).getCenter(V3(0,0,0)); o.position.x -= c.x; o.position.z -= c.z; PROP[o.name] = o; });
-  pg.scene.traverse(o => { if (!o.isMesh) return; [].concat(o.material).forEach(m => { if (m.userData.srgb) return; m.userData.srgb = true; m.color.convertLinearToSRGB(); m.metalness = 0; }); });
+  pg.scene.traverse(o => { if (!o.isMesh) return; [].concat(o.material).forEach(m => { if (m.userData.srgb) return; m.userData.srgb = true; m.color.convertLinearToSRGB(); m.metalness = 0;
+    if (m.map){ m.map.colorSpace = THREE.NoColorSpace; m.map.needsUpdate = true; if (/Grass|Leaves|Mushroom/.test(m.map.name || m.name)){ m.alphaTest = 0.45; m.transparent = false; m.side = THREE.DoubleSide; } } }); });   // (the burrow's textured soil, rocks and grass)
 } catch(e){ console.warn('props.glb not loaded', e); }
 const propClone = name => PROP[name] ? PROP[name].clone(true) : null;
 // Wild animals modelled in Blender (blender/animals_build.py): gull, dolphin, whale, owl, eagle, lizard, fish.

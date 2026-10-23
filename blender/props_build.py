@@ -173,73 +173,92 @@ cyl("lantern", 0.1, 0.12, 0.24, GLASS, at=(0.85, -D2 - 0.3, 1.7), seg=8, parent=
 for i, (x, y) in enumerate([(0.1, -D2 - 1.25), (-0.2, -D2 - 1.7), (0.15, -D2 - 2.1)]):
     sphere(f"path{i}", 0.26, STONES[i % 3], at=(x, y, 0.02), scale=(1.2, 0.9, 0.18), seg=14, ring=8, parent=house)
 
-# ------------------------------------------------------------------ burrow (the wombat's home): a grassy earth mound in the cottage's style
+# ------------------------------------------------------------------ burrow (the wombat's home): a real wombat burrow, a low earth mound with a dark
+# tunnel dug in at its base, loose soil spilling out in front, rocks and roots round the opening, grass and ferns growing over the top.
+# Textured soil (generated here), the nature kit's rocks, pebbles, grass, ferns and bark.
+import numpy as np, os
+KIT = r"C:\Users\User\Documents\wombat-pet\assets\source\nature_megakit\kit\glTF"
 bur = empty("house")
-EARTH, EARTH2, MOSS, GRASSC = mat("Earth", '#9a7550', 0.95), mat("Earth2", '#86654a', 0.95), mat("Moss", '#5f8a3a', 0.9), mat("GrassCap", '#5f8f3c', 0.9)
-DOOR, HOLE = mat("Door", '#5f8a6a', 0.8), mat("Hole", '#2a1d14', 1.0)
-bm = bmesh.new(); bmesh.ops.create_uvsphere(bm, u_segments=48, v_segments=24, radius=2.25)
+def soil_mat(name, base, n=256, seed=3):
+    rs = np.random.RandomState(seed); im = bpy.data.images.new(name + "_tex", n, n)
+    g = np.zeros((n, n))
+    for k, w in ((4, 0.5), (8, 0.3), (16, 0.15), (48, 0.08)):   # layered noise: clods and grain
+        c = rs.rand(k + 2, k + 2); xs = np.linspace(0, k, n); i = xs.astype(int).clip(0, k - 1); f = xs - i
+        top = c[i][:, i]*(1 - f)[None, :] + c[i][:, i + 1]*f[None, :]; bot = c[i + 1][:, i]*(1 - f)[None, :] + c[i + 1][:, i + 1]*f[None, :]
+        g += w*(top*(1 - f)[:, None] + bot*f[:, None])
+    g = (g - g.min())/(g.max() - g.min())
+    col = np.array(lin(base))[None, None, :]*(0.7 + 0.6*g[:, :, None])
+    peb = rs.rand(n, n) > 0.985; col[peb] = col[peb]*0.5 + 0.35   # little light stones in the soil
+    dark = rs.rand(n, n) > 0.995; col[dark] *= 0.45
+    im.pixels[:] = np.concatenate([col.clip(0, 1), np.ones((n, n, 1))], axis=2).ravel()
+    m = bpy.data.materials.new(name); m.use_nodes = True; nt = m.node_tree; bs = next(x for x in nt.nodes if x.type == "BSDF_PRINCIPLED")
+    tx = nt.nodes.new("ShaderNodeTexImage"); tx.image = im; nt.links.new(tx.outputs["Color"], bs.inputs["Base Color"]); bs.inputs["Roughness"].default_value = 1.0
+    m.diffuse_color = (*lin(base), 1); return m
+def tex_mat(name, img):
+    m = bpy.data.materials.new(name); m.use_nodes = True; nt = m.node_tree; bs = next(x for x in nt.nodes if x.type == "BSDF_PRINCIPLED")
+    tx = nt.nodes.new("ShaderNodeTexImage"); tx.image = bpy.data.images.load(os.path.join(KIT, img)); nt.links.new(tx.outputs["Color"], bs.inputs["Base Color"]); bs.inputs["Roughness"].default_value = 0.95
+    return m
+KITC = {}
+def kit(model, at, size, rotz=0.0, parent=None):
+    """A copy of a nature-kit model, scaled to `size` tall, standing at `at`."""
+    if model not in KITC:
+        before = set(bpy.data.objects); bpy.ops.import_scene.gltf(filepath=os.path.join(KIT, model + ".gltf"))
+        new = [o for o in bpy.data.objects if o not in before]; ms = [o for o in new if o.type == 'MESH']
+        for o in ms:
+            mw = o.matrix_world.copy(); o.parent = None; o.data.transform(mw); o.matrix_world.identity()
+        for o in new:
+            if o.type != 'MESH': bpy.data.objects.remove(o, do_unlink=True)
+        bpy.ops.object.select_all(action='DESELECT')
+        for o in ms: o.select_set(True)
+        bpy.context.view_layer.objects.active = ms[0]
+        if len(ms) > 1: bpy.ops.object.join()
+        src = bpy.context.view_layer.objects.active; h = max(src.dimensions.z, 1e-3); KITC[model] = (src.data, h)
+        bpy.data.objects.remove(src, do_unlink=True)
+    me, h = KITC[model]; o = bpy.data.objects.new("b_" + model, me); scene.collection.objects.link(o)
+    o.scale = (size/h,)*3; o.location = at; o.rotation_euler = (0, 0, rotz); o.parent = parent or bur; return o
+SOIL, SOIL_D = soil_mat("Soil", '#9a7a58', seed=3), soil_mat("SoilDug", '#86664a', seed=5)
+HOLE = mat("Hole", '#140d08', 1.0)
+BARK = tex_mat("RootBark", "Bark_NormalTree.png")
+# the mound: low and wide, uneven
+bm = bmesh.new(); bmesh.ops.create_uvsphere(bm, u_segments=48, v_segments=24, radius=2.3)
 bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.z < -0.02], context='VERTS')
-bmesh.ops.transform(bm, matrix=Matrix.Diagonal((1.05, 1, 0.82, 1)), verts=bm.verts)
-mound = obj_from_bm("b_mound", bm, EARTH, bur); lumpy(mound, 0.12)
-bm = bmesh.new(); bmesh.ops.create_uvsphere(bm, u_segments=48, v_segments=24, radius=2.32)       # thick grass cap with a wavy, overhanging edge
-bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.z < 0.95 + 0.16*math.sin(math.atan2(v.co.y, v.co.x)*6) + 0.08*math.sin(math.atan2(v.co.y, v.co.x)*13)], context='VERTS')
-bmesh.ops.transform(bm, matrix=Matrix.Diagonal((1.05, 1, 0.82, 1)), verts=bm.verts)
-cap = obj_from_bm("b_cap", bm, GRASSC, bur); lumpy(cap, 0.1)
-s_ = cap.modifiers.new("thick", 'SOLIDIFY'); s_.thickness = 0.12
-for i in range(30):                                                                              # stones showing in the earth
-    a = random.uniform(0, 2*math.pi); el = random.uniform(0.1, 0.5)
-    if math.cos(a - (-math.pi/2)) > 0.8 and el < 0.45: continue                                   # not over the door
-    p = Vector((math.cos(a)*math.cos(el)*2.3, math.sin(a)*math.cos(el)*2.25, math.sin(el)*1.85))
-    st = sphere(f"b_st{i}", random.uniform(0.14, 0.26), STONES[i % 3], at=p, scale=(1.2, 1.2, 0.7), seg=10, ring=6, parent=bur); lumpy(st, 0.04, 0.3)
-for side in range(26):                                                                            # stone footing round the base
-    a = side/26*2*math.pi
-    if math.cos(a - (-math.pi/2)) > 0.93: continue
-    st = sphere(f"b_ft{side}", 0.22, STONES[side % 3], at=(math.cos(a)*2.33, math.sin(a)*2.24, 0.12), scale=(1.1, 1.1, 0.75), seg=10, ring=6, parent=bur); lumpy(st, 0.05, 0.4)
-# the entrance: a stone arch, a round green plank door standing ajar, a dark tunnel, a little red-tile awning
-DY = -2.16
-for i in range(11):
-    a = math.pi*i/10
-    st = sphere(f"b_arch{i}", 0.15, STONES[i % 3], at=(math.cos(a)*0.82, DY - 0.05, 0.55 + math.sin(a)*0.8), scale=(1, 0.8, 1), seg=10, ring=6, parent=bur); lumpy(st, 0.03, 0.3)
-cyl("b_hole", 0.72, 0.72, 0.4, HOLE, at=(0, DY + 0.1, 0.62), seg=32, rot=R(math.pi/2, 3, 'X'), parent=bur)
-dg = empty("b_doorpivot", bur); dg.location = (0.7, DY - 0.12, 0.62); dg.rotation_euler = (0, 0, 0.9)       # hinged on the right, swung open
-for i in range(5):
-    w_ = 0.27; x = -0.7 + w_*0.5 + i*w_
-    hgt = 2*math.sqrt(max(0.0, 0.72**2 - (x + 0.0)**2))
-    box(f"b_dplank{i}", (w_*0.95, 0.07, max(0.3, hgt)), DOOR, at=(x - 0.7, 0, 0), parent=dg, bevel=0.015)
-sphere("b_knob", 0.05, IRON, at=(-1.15, -0.06, 0), parent=dg)
-for k in range(6):
-    t = box(f"b_awn{k}", (0.32, 0.55, 0.06), TILES[k % 4], at=(-0.8 + k*0.32, DY - 0.18, 1.62), parent=bur, bevel=0.02); t.rotation_euler = (0.42, 0, 0)
-for s in (-1, 1): box(f"b_awnpost{s}", (0.08, 0.08, 0.5), BEAM, at=(0.9*s, DY - 0.32, 1.38), parent=bur, bevel=0.01)
-# round window with shutters and a flower box, on the front-left
-wg = empty("b_win", bur); wg.location = (-1.24, -1.62, 0.98); wg.rotation_euler = (0, 0, -0.62)
-cyl("b_glass", 0.3, 0.3, 0.06, GLASS, at=(0, 0, 0), seg=24, rot=R(math.pi/2, 3, 'X'), parent=wg)
-torus("b_wrim", 0.32, 0.055, BEAM, at=(0, -0.03, 0), rot=R(math.pi/2, 3, 'X'), parent=wg)
-for x in (-0.18, 0.18): box(f"b_wbar{x}", (0.03, 0.05, 0.58), BEAM, at=(0, -0.04, 0), parent=wg, bevel=0.0) if x < 0 else box("b_wbarh", (0.58, 0.05, 0.03), BEAM, at=(0, -0.04, 0), parent=wg, bevel=0.0)
-for k, x in enumerate((-0.48, 0.48)): box(f"b_shut{k}", (0.24, 0.05, 0.62), SHUT, at=(x, -0.06, 0), parent=wg, bevel=0.015)
-box("b_fbox", (0.7, 0.2, 0.14), BEAM, at=(0, -0.14, -0.38), parent=wg, bevel=0.02)
-for i in range(6): sphere(f"b_wfl{i}", 0.07, BLOOM[i % 3] if i % 2 else IVY[1], at=(-0.28 + i*0.11, -0.16, -0.27), seg=8, ring=6, parent=wg)
-# stone chimney through the grass, ivy down one side, flowers on the cap
-for i in range(7):
-    st = box(f"b_chim{i}", (0.5, 0.5, 0.22), STONES[i % 3], at=(0.75, 0.55, 1.62 + i*0.21), parent=bur, bevel=0.06); lumpy(st, 0.025, 0.4)
-box("b_chimcap", (0.62, 0.62, 0.09), STONES[1], at=(0.75, 0.55, 1.62 + 7*0.21), parent=bur, bevel=0.03)
-ivy([(1.55, -1.45, 0.3), (1.2, -1.25, 1.5)], 7, 0.2)
-ivy([(-0.95, DY + 0.05, 0.25), (-0.95, DY + 0.05, 1.35)], 5, 0.16)
-for i in range(22):
-    a = random.uniform(0, 2*math.pi); el = random.uniform(0.75, 1.35)
-    p = Vector((math.cos(a)*math.cos(el)*2.36, math.sin(a)*math.cos(el)*2.3, math.sin(el)*1.92))
-    sphere(f"b_capfl{i}", 0.07, BLOOM[i % 3], at=p, seg=8, ring=6, parent=bur)
-for i in range(18):
-    a, el = random.uniform(0, 2*math.pi), random.uniform(0.75, 1.4)
-    p = Vector((math.cos(a)*math.cos(el)*2.33, math.sin(a)*math.cos(el)*2.27, math.sin(el)*1.9))
-    t = cyl(f"b_tuft{i}", 0.07, 0.0, random.uniform(0.25, 0.4), MOSS, at=p, seg=5, parent=bur); t.rotation_euler = (random.uniform(-0.4, 0.4), random.uniform(-0.4, 0.4), 0)
-# pots, lantern and stepping stones in front
-for i, x in enumerate((-1.25, 1.25)):
-    cyl(f"b_pot{i}", 0.2, 0.15, 0.3, mat("Pot", '#b8653f', 0.8), at=(x, DY - 0.45, 0.15), seg=14, parent=bur)
-    for k in range(5): sphere(f"b_potfl{i}{k}", 0.09, BLOOM[(k + i) % 3] if k % 2 else IVY[k % 3], at=(x + random.uniform(-0.12, 0.12), DY - 0.45 + random.uniform(-0.12, 0.12), 0.37 + random.uniform(0, 0.1)), seg=8, ring=6, parent=bur)
-box("b_lantpost", (0.07, 0.07, 1.3), BEAM, at=(1.05, DY - 0.55, 0.65), parent=bur, bevel=0.0)
-cyl("b_lantern", 0.1, 0.12, 0.24, GLASS, at=(1.05, DY - 0.55, 1.42), seg=8, parent=bur)
-for i, (x, y) in enumerate([(0.1, DY - 0.75), (-0.2, DY - 1.2), (0.15, DY - 1.65)]):
-    sphere(f"b_path{i}", 0.26, STONES[i % 3], at=(x, y, 0.02), scale=(1.2, 0.9, 0.18), seg=14, ring=8, parent=bur)
+bmesh.ops.transform(bm, matrix=Matrix.Diagonal((1.1, 1.0, 0.62, 1)), verts=bm.verts)
+mound = obj_from_bm("b_mound", bm, SOIL, bur); lumpy(mound, 0.32, 1.1)
+DY = -2.05
+# the tunnel: a dark opening sloping down into the mound, with a rim of dug soil
+cyl("b_hole", 0.62, 0.55, 1.2, HOLE, at=(0, DY + 0.45, 0.42), seg=28, rot=R(math.pi/2 - 0.35, 3, 'X'), parent=bur)
+lip = torus("b_lip", 0.74, 0.2, SOIL_D, at=(0, DY + 0.02, 0.36), rot=R(math.pi/2 - 0.3, 3, 'X'), arc=0.55, parent=bur); lip.rotation_euler = (0, -0.18*math.pi, 0); lumpy(lip, 0.08, 0.6)
+# the spoil heap: loose soil kicked out in front, fanning down the slope
+bm = bmesh.new(); bmesh.ops.create_uvsphere(bm, u_segments=32, v_segments=12, radius=1.0); bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.z < -0.02], context='VERTS')
+sp = obj_from_bm("b_spoil", bm, SOIL_D, bur); sp.location = (0.15, DY - 0.95, 0.0); sp.scale = (1.45, 1.15, 0.22); lumpy(sp, 0.1, 0.5)
+for i in range(14):   # clods in the loose soil
+    a = random.uniform(-1.1, 1.1); r = random.uniform(0.4, 1.6)
+    sphere(f"b_clod{i}", random.uniform(0.05, 0.12), SOIL_D, at=(math.sin(a)*r, DY - 0.5 - math.cos(a)*r, 0.06), scale=(1.2, 1, 0.6), seg=8, ring=5, parent=bur)
+# rocks and pebbles round the entrance and half sunk into the mound
+for i, (x, y, s, rz) in enumerate([(-1.0, DY + 0.1, 0.55, 0.3), (1.05, DY + 0.2, 0.45, 1.9), (-1.6, -1.0, 0.4, 2.6), (1.7, -0.6, 0.35, 0.9), (0.6, 1.6, 0.5, 2.2), (-1.3, 1.2, 0.3, 4.0)]):
+    kit(f"Rock_Medium_{i % 3 + 1}", (x, y, -0.05), s, rz)
+for i in range(10):
+    a = random.uniform(-1.4, 1.4); r = random.uniform(0.9, 2.0)
+    kit(f"Pebble_Round_{i % 5 + 1}", (math.sin(a)*r, DY - 0.4 - math.cos(a)*r*0.7, 0.0), random.uniform(0.08, 0.16), random.uniform(0, 6.28))
+# tree roots arching over the opening
+for k, (x0, x1, z) in enumerate([(-0.9, 0.5, 1.05), (0.7, -0.2, 0.95)]):
+    pts = [Vector((x0, DY + 0.25, z - 0.25)), Vector(((x0 + x1)/2, DY + 0.05, z + 0.12)), Vector((x1, DY + 0.35, z - 0.05))]
+    cu = bpy.data.curves.new(f"b_root{k}", 'CURVE'); cu.dimensions = '3D'; cu.bevel_depth = 0.07 - k*0.015; cu.bevel_resolution = 2
+    spl = cu.splines.new('BEZIER'); spl.bezier_points.add(len(pts) - 1)
+    for bp, p in zip(spl.bezier_points, pts):
+        bp.co = p; bp.handle_left_type = bp.handle_right_type = 'AUTO'
+    ro = bpy.data.objects.new(f"b_root{k}", cu); scene.collection.objects.link(ro); ro.parent = bur; cu.materials.append(BARK)
+# grass, ferns and clover over the top of the mound; a few mushrooms by the rocks
+for i in range(120):
+    a = random.uniform(0, 2*math.pi); r = math.sqrt(random.uniform(0.02, 1))*2.25
+    x, y = math.cos(a)*r*1.1, math.sin(a)*r
+    if y < -0.9 and abs(x) < 1.0: continue   # leave the entrance clear
+    z = 0.62*2.3*math.sqrt(max(0, 1 - (r/2.3)**2)) - 0.05
+    kit(["Grass_Common_Tall", "Grass_Wispy_Tall", "Grass_Common_Short", "Grass_Wispy_Short"][i % 4], (x, y, z), random.uniform(0.35, 0.6), random.uniform(0, 6.28))
+for i, (x, y) in enumerate([(-1.7, 0.2), (1.8, 0.6), (0.3, 1.9), (-0.8, 1.7), (1.4, -1.3)]):
+    kit(["Fern_1", "Clover_1", "Fern_1", "Clover_2", "Fern_1"][i], (x, y, 0.15), random.uniform(0.4, 0.6), random.uniform(0, 6.28))
+for i, (x, y) in enumerate([(-1.25, DY + 0.35), (1.35, DY + 0.5)]):
+    kit("Mushroom_Common", (x, y, 0.05), 0.18, random.uniform(0, 6.28))
 
 # ------------------------------------------------------------------ street lamp
 lamp = empty("lamp")
@@ -342,8 +361,10 @@ def export_props():
     for o in tops: o.location = (0, 0, 0)
     bpy.ops.object.select_all(action='DESELECT')
     for o in scene.objects: o.select_set(True)
+    for im in bpy.data.images:   # the burrow's kit textures: phone-sized
+        if im.size[0] > 512: im.scale(512, max(1, 512*im.size[1]//im.size[0]))
     bpy.ops.export_scene.gltf(filepath=OUT, export_format='GLB', use_selection=True, use_active_scene=True, export_apply=True,
-        export_animations=False, export_yup=True, export_cameras=False, export_lights=False,
+        export_animations=False, export_yup=True, export_cameras=False, export_lights=False, export_image_format='WEBP',
         export_draco_mesh_compression_enable=True, export_draco_mesh_compression_level=7, export_draco_position_quantization=13, export_draco_normal_quantization=9)
     for o in tops: o.location = saved[o.name]
     import os; return os.path.getsize(OUT)

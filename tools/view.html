@@ -15,7 +15,8 @@ const C = new THREE.PerspectiveCamera(35, innerWidth/innerHeight, 0.01, 1000);
 const L = new GLTFLoader(); const dr = new DRACOLoader(); dr.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/libs/draco/'); L.setDRACOLoader(dr);
 const mixers = [], info = []; let x = 0, maxH = 0;
 for (const f of files){
-  const g = await L.loadAsync(f); const m = g.scene;
+  const g = await L.loadAsync(f); let m = g.scene;
+  if (q.get('only')){ const o = g.scene.getObjectByName(q.get('only')); if (o){ o.parent.remove(o); o.position.set(0, 0, 0); m = new THREE.Group(); m.add(o); } }   // one named object out of a file (e.g. a prop)
   const b = new THREE.Box3().setFromObject(m), sz = b.getSize(new THREE.Vector3());
   const s = 1/Math.max(sz.x, sz.y, sz.z); m.scale.setScalar(s); m.rotation.y = (+q.get('yaw') || 0)*Math.PI/180;
   const b2 = new THREE.Box3().setFromObject(m); m.position.set(x - (b2.min.x + b2.max.x)/2, -b2.min.y, -(b2.min.z + b2.max.z)/2); x += 1.3; maxH = Math.max(maxH, b2.max.y - b2.min.y);
