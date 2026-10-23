@@ -17,6 +17,7 @@ MODELS = {
     "horse": ("horse", 11000, {"idle": "Horse_Idle", "walk": "Horse_Walk"}, ["M_Saddle1", "M_Saddle2"]),
     "croc":  ("alligator", 8000, {"idle": "AmericanAlligator_Idle", "walk": "AmericanAlligator_Trot_F"}, []),
     "eagle": ("baldeagle", 7000, {"fly": "GltfAnimation 0"}, []),
+    "hermit": ("hermit_k", 4000, {"walk": "Animation"}, []),
 }
 # these keep the file's own rest pose (Blender's bind-pose guess tips them on their side)
 RAW_BIND = {"wolf", "croc", "moose", "horse"}

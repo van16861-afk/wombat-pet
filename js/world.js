@@ -535,7 +535,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
   // bushes slowly grow back on open land (rocks and trees never come back by themselves)
   // extra trees for the deer forest (added once)
   W.moreTrees = (k, n, existing) => { const R = rng(D.seed*3 + hashKey(k)), [cx, cz] = plotCenter(k), out = [];
-    for (let t=0; t<n*15 && out.length < n; t++){ const x = cx + (R()*2 - 1)*8, z = cz + (R()*2 - 1)*8, s = 0.95 + R()*0.35;
+    for (let t=0; t<n*15 && out.length < n; t++){ const x = cx + (R()*2 - 1)*PLOT*0.42, z = cz + (R()*2 - 1)*PLOT*0.42, s = 0.95 + R()*0.35;
       if (W.isWater(x, z) || slope(x, z) > 0.55 || existing.some(o => Math.hypot(o.x - x, o.z - z) < 2.4) || out.some(o => Math.hypot(o.x - x, o.z - z) < 2.4) || D.feats.some(o => Math.hypot(o.x - x, o.z - z) < W.featR(o) + 1.2)) continue;
       out.push({x:+x.toFixed(2), z:+z.toFixed(2), s:+s.toFixed(2), ry:+(R()*6.28).toFixed(2), hive:false, p:k}); }
     return out; };
