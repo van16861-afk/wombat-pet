@@ -4138,8 +4138,8 @@ function shopEntries(tab){
       actions: S.renameTicket ? no : [...no, {label:'購買', onClick:() => { if (S.coins < 50){ toast('代幣不夠。'); return; } S.coins -= 50; S.renameTicket = 1; sfx('coin'); toast('買了改名券，到「衣櫥」使用。'); afterBuy(); }}]},
     {icon:'🛟', name:'游泳圈', badge: S.ring ? '已擁有' : '150', body:'<p>有了游泳圈，袋熊就能下水游泳：走進河裡、池塘、沼澤或淺海會自動套上，上岸就脫下。不用蓋橋也能游到對岸。</p><p>150 代幣</p>',
       actions: S.ring ? no : [...no, {label:'購買', onClick:() => { if (S.coins < 150){ toast('代幣不夠。'); return; } S.coins -= 150; S.ring = true; NAV.dirty = true; sfx('happy'); toast('買了游泳圈！下次走到水邊，牠就會自己游下去。'); afterBuy(); }}]},
-    {icon:'🧹', name:'一鍵清理', badge: S.autoClean ? '已擁有' : '300', body:'<p>按一下「清理」，就把便便和雜草一次清光。永久有效。</p><p>300 代幣</p>',
-      actions: S.autoClean ? no : [...no, {label:'購買', onClick:() => { if (S.coins < 300){ toast('代幣不夠。'); return; } S.coins -= 300; S.autoClean = true; sfx('happy'); toast('有了一鍵清理！以後按「清理」就能一次清光。'); afterBuy(); }}]}];
+    {icon:'🧹', name:'一鍵清理', badge: S.autoClean ? (S.autoCleanOff ? '已關閉' : '開啟中') : '300', body:`<p>按一下「清理」，就把便便和雜草一次清光。永久有效。</p><p>${S.autoClean ? `已擁有，目前${S.autoCleanOff ? '關閉（按「清理」會標出髒東西，自己一個一個點）' : '開啟'}。` : '300 代幣'}</p>`,
+      actions: S.autoClean ? [...no, {label: S.autoCleanOff ? '開啟一鍵清理' : '關閉一鍵清理', onClick:() => { S.autoCleanOff = !S.autoCleanOff; sfx('pop'); toast(S.autoCleanOff ? '一鍵清理關掉了，可以自己一個一個清。' : '一鍵清理打開了。'); afterBuy(); }}] : [...no, {label:'購買', onClick:() => { if (S.coins < 300){ toast('代幣不夠。'); return; } S.coins -= 300; S.autoClean = true; sfx('happy'); toast('有了一鍵清理！以後按「清理」就能一次清光。'); afterBuy(); }}]}];
   const real = realHoliday();
   const clothE = c => ({icon:CLOTH_ICON[c.id] || '👕', name:c.name, badge: S.owned[c.id] ? '已擁有' : `${c.price}`, dim: !S.owned[c.id] && !holLive(c),
     body:`<p>${c.holiday ? `${HOLIDAYS.find(x=>x.id===c.holiday).name}限定，只在節日當天賣。` : ''}${S.owned[c.id] ? '已經有了，到衣櫥可以穿脫、換顏色。' : `${c.price} 代幣`}</p>`,
@@ -4490,7 +4490,7 @@ document.querySelector('.dock').addEventListener('click', e => {
   else if (c === 'clean'){
     const list = [...cubes.filter(x => !x.cleaning).map(x => ['p',x]), ...weeds.map(x => ['w',x])];
     if (!list.length){ toast('很乾淨，沒有東西要清。'); return; }
-    if (!S.autoClean){ markMess(); return; }
+    if (!S.autoClean || S.autoCleanOff){ markMess(); return; }   // (owners can switch it off and clean by hand)
     list.forEach(([k,x],i) => setTimeout(() => k === 'p' ? cleanPoop(x) : pullWeed(x), i*260));
   } else { sheetKind === c ? closeSheet() : openSheet(c); }
   hudDirty = true;

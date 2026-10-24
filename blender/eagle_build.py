@@ -53,6 +53,27 @@ for o in [o for o in bpy.data.objects if o.type == 'MESH' and o.vertex_groups]:
         w = [1/(d + 0.5)**4 for d, _ in ds]; s = sum(w)
         for (d, n), wi in zip(ds, w): vg[n].add([v.index], wi/s, 'REPLACE')
     print("REWEIGHT", o.name, len(o.data.vertices))
+for o in [o for o in bpy.data.objects if o.type == 'MESH' and any('LEFT-WING' in g.name for g in o.vertex_groups) and any('RIGHT-WING' in g.name for g in o.vertex_groups)]:
+    # the right wing's guessed hand bone points off into space, so its primaries went to the forearm and split away from the hand
+    # in a glide: the bird is symmetric, so every right-side vertex takes the weights of its mirror image on the left
+    from mathutils.kdtree import KDTree
+    left = [v for v in o.data.vertices if (o.matrix_world @ v.co).x > 0.002]
+    kd = KDTree(len(left))
+    for i, v in enumerate(left): kd.insert(o.matrix_world @ v.co, i)
+    kd.balance()
+    swap = lambda n: n.replace("LEFT", "\0").replace("RIGHT", "LEFT").replace("\0", "RIGHT")
+    names = {g.name for g in o.vertex_groups}; idx = {g.index: g.name for g in o.vertex_groups}; n_m = 0
+    for v in o.data.vertices:
+        p = o.matrix_world @ v.co
+        if p.x >= -0.002: continue
+        _, j, _ = kd.find(Vector((-p.x, p.y, p.z))); src = left[j]
+        for g in list(v.groups): o.vertex_groups[idx[g.group]].remove([v.index])
+        for g in src.groups:
+            pre = swap(idx[g.group]).rsplit("_", 1)[0]   # (the two sides' bones end in different numbers)
+            nm = next((n for n in names if n.rsplit("_", 1)[0] == pre), idx[g.group])
+            o.vertex_groups[nm].add([v.index], g.weight, 'ADD')
+        n_m += 1
+    print("MIRRORED", o.name, n_m)
 # where a bone with no child bone really points: towards the middle of the skin it carries (a wing hand -> its primaries)
 TIPDIR = {}
 _acc = {}
