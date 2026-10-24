@@ -25,6 +25,8 @@ Rigged, animated models from Sketchfab, reduced in polygons and texture size and
 | fiddler.glb | 招潮蟹 | [Dancing Crab - Uca Mjoebergi](https://sketchfab.com/3d-models/dancing-crab-uca-mjoebergi-280863886fee409ab3c8168f07caa89f) | Bohdan Lvov | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | mudskipper.glb | 彈塗魚 | [CC0 Shuttles Mudskipper P. modestus](https://sketchfab.com/3d-models/3e868e81be79482c80619d93476eb663) (rigged by `blender/rig_build.py`) | ffish.asia / floraZia | CC0 |
 | croc.glb | 鱷魚 | [ALLIGATOR - Realistic 3D Model (DEMO FREE)](https://sketchfab.com/3d-models/alligator-realistic-3d-model-demo-free-80af5463728149baba78b12f70f6ff5c) | WildMesh 3D | [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) |
+| fishboat.glb | 海上的漁船（船） | [Wooden Boat](https://sketchfab.com/3d-models/wooden-boat-627ba38e06aa4536b90706a8626c74d4) (oars rigged by `blender/boat_build.py`) | donnichols | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| fishboat.glb | 海上的漁船（漁夫） | [Old Fisherman](https://sketchfab.com/3d-models/old-fisherman-1359f1408b6c4dccae835f26cc70f5f2) (skeleton, weights and rowing / fishing clips made by `blender/boat_build.py`) | Bente.Schoone | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 
 The CC BY-NC models may not be used commercially.
 

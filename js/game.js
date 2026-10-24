@@ -212,7 +212,7 @@ Object.values(LOADS).forEach(pr => pr.catch(() => {}));
 // Realistic rigged animals (Sketchfab, converted by blender/real_build.py; authors in assets/models/CREDITS.md). Each has its own
 // skeleton and clips (walk, run, graze, lie down...). `yaw` turns the model to face +Z; `like` is the old model whose size it takes.
 const REAL_CFG = {tiger:{yaw:Math.PI/2, like:'tiger', k:1.15}, deer:{like:'deer', k:1.45, parts:{antlers:'Chifre'}}, wolf:{like:'wolf', k:1.05},
-  moose:{like:'deer', k:1.9, parts:{antlers:'M_Moose_Antler'}}, horse:{like:'horse', k:1.25}, croc:{like:'croc', bright:1.8}, kangaroo:{like:'kangaroo', k:1.45}, heron:{like:'heron', k:1.1}, crab:{len:0.32}, hermit:{len:0.42}, seaturtle:{len:1.3}, penguin:{h:0.85}, flamingo:{len:1.3}, owl:{h:0.7}, peacock:{like:'peacock', k:1.15}, mangrove:{h:4.2}, fiddler:{len:0.3}, mudskipper:{len:0.34}};
+  moose:{like:'deer', k:1.9, parts:{antlers:'M_Moose_Antler'}}, horse:{like:'horse', k:1.25}, croc:{like:'croc', bright:1.8}, kangaroo:{like:'kangaroo', k:1.45}, heron:{like:'heron', k:1.1}, crab:{len:0.32}, hermit:{len:0.42}, seaturtle:{len:1.3}, penguin:{h:0.85}, flamingo:{len:1.3}, owl:{h:0.7}, peacock:{like:'peacock', k:1.15}, mangrove:{h:4.2}, fiddler:{len:0.3}, mudskipper:{len:0.34}, fishboat:{raw:true}};   // (raw: built at game size, origin at the keel)
 const REAL_LOADS = Object.fromEntries(Object.keys(REAL_CFG).map(n => [n, new GLTFLoader().setDRACOLoader(draco).loadAsync(`assets/models/real/${n}.glb`)]));
 Object.values(REAL_LOADS).forEach(pr => pr.catch(() => {}));
 let gltf;
@@ -422,7 +422,7 @@ for (const [n, pr] of Object.entries(REAL_LOADS)){
     box.min.z -= (box.max.z - box.min.z)*0.06; box.max.z += (box.max.z - box.min.z)*0.06;   // the skin reaches a little past the end bones
     const old = ANIM[cfg.like] ? new THREE.Box3().setFromObject(ANIM[cfg.like], true) : null;
     const s = (cfg.h ? cfg.h/(box.max.y - box.min.y) : cfg.len ? cfg.len/(box.max.z - box.min.z) : old ? (old.max.z - old.min.z)/(box.max.z - box.min.z) : 1)*(cfg.k || 1);
-    REAL[n] = {g, s, y:-box.min.y*s, x:-(box.min.x + box.max.x)/2*s, z:-(box.min.z + box.max.z)/2*s, cfg}; tmp.remove(g.scene);   // centred on the body, feet on the ground
+    REAL[n] = cfg.raw ? {g, s:1, x:0, y:0, z:0, cfg} : {g, s, y:-box.min.y*s, x:-(box.min.x + box.max.x)/2*s, z:-(box.min.z + box.max.z)/2*s, cfg}; tmp.remove(g.scene);   // centred on the body, feet on the ground
   } catch(e){ console.warn(`real/${n}.glb not loaded`, e); }
 }
 // a copy of a realistic animal: an outer group (moved and turned by the behaviour code) holding the scaled model,
@@ -2180,22 +2180,15 @@ function animalScare(kind){   // a crocodile snapping near the wombat makes it j
 function pokeCrab(c){ c.hide = c.hermit ? 3 : 0; if (!c.hermit){ const a = Math.random()*6.28; c.tgt.set(c.g.position.x + Math.sin(a)*2.5, 0, c.g.position.z + Math.cos(a)*2.5); c.wait = 0; } sfx('pop'); }
 // ---------- out at sea: a fisherman in a canoe now and then, and a yacht passing far off that sounds its horn ----------
 const boats = {canoe:null, canoeT:rnd(60, 180), yacht:null, yachtT:rnd(90, 240)};
+// the fisherman's rowing boat (blender/boat_build.py): a real wooden rowboat, the old fisherman jointed from hips to fingers, two oars
+// on their oarlocks. He rows out bow first with his back to the way he goes, ships the oars and fishes, then rows home.
 function makeCanoe(){
-  const g = new THREE.Group(), wood = mat('#8a5a35', 0.8), dark = mat('#5e3b22', 0.85);
-  const hull = new THREE.Mesh(new THREE.SphereGeometry(1, 18, 10, 0, Math.PI*2, Math.PI/2, Math.PI/2), wood); hull.scale.set(0.42, 0.32, 1.9); g.add(hull);
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(1, 0.05, 6, 28), dark); rim.rotation.x = Math.PI/2; rim.scale.set(0.42, 1.9, 1); g.add(rim);
-  const man = new THREE.Group(); man.position.set(0, 0.05, -0.3); g.add(man);
-  const shirt = mat(['#4f86c6', '#d9573f', '#5aa469', '#e2b53b'][Math.floor(Math.random()*4)], 0.8), skin = mat('#e8b896', 0.7);
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.22, 0.55, 10), shirt); body.position.y = 0.3; man.add(body);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 10), skin); head.position.y = 0.72; man.add(head);
-  const hat = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.16, 16), mat('#e2c37c', 0.9)); hat.position.y = 0.86; man.add(hat);
-  const arm = new THREE.Group(); arm.position.set(0.15, 0.48, 0.05); man.add(arm);
-  const fore = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.4, 6), shirt); fore.rotation.x = 1.1; fore.position.set(0, -0.05, 0.17); arm.add(fore);
-  const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.016, 2.2, 5), dark); rod.geometry.translate(0, 1.1, 0); rod.position.set(0, -0.08, 0.35); rod.rotation.x = 0.75; arm.add(rod);
-  const paddle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 1.5), wood); paddle.position.set(-0.3, 0.3, 0.1); man.add(paddle);
+  const g = realClone('fishboat'); if (!g) return null;
+  let tip = null; g.traverse(o => { if (o.isBone && o.name === 'rodtip') tip = o;
+    if (o.isMesh && o.material.name === 'Cap'){ o.material = new THREE.MeshBasicMaterial({colorWrite:false, transparent:true}); o.renderOrder = -1; } });   // depth only: hides the sea inside the hull
   const lineGeo = new THREE.BufferGeometry().setFromPoints([V3(), V3()]), line = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({color:'#f4f4f0'})); scene.add(line);
   const bob = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), mat('#e0483a', 0.4)); scene.add(bob);
-  scene.add(g); return {g, man, arm, rod, paddle, line, bob, t:0, catchT:rnd(8, 20)};
+  scene.add(g); return {g, tip, line, bob, t:0, catchT:rnd(8, 20), lookT:rnd(6, 14)};
 }
 function makeYacht(){
   const g = new THREE.Group(), white = mat('#f4f4f0', 0.5), glass = mat('#3d5a73', 0.2), stripe = mat('#2f5f9e', 0.5);
@@ -2227,17 +2220,26 @@ function updateFlock(dt){
 function updateBoats(dt, t){
   updateFlock(dt);
   const sea = z => world.shoreX(z), cz = (Z0 + Z1)/2;
-  // the canoe paddles out, the man casts and waits (now and then a fish), then paddles away
-  if (!boats.canoe){ boats.canoeT -= dt; if (boats.canoeT <= 0){ const z = rnd(Z0 + 10, Z1 - 10), c = makeCanoe(); c.spot = V3(sea(z) + rnd(7.5, 11), WATER_Y, z); c.from = c.spot.clone().add(V3(30, 0, rnd(-10, 10))); c.stay = rnd(80, 160); c.g.position.copy(c.from); boats.canoe = c; } }
-  else { const c = boats.canoe; c.t += dt; const T = c.t, IN = 22, p = c.g.position;
+  // the boat rows out, the man ships his oars and fishes (now and then a bite and a fish), then turns and rows away
+  if (!boats.canoe){ boats.canoeT -= dt; if (boats.canoeT <= 0){ const z = rnd(Z0 + 10, Z1 - 10), c = makeCanoe(); if (!c){ boats.canoeT = 30; } else { c.spot = V3(sea(z) + rnd(7.5, 11), WATER_Y, z); c.from = c.spot.clone().add(V3(30, 0, rnd(-10, 10))); c.stay = rnd(80, 160); c.g.position.copy(c.from); c.g.rotation.y = Math.atan2(c.spot.x - c.from.x, c.spot.z - c.from.z); boats.canoe = c; } } }
+  else { const c = boats.canoe, rg = c.g.userData; c.t += dt; const T = c.t, IN = 22, p = c.g.position;
     const u = T < IN ? T/IN : T < IN + c.stay ? 1 : 1 - (T - IN - c.stay)/IN, k = u*u*(3 - 2*u);
-    p.lerpVectors(c.from, c.spot, k); p.y = WATER_Y - 0.08 + Math.sin(t*1.3 + p.z)*0.05;
-    c.g.rotation.set(Math.sin(t*1.1)*0.04, Math.atan2(c.spot.x - c.from.x, c.spot.z - c.from.z) + (T > IN ? 1.3 : 0)*Math.min(1, (T - IN)/4)*(T < IN + c.stay ? 1 : 0), Math.sin(t*0.9)*0.05);
-    const paddling = T < IN || T > IN + c.stay; c.paddle.visible = paddling; c.rod.visible = !paddling; c.paddle.rotation.y = paddling ? Math.sin(t*3)*0.9 : 0;
-    c.line.visible = c.bob.visible = !paddling;
-    if (!paddling){ c.catchT -= dt; const tip = V3(0, 2.2, 0); c.rod.localToWorld(tip); const bob = c.g.position.clone().add(V3(Math.sin(c.g.rotation.y)*3.2, 0, Math.cos(c.g.rotation.y)*3.2)).setY(WATER_Y + Math.sin(t*2)*0.03);
-      const bite = c.catchT < 0 && c.catchT > -2.5; if (bite){ bob.y -= 0.12*Math.abs(Math.sin(t*9)); c.rod.rotation.x = 0.75 - 0.3*Math.abs(Math.sin(t*6)); } else c.rod.rotation.x = 0.75;
-      if (c.catchT < -2.5){ c.catchT = rnd(10, 25); if (Math.random() < 0.6){ floatSprite(emojiTex('🐟'), bob.clone().add(V3(0, 0.4, 0)), {size:0.7, vy:2.2, g:4, max:1.4}); sfx('splash', bob); } }
+    p.lerpVectors(c.from, c.spot, k); p.y = WATER_Y - 0.28 + Math.sin(t*1.3 + p.z)*0.04;   // sits about a third of its depth in the water
+    const out = Math.atan2(c.spot.x - c.from.x, c.spot.z - c.from.z), home = out + Math.PI;   // bow first both ways (a rower faces the stern)
+    let yaw = out; if (T > IN) yaw = out + 1.3*Math.min(1, (T - IN)/5); if (T > IN + c.stay) yaw = out + 1.3 + (Math.PI - 1.3)*Math.min(1, (T - IN - c.stay)/5);
+    c.g.rotation.set(Math.sin(t*1.1)*0.03, yaw, Math.sin(t*0.9)*0.04);
+    const rowing = T < IN || T > IN + c.stay, fishing = !rowing;
+    if (rowing) playRig(rg, 'row', 1);
+    else { c.catchT -= dt; c.lookT -= dt;
+      if (c.catchT < 0 && c.catchT > -1.6) playRig(rg, 'strike', 1);
+      else if (c.lookT < 0 && c.lookT > -5) playRig(rg, 'look', 1);
+      else playRig(rg, 'fish', 1);
+      if (c.lookT < -5) c.lookT = rnd(10, 20);
+      if (c.catchT < -1.6){ c.catchT = rnd(10, 25); if (Math.random() < 0.6){ floatSprite(emojiTex('🐟'), c.bob.position.clone().add(V3(0, 0.4, 0)), {size:0.7, vy:2.2, g:4, max:1.4}); sfx('splash', c.bob.position); } } }
+    rg.mixer.update(dt);
+    c.line.visible = c.bob.visible = fishing && !!c.tip;
+    if (fishing && c.tip){ c.g.updateMatrixWorld(true); const tip = c.tip.getWorldPosition(V3()), away = tip.clone().sub(p).setY(0).normalize();
+      const bob = tip.clone().addScaledVector(away, 1.1).setY(WATER_Y + Math.sin(t*2)*0.03); if (c.catchT < 0) bob.y -= 0.12*Math.abs(Math.sin(t*9));
       c.bob.position.copy(bob); const a = c.line.geometry.attributes.position; a.setXYZ(0, tip.x, tip.y, tip.z); a.setXYZ(1, bob.x, bob.y, bob.z); a.needsUpdate = true; }
     if (T > IN*2 + c.stay){ scene.remove(c.g, c.line, c.bob); boats.canoe = null; boats.canoeT = rnd(180, 420); } }
   // the yacht crosses far out, sounding its horn as it passes
