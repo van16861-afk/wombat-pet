@@ -303,6 +303,39 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
   const goTo = (a, dest, speed, dt, ok = () => true, turn = 3) => { const d = V3(dest.x - a.g.position.x, 0, dest.z - a.g.position.z), L_ = d.length();
     if (L_ < 0.3) return true; d.normalize(); const nx = a.g.position.x + d.x*0.6, nz = a.g.position.z + d.z*0.6;
     if (!ok(nx, nz)) return true; a.g.position.addScaledVector(d, Math.min(L_, dt*speed)); face(a, d.x, d.z, dt, turn); return false; };
+  // ---------- the realistic macaque: walks on all fours, climbs hand over hand up the outside of the bark, sits in the fork ----------
+  let trunkOf = null; F.setTrunk = fn => { trunkOf = fn; };
+  function monkeyReal(a, dt, pet, petD){
+    const p = a.g.position, u = a.g.userData;
+    const tree = a.tree && forestTrees.includes(a.tree) ? a.tree : (a.tree = forestTrees.length ? forestTrees[Math.floor(Math.random()*forestTrees.length)] : null);
+    if (a.side === undefined) a.side = rnd(0, 6.28);
+    const T = tree && trunkOf ? trunkOf(tree) : null, out = V3(Math.sin(a.side), 0, Math.cos(a.side)), g0 = tree ? gy(tree.x, tree.z) : 0;
+    const bark = h => { const ax = T.axis(h), r = T.r(h) + (a.reach ?? 0.3*a.g.scale.x); return V3(ax.x + out.x*r, g0 + h, ax.z + out.z*r); };   // where it hangs at height h: hands on the bark
+    const faceTrunk = () => { a.g.rotation.y = Math.atan2(-out.x, -out.z); };
+    const top = T ? Math.max(0.6, T.fork - 0.12) : 0;
+    if (pet && petD < 3.5 && T && !['toTree', 'climb', 'up'].includes(a.state)){ a.state = 'toTree'; a.fast = true; sound('monkey', p); }
+    if (a.timer <= 0 && !['toTree', 'climb', 'down'].includes(a.state)){ a.timer = rnd(6, 14); const r_ = Math.random();
+      if (a.state === 'up'){ if (r_ < 0.45){ a.state = 'down'; a.h = top; } else a.eat = !a.eat; }
+      else if (r_ < 0.4){ a.state = 'walk'; a.dest = p.clone().add(V3(rnd(-3, 3), 0, rnd(-3, 3))); }
+      else if (r_ < 0.75 && T){ a.state = 'toTree'; a.fast = false; }
+      else { a.state = 'groom'; a.eat = Math.random() < 0.5; if (Math.random() < 0.3) sound('monkey', p); } }
+    if (a.state === 'toTree' && T){ const base = bark(0);
+      if (goTo(a, base, a.fast ? 2.6 : 1.0, dt, (x, z) => !world.isWater(x, z), 5)){ a.state = 'climb'; a.h = 0; }
+      p.y = gy(p.x, p.z); a.pose = null; return; }
+    if ((a.state === 'climb' || a.state === 'down') && T){
+      clip(a, 'climb', a.state === 'climb' ? (a.fast ? 1.6 : 1) : -1); a.pose = true; faceTrunk();
+      const hb = u.handL || (u.handL = a.g.getObjectByName('handL'));
+      if (hb){ a.g.updateMatrixWorld(true); const hp = hb.getWorldPosition(V3()); const d = (p.x - hp.x)*out.x + (p.z - hp.z)*out.z; a.reach = a.reach == null ? Math.max(0.05, d) : a.reach + (Math.max(0.05, d) - a.reach)*Math.min(1, dt*2); }
+      const v = 0.28*a.g.scale.x*(a.fast && a.state === 'climb' ? 1.6 : 1);   // matches the clip: one hand-over-hand cycle lifts it one reach
+      a.h = clamp(a.h + (a.state === 'climb' ? v : -v)*dt, 0, top); p.copy(bark(a.h));
+      if (a.state === 'climb' && a.h >= top){ a.state = 'up'; a.fast = false; a.timer = rnd(8, 16); }
+      if (a.state === 'down' && a.h <= 0){ a.state = 'groom'; a.timer = rnd(5, 10); a.side = rnd(0, 6.28); }
+      return; }
+    if (a.state === 'up' && T){ const ax = T.axis(T.fork); p.set(ax.x, g0 + T.fork, ax.z); a.g.rotation.y = a.side;   // sitting in the fork where the branches spread
+      a.pose = a.eat ? 'eat' : 'idle'; return; }
+    if (a.state === 'walk' && a.dest){ if (goTo(a, a.dest, 1.0, dt, (x, z) => !world.isWater(x, z) && world.inBio('forest', x, z), 4)){ a.state = 'groom'; a.timer = rnd(4, 9); } p.y = gy(p.x, p.z); a.pose = null; return; }
+    a.pose = a.eat ? 'eat' : 'idle'; p.y = gy(p.x, p.z);
+  }
 
   // koalas climb the outback's eucalyptus trees (game.js tells us where they are)
   F.setPerches = list => { let i = 0; for (const a of F.list) if (a.kind === 'koala'){ const t = list[i++]; a.perch = t || null; } };
@@ -557,6 +590,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
           if (a.state === 'dance' && Math.random() < dt*0.3) sound('crane', p);
           break; }
         case 'monkey': {   // sits up in a tree, climbs down to forage and groom, scampers back up when the wombat comes
+          if (isReal(a)){ monkeyReal(a, dt, pet, petD); break; }
           const arm = pt(a.g, 'monkey_armL'), arm2 = pt(a.g, 'monkey_armR'), head = pt(a.g, 'monkey_head');
           const tree = a.tree && forestTrees.includes(a.tree) ? a.tree : (a.tree = forestTrees.length ? forestTrees[Math.floor(Math.random()*forestTrees.length)] : null);
           const perch = tree ? V3(tree.x + Math.sin(a.side || 0)*0.3*tree.s, gy(tree.x, tree.z) + 1.55*tree.s, tree.z + Math.cos(a.side || 0)*0.3*tree.s) : null;
@@ -665,7 +699,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
       case 'snake': sound('hiss', p); a.state = 'flee'; a.timer = 1.4; a.dest = p.clone().add(V3(rnd(-4, 4), 0, rnd(-4, 4))); break;
       case 'peacock': a.show = 6; a.cool = 10; sound('peacock', p); break;
       case 'crane': a.state = 'dance'; a.timer = 5; sound('crane', p); break;
-      case 'monkey': if (a.state !== 'up'){ a.state = 'climb'; a.from = p.clone(); a.st = 0; } sound('monkey', p); break;
+      case 'monkey': if (isReal(a)){ if (!['up', 'climb', 'down'].includes(a.state)){ a.state = 'toTree'; a.fast = true; } } else if (a.state !== 'up'){ a.state = 'climb'; a.from = p.clone(); a.st = 0; } sound('monkey', p); break;
       case 'capybara': a.state = 'rest'; a.timer = 7; a.dest = null; a.chill = 6; a.zzd = false; sound('capy', p); break;
       case 'turtle': a.shy = 3; if (a.state === 'sun'){ a.state = 'idle'; a.timer = 10; } break;
     }

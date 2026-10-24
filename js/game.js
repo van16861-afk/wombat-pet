@@ -212,7 +212,7 @@ Object.values(LOADS).forEach(pr => pr.catch(() => {}));
 // Realistic rigged animals (Sketchfab, converted by blender/real_build.py; authors in assets/models/CREDITS.md). Each has its own
 // skeleton and clips (walk, run, graze, lie down...). `yaw` turns the model to face +Z; `like` is the old model whose size it takes.
 const REAL_CFG = {tiger:{yaw:Math.PI/2, like:'tiger', k:1.15}, deer:{like:'deer', k:1.45, parts:{antlers:'Chifre'}}, wolf:{like:'wolf', k:1.05},
-  moose:{like:'deer', k:1.9, parts:{antlers:'M_Moose_Antler'}}, horse:{like:'horse', k:1.25}, croc:{like:'croc', bright:1.8}, kangaroo:{like:'kangaroo', k:1.45}, heron:{like:'heron', k:1.1}, crab:{len:0.32}, hermit:{len:0.42}, seaturtle:{len:1.3}, penguin:{h:0.85}, flamingo:{len:1.3}, owl:{h:0.7}, peacock:{like:'peacock', k:1.15}, mangrove:{h:4.2}, fiddler:{len:0.3}, mudskipper:{len:0.34}, fishboat:{raw:true}};   // (raw: built at game size, origin at the keel)
+  moose:{like:'deer', k:1.9, parts:{antlers:'M_Moose_Antler'}}, horse:{like:'horse', k:1.25}, croc:{like:'croc', bright:1.8}, kangaroo:{like:'kangaroo', k:1.45}, heron:{like:'heron', k:1.1}, crab:{len:0.32}, hermit:{len:0.42}, seaturtle:{len:1.3}, penguin:{h:0.85}, flamingo:{len:1.3}, owl:{h:0.7}, peacock:{like:'peacock', k:1.15}, mangrove:{h:4.2}, fiddler:{len:0.3}, mudskipper:{len:0.34}, fishboat:{raw:true}, monkey:{len:1.7}};   // (raw: built at game size, origin at the keel)
 const REAL_LOADS = Object.fromEntries(Object.keys(REAL_CFG).map(n => [n, new GLTFLoader().setDRACOLoader(draco).loadAsync(`assets/models/real/${n}.glb`)]));
 Object.values(REAL_LOADS).forEach(pr => pr.catch(() => {}));
 let gltf;
@@ -1866,6 +1866,25 @@ function makeTree(d){
   const hb = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 2.6, 8), hbMat); hb.position.y = 1.3; hb.userData.kind = 'tree'; g.add(hb);
   const fade = []; g.traverse(o => { if (o.isMesh && o !== hb && !o.userData.noFade) { o.material = seeThrough(o.material.clone()); o.material.transparent = true; fade.push(o.material); } });
   const tr = {d, g, hb, fade, alpha:1, shake:0, sh:makeShadow(2.6*d.s, 2.6*d.s)}; tr.sh.g.position.set(d.x, gy(d.x, d.z), d.z); hb.userData.ref = tr; trees.push(tr); NAV.dirty = true; return tr;
+}
+// The bark's outline up each tree, for animals that climb (they keep to the outside of the trunk, never inside it): per 0.1 of
+// height the trunk's centre and its widest reach, and where it forks into branches.
+const TRUNK_PROF = new Map();
+function trunkShape(d){
+  const set = TREE_MODELS && (d.euc ? TREE_MODELS.euc : TREE_MODELS.oak), m = set && set.length ? set[Math.abs(Math.round(d.x*7 + d.z*13)) % set.length] : null;   // (the model makeTree picks)
+  let P = m && TRUNK_PROF.get(m);
+  if (m && m.trunk && !P){ const p = m.trunk.attributes.position, B = [];
+    for (let i=0;i<p.count;i++){ const k = Math.floor(Math.max(0, p.getY(i))/0.1); (B[k] || (B[k] = [])).push(p.getX(i), p.getZ(i)); }
+    const b = []; for (let k=0;k<B.length;k++){ const v = B[k]; if (!v){ b.push(b[k - 1] || {cx:0, cz:0, r:0.3}); continue; } let cx = 0, cz = 0; for (let j=0;j<v.length;j+=2){ cx += v[j]; cz += v[j+1]; } cx /= v.length/2; cz /= v.length/2;
+      let r = 0; for (let j=0;j<v.length;j+=2) r = Math.max(r, Math.hypot(v[j] - cx, v[j+1] - cz)); b.push({cx, cz, r}); }
+    const rr = b.map((x, k) => Math.max(x.r, (b[k - 1] || x).r, (b[k + 1] || x).r));   // a little wider than any one slice: no bumps poking through
+    b.forEach((x, k) => { x.r = rr[k]; });
+    const base = Math.min(...b.slice(6, 15).map(x => x.r)); let fork = b.findIndex((x, k) => k >= 9 && x.r > 1.4*base);
+    P = {b, fork:fork > 0 ? fork*0.1 : 1.6}; TRUNK_PROF.set(m, P); }
+  const s = d.s, c = Math.cos(d.ry || 0), sn = Math.sin(d.ry || 0);
+  if (!P) return {r: () => 0.3*s, axis: () => ({x:d.x, z:d.z}), fork:1.6*s};
+  const at = h => P.b[clamp(Math.floor(h/s/0.1), 0, P.b.length - 1)];
+  return {r: h => at(h).r*s, axis: h => { const b = at(h); return {x:d.x + (b.cx*c + b.cz*sn)*s, z:d.z + (-b.cx*sn + b.cz*c)*s}; }, fork:P.fork*s};
 }
 function plantTrees(){
   S.trees = []; const n = 3 + Math.floor(Math.random()*3);
@@ -4613,7 +4632,7 @@ if (!S.world.balanced){ S.world.balanced = 1; const taken = (x, z, r) => S.trees
 // (seedWorldNature above fills any plot that has no rocks, bushes or trees yet: new worlds, and the plots added when the world grew to 4 × 4)
 S.trees.filter(d => world.isOpenKey(d.p || '0,0')).forEach(makeTree); applyBumps();
 world.showFeats();
-const fauna = createFauna({scene, world, mat, hbMat, onSound: (n, at) => sfx(n, at), clone: n => animalClone(n), real: n => realClone(n), lod:furLOD});
+const fauna = createFauna({scene, world, mat, hbMat, onSound: (n, at) => sfx(n, at), clone: n => animalClone(n), real: n => realClone(n), lod:furLOD}); fauna.setTrunk(trunkShape);
 const koalaPerches = () => fauna.setPerches([...trees.filter(tr => tr.d.euc && !tr.cut).map(tr => tr.d), ...world.lockedEucs(BIO.aus)]);
 koalaPerches();
 const wild = createWildlife({scene, world, clone:animalClone, real: n => realClone(n), hbMat, mat, lod:furLOD, fx:{
