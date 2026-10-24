@@ -168,6 +168,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
     return g;
   }
   function koala(){
+    const rk = real && real('koala'); if (rk) return rk;   // the realistic koala (its own rig)
     const ko = model('koala', m => { m.userData.head = new THREE.Object3D(); }); if (ko) return ko;
     const g = new THREE.Group(), fur = mat('#9aa0a6', 0.95), light = mat('#e6e3dc', 0.95), dark = mat('#2c2a2a', 0.4);
     const b = ball(0.24, fur, 1, 1.15, 0.95); b.position.y = 0.3; g.add(b);
@@ -713,6 +714,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
           if (a.timer <= 0){ a.timer = rnd(6, 14); if (Math.random() < 0.5){ a.state = 'eat'; } else { a.state = 'walk'; a.dest = p.clone().add(V3(rnd(-3, 3), 0, rnd(-3, 3))); } }
           let moving = false; if (!shy && a.state === 'walk' && a.dest){ moving = !goTo(a, a.dest, 0.12, dt, aOK(a), 0.6); }
           for (const n of ['FL', 'FR', 'BL', 'BR']){ const l = pt(a.g, 'tortoise_leg' + n); if (l) l.rotation.x = moving ? Math.sin(a.t*2.4 + (n === 'FL' || n === 'BR' ? 0 : Math.PI))*0.3 : 0; }
+          if (isReal(a)){ clip(a, moving ? 'walk' : a.state === 'eat' ? 'look' : 'idle', moving ? 0.8 : 1); a.pose = true; }   // its own slow plod and neck stretch
           p.y = gy(p.x, p.z);
           break; }
         case 'snake': {   // slithers through the grass flicking its tongue; slips away (hidden) when the wombat comes near
@@ -740,6 +742,11 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
           p.y = gy(p.x, p.z) + (a.state === 'walk' ? Math.abs(Math.sin(a.t*7))*0.02 : 0);
           break; }
         case 'koala': {
+          if (isReal(a)){   // the realistic koala hugs the outside of the trunk (its own clinging clip), belly to the bark
+            if (a.perch){ const T = trunkOf ? trunkOf(a.perch) : null, ang = a.perch.ry || 0, h = 1.25*a.perch.s, ax = T ? T.axis(h) : a.perch, r = (T ? T.r(h) : 0.3*a.perch.s) + 0.3*a.g.scale.x;
+              p.set(ax.x + Math.sin(ang)*r, gy(a.perch.x, a.perch.z) + h, ax.z + Math.cos(ang)*r); a.g.rotation.y = ang + Math.PI; }
+            if (a.timer <= 0){ a.timer = rnd(6, 12); if (Math.random() < 0.5) o.onZzz && o.onZzz(p.clone().add(V3(0, 0.9, 0))); }
+            a.pose = 'idle'; break; }
           const kh = a.g.userData.head; if (kh && Math.sin(a.t*0.5) > 0.6) kh.rotation.x = 0.25 + Math.sin(a.t*8)*0.06; else if (kh) kh.rotation.x *= 0.9;   // munching eucalyptus leaves
           if (a.perch){ p.set(a.perch.x + 0.38*Math.sin(a.perch.ry || 0), gy(a.perch.x, a.perch.z) + 1.25*a.perch.s, a.perch.z + 0.38*Math.cos(a.perch.ry || 0)); a.g.rotation.y = (a.perch.ry || 0) + Math.PI; }
           a.g.userData.head.rotation.y = Math.sin(a.t*0.4)*0.4;

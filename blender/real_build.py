@@ -21,13 +21,21 @@ MODELS = {
     "seaturtle": ("seaturtle", 6000, {"swim": "Swim Cycle"}, []),
     "fiddler": ("fiddler", 3000, {"dance": "Dance"}, ["AOFLoor"]),
     "penguin": ("penguin", 3500, {"idle": "Iddle", "walk": "Walk", "slide": "Slide", "peck": "Bite", "fall": "Fall"}, []),
+    "hippo2": ("real_hippo", 9000, {"walk": "Play_anim_Hippo"}, []),
+    "capybara2": ("real_capybara", 9000, {"walk": "Take 001"}, []),
+    "whale2": ("real_whale", 5000, {"swim": "Take 001"}, []),
+    "tortoise2": ("real_tortoise", 8000, {"walk": "walking", "look": "looking"}, []),
+    "koala2": ("real_koala", 7000, {"idle": "Animations"}, ["Material_32", "material", "Text"]),   # (drops the leg it clings to in the demo, and the caption)
+    "butterfly2": ("real_butterfly", 4000, {"fly": "Animation"}, []),
+    "rabbit2": ("real_rabbit", 7000, {"idle": "A_jackrabbit_idle_05", "eat": "jackrabbit_idle_eating", "walk": "jackrabbit_walk_fwd_01", "run": "jackrabbit_sprint_fwd_01", "look": "jackrabbit_idle_04"}, []),
+    "trout": ("real_trout", 3500, {"swim": "Trout_Swim_1", "dart": "Trout_Swim_1_Fast"}, []),
     "fox": ("fox", 9000, {"idle": "A1_Stand_Idle_02", "eat": "A2_Stand_Eating_01", "walk": "Loco_Walk", "trot": "Trot", "run": "Run", "sneak": "Sneak", "pounce": "CanonBall",
                          "lie": "Lying_Idle_01", "lieDown": "Trans_Stand_to_Lying", "getUp": "Trans_Lying_to_Stand", "sit": "Sitting_Idle_01", "look": "A3_Stand_Idle_01"}, []),
     "bug_cicada": ("bug_cicada", 7000, {"walk": "Animation"}, []),   # (CC0 scan with its own rig: five-joint legs, wings; its clip is a slow walk)
     "pondturtle": ("pondturtle", 24000, {"walk": "Animation"}, ["Object_8"]),   # (CC0 scan with its own rig: neck + head, three bones a limb, five in the tail; one diagonal crawl clip)
 }
 # these keep the file's own rest pose (Blender's bind-pose guess tips them on their side)
-RAW_BIND = {"wolf", "croc", "moose", "horse", "penguin", "fox"}
+RAW_BIND = {"wolf", "croc", "moose", "horse", "penguin", "fox", "rabbit2", "trout"}
 os.makedirs(OUT, exist_ok=True)
 only = [s for s in os.environ.get("ONLY", "").split(",") if s]
 
@@ -64,7 +72,9 @@ def hold_rest(arm, ac, slot):
 
 def build(name, src, budget, clips, drop):
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    bpy.ops.import_scene.gltf(filepath=os.path.join(SRC, src + ".glb"), guess_original_bind_pose=name not in RAW_BIND)
+    path = os.path.join(SRC, src + ".glb")
+    if not os.path.exists(path): path = os.path.join(SRC, src, "scene.gltf")   # (some come as an unpacked glTF folder)
+    bpy.ops.import_scene.gltf(filepath=path, guess_original_bind_pose=name not in RAW_BIND)
     arm = next(o for o in bpy.data.objects if o.type == 'ARMATURE')
     arm.data.pose_position = 'REST'; bpy.context.view_layer.update()   # rigid parts are baked where they sit on the rest skeleton
     meshes = [o for o in bpy.data.objects if o.type == 'MESH']
@@ -92,7 +102,7 @@ def build(name, src, budget, clips, drop):
     ratio = min(1.0, budget/max(1, sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in meshes)))
     for o in meshes:
         bm = bmesh.new(); bm.from_mesh(o.data); bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=max(o.dimensions)*2e-5); bm.to_mesh(o.data); bm.free()   # (scans come in loose 65k pieces)
-        if ratio < 0.98:
+        if ratio < 0.98 and not o.data.shape_keys:   # (a mesh with shape keys keeps its faces)
             d = o.modifiers.new("Dec", 'DECIMATE'); d.ratio = ratio; d.use_collapse_triangulate = True
             bpy.context.view_layer.objects.active = o
             while o.modifiers[0].name != "Dec": bpy.ops.object.modifier_move_up(modifier="Dec")
@@ -118,6 +128,13 @@ def build(name, src, budget, clips, drop):
     if name in EXTRA: add_clips(arm, ad, *EXTRA[name])   # clips made here for what the model lacks (a turtle crawling on land, a penguin swimming)
     for ac in keep.values(): print("  CLIP", ac.name, [sl.identifier for sl in getattr(ac, "slots", [])], "bones:", bones_slot(ac).identifier if bones_slot(ac) else None)
     print("MODEL", name, "faces", total, "->", tris, "tris; clips", sorted(keep), "missing", sorted(set(clips) - set(keep)))
+    for m in bpy.data.materials:   # drop textures that would not save (they leave dangling references in the file)
+        if m.node_tree:
+            for nd in [nd for nd in m.node_tree.nodes if nd.type == 'TEX_IMAGE' and (not nd.image or not nd.image.has_data or nd.image.size[0] == 0)]: m.node_tree.nodes.remove(nd)
+            bs = next((nd for nd in m.node_tree.nodes if nd.type == 'BSDF_PRINCIPLED'), None)
+            if bs:
+                for sk in ('Specular Tint', 'Specular IOR Level'):
+                    for l in list(bs.inputs[sk].links) if sk in bs.inputs else []: m.node_tree.links.remove(l)
     bpy.ops.object.select_all(action='SELECT')
     p = os.path.join(OUT, name + ".glb")
     bpy.ops.export_scene.gltf(filepath=p, export_format='GLB', export_image_format='WEBP', export_animations=True, export_animation_mode='NLA_TRACKS',

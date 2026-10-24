@@ -639,7 +639,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
     if (!D.bio) return;
     const P = D.bio.pond, inPond = (x, z) => W.isPond(x, z) && pondD(x, z) < P.r - 0.6;
     const pick = () => { for (let i=0;i<20;i++){ const a = Math.random()*6.28, r = Math.sqrt(Math.random())*W.pondR(a)*0.8, x = P.x + Math.cos(a)*r, z = P.z + Math.sin(a)*r; if (inPond(x, z)) return V3(x, 0, z); } return V3(P.x, 0, P.z); };
-    if (!koi.length && fishModel){ for (let i=0;i<(mobile ? 5 : 7);i++){ const fm = fishModel([0, 1, 2, 4, 6, 0, 1][i]); if (!fm) break; fm.g.scale.setScalar(1.5 + Math.random()*0.6); group.add(fm.g);
+    if (!koi.length && fishModel){ for (let i=0;i<(mobile ? 5 : 7);i++){ const fm = fishModel([0, 1, 2, 4, 6, 0, 1][i], true); if (!fm) break; fm.g.scale.setScalar(1.5 + Math.random()*0.6); group.add(fm.g);
         const k = {g:fm.g, tail:fm.tail, at:pick(), dest:pick(), sp:0.4 + Math.random()*0.3, depth:0.2 + Math.random()*0.2, ph:Math.random()*9, jump:0};
         k.g.position.copy(k.at); k.hb = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), hbMat); k.hb.userData.kind = 'fish'; k.hb.userData.ref = k; group.add(k.hb); W.pick.unshift(k.hb); koi.push(k); } }
     for (const k of koi){
@@ -668,7 +668,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
       const w = Math.sin(t*(6 + Math.abs(sp)*6) + f.ph);
       f.g.position.set(x0 + n.x*f.off*bk, WATER_Y - f.depth + Math.sin(t*1.3 + f.ph)*0.03, f.z + n.z*f.off*bk);
       f.g.rotation.y = Math.atan2(s/0.6*Math.sign(sp), Math.sign(sp)) + w*0.12;
-      f.tail.rotation.y = w*0.6;
+      if (f.tail) f.tail.rotation.y = w*0.6;   // (the realistic trout swims with its own clip)
       if (f.jump > 0){ f.jump -= dt; const u = 1 - f.jump/0.9; f.g.position.y = WATER_Y - 0.1 + Math.sin(u*Math.PI)*1.1; f.g.rotation.x = -Math.cos(u*Math.PI)*0.9; } else f.g.rotation.x = 0;
       if (f.hb) f.hb.position.set(f.g.position.x, WATER_Y + 0.05, f.g.position.z);
     }

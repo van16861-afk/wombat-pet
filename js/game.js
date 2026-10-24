@@ -214,7 +214,11 @@ Object.values(LOADS).forEach(pr => pr.catch(() => {}));
 const REAL_CFG = {tiger:{yaw:Math.PI/2, like:'tiger', k:1.15}, deer:{like:'deer', k:1.45, parts:{antlers:'Chifre'}}, wolf:{like:'wolf', k:1.05},
   moose:{like:'deer', k:1.9, parts:{antlers:'M_Moose_Antler'}}, horse:{like:'horse', k:1.25}, croc:{like:'croc', bright:1.8}, kangaroo:{like:'kangaroo', k:1.45}, heron:{like:'heron', k:1.1}, crab:{len:0.32}, hermit:{len:0.42}, seaturtle:{len:1.3}, penguin:{h:0.85}, flamingo:{len:1.3}, owl:{h:0.7}, peacock:{like:'peacock', k:1.15, stride:{walk:0.57}}, mangrove:{h:4.2}, fiddler:{len:0.3}, mudskipper:{len:0.34}, fishboat:{raw:true}, monkey:{len:1.7, stride:{walk:0.6, run:2.6}}, pondturtle:{len:0.75}, eagle:{len:1.6}, eagleperch:{h:1.35},
   bug_rhino:{len:0.42}, bug_stag:{len:0.48}, bug_green:{len:0.3}, bug_longhorn:{len:0.5}, bug_grasshopper:{len:0.42}, bug_cricket:{len:0.38}, bug_mantis:{len:0.6}, bug_cicada:{len:0.4},   // insects: CC0 scans, jointed legs
-  donkey:{len:1.8, stride:{walk:0.55, run:1.6}}, fox:{len:1.9}, gullfly:{len:0.95}, gullstand:{len:0.95}, waspnest:{raw:true}};   // (raw: built at game size, origin at the keel)
+  donkey:{len:1.8, stride:{walk:0.55, run:1.6}}, fox:{len:1.9}, gullfly:{len:0.95}, gullstand:{len:0.95}, waspnest:{raw:true},
+  hippo2:{len:4.4, k:0.6}, capybara2:{len:1.8, k:0.76}, tortoise2:{len:1.25}, koala2:{h:1.1, k:2}, rabbit2:{len:0.75, k:0.25},   // (k: their bones don't span the whole body, measured in game)
+  whale2:{len:16}, trout:{len:0.45}, butterfly2:{len:0.28}};
+// realistic replacements for the animals first made in Blender (fauna.js / wildlife.js ask for the old names)
+const REAL_ALIAS = {hippo:'hippo2', capybara:'capybara2', tortoise:'tortoise2', koala:'koala2', rabbit:'rabbit2', whale:'whale2'};   // (raw: built at game size, origin at the keel)
 const REAL_LOADS = Object.fromEntries(Object.keys(REAL_CFG).map(n => [n, new GLTFLoader().setDRACOLoader(draco).loadAsync(`assets/models/real/${n}.glb`)]));
 Object.values(REAL_LOADS).forEach(pr => pr.catch(() => {}));
 let gltf;
@@ -444,7 +448,9 @@ function realClone(n){
   return out;
 }
 const FISH_LOOKS = [['#f08a3c', '#ffffff', '#f6b26b'], ['#f2efe8', '#e0483a', '#f3c9b0'], ['#e0483a', '#f6d0c0', '#f08a6a'], ['#4f86c6', '#cfe6ff', '#7fb2e0'], ['#f3d250', '#fff6c8', '#f6e08a'], ['#7a8c5a', '#c8d49a', '#a0b07a'], ['#c3ccd6', '#ffffff', '#dfe6ee'], ['#2f3a40', '#e8a33c', '#5a6a70']];
-const fishModel = i => { const [b, s, f] = FISH_LOOKS[i % FISH_LOOKS.length], g = animalClone('fish', {FishBody:b, FishSpot:s, FishFin:f}); return g ? {g, tail:g.getObjectByName('fish_tail')} : null; };
+const FISH_MIX = [];   // the realistic river trout's swimming (updated with the butterflies, every frame)
+const fishModel = (i, koi) => { const rt = !koi && realClone('trout'); if (rt){ const ac = rt.userData.mixer.clipAction(rt.userData.clips.swim); ac.play(); ac.time = Math.random()*2; FISH_MIX.push(rt.userData.mixer); return {g:rt, tail:null}; }
+  const [b, s, f] = FISH_LOOKS[i % FISH_LOOKS.length], g = animalClone('fish', {FishBody:b, FishSpot:s, FishFin:f}); return g ? {g, tail:g.getObjectByName('fish_tail')} : null; };
 // swap a named material inside a cloned prop (e.g. the lamp bulb becomes a night-glow material)
 const swapMat = (obj, name, m) => obj.traverse(o => { if (!o.isMesh) return; if (Array.isArray(o.material)) o.material = o.material.map(x => x.name === name ? m : x); else if (o.material.name === name) o.material = m; });
 
@@ -2388,6 +2394,9 @@ const wingTex = c => canvasTex(64,64,(x)=>{ x.fillStyle = c; x.beginPath(); x.el
   x.fillStyle = 'rgba(255,255,255,.75)'; x.beginPath(); x.arc(34,20,6,0,Math.PI*2); x.fill(); x.fillStyle = 'rgba(40,30,30,.6)'; x.beginPath(); x.arc(46,26,3,0,Math.PI*2); x.fill(); });
 const WING_TEX = ['#f3a73b','#7fb2dd','#f2a6be','#f3d250','#b79be0'].map(wingTex);
 function makeButterfly(){
+  const rb = realClone('butterfly2');   // a realistic monarch with its own wing beat; the painted cards if it's missing
+  if (rb){ rb.userData.mixer.clipAction(rb.userData.clips.fly).play(); const a = Math.random()*Math.PI*2; rb.position.set(pos.x + Math.sin(a)*7, gy(pos.x, pos.z) + rnd(1,2), pos.z + Math.cos(a)*7); scene.add(rb);
+    return {g:rb, wings:[], tgt:V3(0,1,0), retarget:0, ph:Math.random()*9, leaving:false}; }
   const g = new THREE.Group(), wm = new THREE.MeshBasicMaterial({map:WING_TEX[Math.floor(Math.random()*WING_TEX.length)], transparent:true, side:THREE.DoubleSide, depthWrite:false});
   const wings = [1, -1].map(s => { const p = new THREE.Group(), w = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.3), wm); w.rotation.x = -Math.PI/2; w.position.x = 0.15; w.scale.x = 1; p.add(w); p.scale.x = s; g.add(p); return p; });
   const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.025, 0.16, 4, 8), mat('#3b2f2a', 0.6)); body.rotation.x = Math.PI/2; g.add(body);
@@ -2395,6 +2404,7 @@ function makeButterfly(){
   return {g, wings, tgt:V3(0,1,0), retarget:0, ph:Math.random()*9, leaving:false};
 }
 function updateButterflies(dt){
+  FISH_MIX.forEach(m => m.update(dt));
   const want = !S.dead && S.stage !== 'egg' && weatherNow() === 'sunny' && nightF < 0.3 ? 2 : 0;
   while (butterflies.filter(b => !b.leaving).length < want) butterflies.push(makeButterfly());
   butterflies.filter(b => !b.leaving).slice(want).forEach(b => { b.leaving = true; b.tgt.set(b.g.position.x + rnd(-6,6), b.g.position.y + 8, b.g.position.z + rnd(-6,6)); });
@@ -2408,7 +2418,7 @@ function updateButterflies(dt){
     const d = b.tgt.clone().sub(p), sp = (scared ? 2.2 : 1.1)*dt;
     if (d.length() > 0.01) p.addScaledVector(d.normalize(), Math.min(sp, d.length()));
     p.y += Math.sin(t*6 + b.ph)*0.01; if (!b.leaving) p.y = Math.max(p.y, gy(p.x, p.z) + 0.4); b.g.rotation.y = Math.atan2(d.x, d.z);
-    const flap = Math.sin(t*22 + b.ph)*0.9; b.wings[0].rotation.z = flap; b.wings[1].rotation.z = flap;
+    if (b.g.userData.mixer) b.g.userData.mixer.update(dt*(scared ? 1.6 : 1)); else { const flap = Math.sin(t*22 + b.ph)*0.9; b.wings[0].rotation.z = flap; b.wings[1].rotation.z = flap; }
     if (b.leaving && p.y > gy(p.x, p.z) + 5.5){ scene.remove(b.g); butterflies.splice(i,1); }
   }
 }
@@ -4639,10 +4649,10 @@ if (!S.world.balanced){ S.world.balanced = 1; const taken = (x, z, r) => S.trees
 // (seedWorldNature above fills any plot that has no rocks, bushes or trees yet: new worlds, and the plots added when the world grew to 4 × 4)
 S.trees.filter(d => world.isOpenKey(d.p || '0,0')).forEach(makeTree); applyBumps();
 world.showFeats();
-const fauna = createFauna({scene, world, mat, hbMat, onSound: (n, at) => sfx(n, at), clone: n => animalClone(n), real: n => realClone(n), lod:furLOD}); fauna.setTrunk(trunkShape);
+const fauna = createFauna({scene, world, mat, hbMat, onSound: (n, at) => sfx(n, at), clone: n => animalClone(n), real: n => realClone(REAL_ALIAS[n] || n), lod:furLOD}); fauna.setTrunk(trunkShape);
 const koalaPerches = () => fauna.setPerches([...trees.filter(tr => tr.d.euc && !tr.cut).map(tr => tr.d), ...world.lockedEucs(BIO.aus)]);
 koalaPerches();
-const wild = createWildlife({scene, world, clone:animalClone, real: n => realClone(n), hbMat, mat, lod:furLOD, fx:{
+const wild = createWildlife({scene, world, clone:animalClone, real: n => realClone(REAL_ALIAS[n] || n), hbMat, mat, lod:furLOD, fx:{
   splash:(p, k) => { for (let i=0;i<10*k;i++){ const a = Math.random()*Math.PI*2; floatSprite(radialTex('rgba(225,240,248,1)','rgba(225,240,248,0)'), p.clone().setY(WATER_Y + 0.1), {size:0.35*k, vx:Math.cos(a)*rnd(1,2)*k, vz:Math.sin(a)*rnd(1,2)*k, vy:rnd(2,4)*k, g:9, max:0.9, grow:0}); } },
   spout:p => { for (let i=0;i<24;i++) floatSprite(radialTex('rgba(240,248,252,0.95)','rgba(240,248,252,0)'), p.clone(), {size:rnd(0.5,0.9), vx:rnd(-0.5,0.5), vz:rnd(-0.5,0.5), vy:rnd(5,8), g:6, max:1.6, grow:0.8, delay:i*0.02}); } }});
 wild.setTrunk(trunkShape);

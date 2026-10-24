@@ -56,7 +56,7 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
   const pod = []; for (let i=0;i<3;i++){ const g = clone('dolphin'); if (!g) break; g.visible = false; pod.push(add('dolphin', g, {hit:1.2, idx:i})); }
   let podT = rnd(15, 40), podRun = null;
   // a whale far out at sea
-  const whaleG = clone('whale'), whale = whaleG ? add('whale', whaleG, {hit:4}) : null; if (whale){ whaleG.visible = false; }
+  const whaleG = (real && real('whale')) || clone('whale'), whale = whaleG ? add('whale', whaleG, {hit:4}) : null; if (whale){ whaleG.visible = false; const wm = whaleG.userData; if (wm.mixer){ wm.mixer.clipAction(wm.clips.swim).play(); wm.mixer.update(0); whaleG.updateMatrixWorld(true); const b = new THREE.Box3().setFromObject(whaleG, true); wm.H = b.max.y - b.min.y; wm.L = b.max.z - b.min.z; } }   // (realistic humpback: its own swimming; H, L: its size, for how far it rises and where it blows)
   let whaleT = rnd(40, 90), whaleRun = null;
   // tropical fish in the shallows
   const SEA_LOOKS = [['#2f7fd8', '#f3d250', '#f3d250'], ['#f3d250', '#2a2a2a', '#f3d250'], ['#f08a3c', '#ffffff', '#ffffff'], ['#9b6fc4', '#f3d250', '#f2a6be'], ['#3fc0b0', '#ffffff', '#2f7fd8']];
@@ -81,7 +81,7 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
     m.position.set(x, y - 0.02, z); m.rotation.y = rnd(0, 6.28); group.add(m);
     const door = m.localToWorld(V3(0, 0, 0.6)); door.y = gy(door.x, door.z); warrens.push({x, z, door});
   }
-  warrens.forEach(w => { for (let i=0;i<3;i++){ const g = clone('rabbit'); g.scale.setScalar(1.3); g.position.set(w.door.x + rnd(-2, 2), 0, w.door.z + rnd(-2, 2));
+  warrens.forEach(w => { for (let i=0;i<3;i++){ const r_ = real && real('rabbit'), g = r_ || clone('rabbit'); if (!r_) g.scale.setScalar(1.3); g.position.set(w.door.x + rnd(-2, 2), 0, w.door.z + rnd(-2, 2));
     if (!landOK(g.position.x, g.position.z)) g.position.copy(w.door); g.position.y = gy(g.position.x, g.position.z);
     add('rabbit', g, {hit:0.4, hitY:0.25, home:w, state:'graze', timer:rnd(1, 4), earL:part(g, 'rabbit_earL'), earR:part(g, 'rabbit_earR')}); } });
   // beetles: rhinoceros and stag beetles on tree trunks, green scarabs on rocks
@@ -221,6 +221,14 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
 
   // ---------- rabbits ----------
   function hopTo(a, to, dur, h){ a.hop = {from:a.g.position.clone(), to, t:0, dur, h}; }
+  // the realistic rabbit: its own hopping gait while it moves (each hop a stride), a sprint when it bolts, nibbling, sitting up alert
+  function rabbitAnim(a, dt){
+    const u = a.g.userData; if (!u.mixer || !a.g.visible) return;
+    a.g.rotation.x = 0;   // (the clips tip the body themselves)
+    const want = a.state === 'flee' ? 'run' : a.hop ? 'walk' : a.state === 'graze' ? 'eat' : a.state === 'alert' ? 'look' : 'idle';
+    if (u.cur !== want && u.clips[want]){ const ac = u.mixer.clipAction(u.clips[want]); ac.reset().fadeIn(0.12).play(); if (u.act) u.act.fadeOut(0.12); u.act = ac; u.cur = want; }
+    u.mixer.update(dt);
+  }
   function rabbit(a, dt, o){
     const p = a.g.position, pet = o.pet, w = a.home;
     if (a.state === 'caught'){ const e = a.carried; if (!e || a.drop){ a.carried = null; a.drop = false; a.state = 'gone'; a.timer = rnd(60, 120); a.g.visible = false; return; }
@@ -335,12 +343,12 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
     // the whale: rises, spouts a few times, then dives showing its tail
     if (whale){ whaleT -= dt;
       if (!whaleRun && whaleT <= 0){ const z = rnd(Z0 + 5, Z1 - 5); whaleRun = {t:0, x:shore(z) + rnd(15, 20), z, ry:Math.random() < 0.5 ? 0 : Math.PI}; whaleG.visible = true; o.onSound && o.onSound('whale', V3(whaleRun.x - 6, 0, z)); }
-      if (whaleRun){ const w = whaleRun; w.t += dt; const T = w.t;
+      if (whaleRun){ const w = whaleRun; w.t += dt; const T = w.t; if (whaleG.userData.mixer) whaleG.userData.mixer.update(dt);
         const rise = T < 3 ? T/3 : T < 12 ? 1 : 0, dive = T >= 12 ? Math.min(1, (T - 12)/4) : 0;
-        whaleG.position.set(w.x, WATER_Y - 1.9 + rise*1.35 - dive*2.5, w.z + (w.ry ? -1 : 1)*T*0.5);
+        const wh = whaleG.userData.H; whaleG.position.set(w.x, wh ? WATER_Y - wh*0.85 + rise*wh*0.45 - dive*wh*0.6 : WATER_Y - 1.9 + rise*1.35 - dive*2.5, w.z + (w.ry ? -1 : 1)*T*(wh ? 1.2 : 0.5));   // (just the back breaks the surface)
         whaleG.rotation.set(dive*0.6, w.ry, 0, 'YXZ');
         const tail = part(whaleG, 'whale_tail'); if (tail) tail.rotation.x = -dive*1.2 + Math.sin(T)*0.1;
-        if (T > 3 && T < 12 && Math.floor(T/2.6) !== w.lastSpout){ w.lastSpout = Math.floor(T/2.6); const head = whaleG.position.clone().add(V3(0, 1.0, (w.ry ? 1 : -1)*-2.4)); fx.spout(head); o.onSound && o.onSound('spout', whaleG.position); }
+        if (T > 3 && T < 12 && Math.floor(T/2.6) !== w.lastSpout){ w.lastSpout = Math.floor(T/2.6); const head = whaleG.position.clone().add(V3(0, wh ? wh*0.7 : 1.0, (w.ry ? 1 : -1)*-(wh ? whaleG.userData.L*0.32 : 2.4))); fx.spout(head); o.onSound && o.onSound('spout', whaleG.position); }
         if (T > 17){ whaleRun = null; whaleT = rnd(120, 240); whaleG.visible = false; } } }
     for (const a of L.list){
       const p = a.g.position; a.t += dt; a.timer -= dt;
@@ -398,7 +406,7 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
           const head = part(a.g, 'owl_head'); if (head){ if (a.timer <= 0){ a.timer = rnd(2, 6); a.look = rnd(-1.6, 1.6); if (Math.random() < 0.3) o.onSound && o.onSound('hoot', p); } head.rotation.y += ((a.look || 0) - head.rotation.y)*Math.min(1, dt*4); }
           break; }
         case 'eagle': a.g.visible = !night || a.state === 'perch'; if (!night || a.state !== 'soar') eagle(a, dt, o); break;
-        case 'rabbit': rabbit(a, dt, o); break;
+        case 'rabbit': rabbit(a, dt, o); rabbitAnim(a, dt); break;
         case 'beetle': case 'cicada': case 'mantis': case 'longhorn': case 'grasshopper': case 'cricket': beetle(a, dt, o); bugAnim(a, dt, o); break;
         case 'worm': worm(a, dt, o); break;
         case 'lizard': {
