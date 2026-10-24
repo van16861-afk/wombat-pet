@@ -499,3 +499,161 @@ SPECS["gullstand"] = {**SPECS["gullstand"], "clips": _gullstand_clips, "rig_clip
 
 # ---------------------------------------------------------------- the tree nest (RISD Nature Lab "Paper Wasp Nest", CC BY 4.0): static, prep only, copied to assets/models/real
 SPECS["waspnest"] = {"src": "waspnest", "budget": 5000, "bones": [], "clips": lambda lp: {}}
+
+# ---------------------------------------------------------------- the remaining realistic animals (prep first; bones and clips below)
+for _n, _src, _b in [("crane", "real_crane", 7000), ("emu", "real_emu", 9000), ("quokka", "real_quokka", 9000), ("bfish", "real_bfish", 5000), ("dfly", "real_dfly", 8000)]:
+    SPECS.setdefault(_n, {"src": _src, "budget": _b, "bones": [], "clips": lambda lp: {}})
+
+# ---------------------------------------------------------------- red-crowned crane (Sketchfab "Whooping Crane" by Cxrly97, CC BY 4.0; repainted as a tancho in the game)
+def _crane_clips(lp):
+    look = lambda t: {"neck1": (0.03*math.sin(t*2*math.pi), 0.12*math.sin(t*2*math.pi), 0), "neck3": (0, 0.15*math.sin(t*2*math.pi + 1), 0), "head": (0.05*math.sin(t*4*math.pi), 0.35*math.sin(t*2*math.pi + 1.6), 0)}
+    idle = [(t, {**look(t), "root": (0.012*math.sin(t*4*math.pi), 0, 0), "tail": (0.03*math.sin(t*2*math.pi), 0, 0)}) for t in [i/12 for i in range(13)]]
+    # probing the shallows: body tipped forward, the long neck reaching down, the bill jabbing into the mud
+    dn = {"root": (0.35, 0, 0), "neck1": (0.85, 0, 0), "neck2": (0.35, 0, 0), "neck3": (0.1, 0, 0), "head": (0.35, 0, 0)}
+    eat = [(0, {})] + [(0.2 + i*0.1, {**dn, "head": (0.35 + (0.25 if i % 2 else 0), 0.08*math.sin(i), 0)}) for i in range(7)] + [(1.0, {})]
+    # the dance: wings flung open and beating, the body bowing and straightening, neck thrown up between bows (jumps: fauna.js lifts it)
+    def dance(t):
+        ph = t*2*math.pi; o = 0.5 + 0.5*math.sin(ph*2)
+        return {"wingL": (0, 0, 0.9 + 0.5*o, None), "wingR": (0, 0, -0.9 - 0.5*o, None), "handL": (0, -0.5 + 0.4*o, 0.3*o), "handR": (0, 0.5 - 0.4*o, -0.3*o),
+                "root": (0.3*max(0, math.sin(ph)), 0, 0), "neck1": (0.45*max(0, math.sin(ph)) - 0.25*max(0, -math.sin(ph)), 0, 0), "head": (-0.3*max(0, -math.sin(ph)), 0, 0),
+                "thighL": (-0.25*o, 0, 0), "thighR": (-0.25*o, 0, 0), "shinL": (0.5*o, 0, 0), "shinR": (0.5*o, 0, 0)}
+    dance_ = [(t, dance(t)) for t in [i/16 for i in range(17)]]
+    # unison call: head thrown back, bill up, wings drooped a little at the wrists
+    up = {"neck1": (-0.35, 0, 0), "neck2": (-0.3, 0, 0), "head": (-0.9, 0, 0), "handL": (0, 0, 0.12), "handR": (0, 0, -0.12)}
+    call = [(0, {}), (0.2, up), (0.5, {**up, "head": (-1.0, 0, 0)}), (0.8, up), (1.0, {})]
+    return {"idle": (4.0, idle), "eat": (3.0, eat), "dance": (1.6, dance_), "call": (2.0, call)}
+def _crane_walk(R, P):
+    def head(R, t): R.turn("neck1", (1, 0, 0), 0.08*math.sin(t*4*math.pi)); R.turn("head", (1, 0, 0), -0.06*math.sin(t*4*math.pi))
+    bird_walk(R, P, "walk", 1.3, foot=(0.535, 0.02), toe=(0.40, 0.008), side=0.2, stride=0.2, lift=0.06, head=head)
+SPECS["crane"] = {"src": "real_crane", "budget": 7000, "clips": _crane_clips, "rig_clips": _crane_walk, "bones": [
+    {"n": "root", "h": (0.58, 0.46, 0), "t": (0.32, 0.6, 0)},
+    {"n": "chest", "p": "root", "h": (0.32, 0.6, 0), "t": (0.3, 0.62, 0)},
+    {"n": "neck1", "p": "chest", "h": (0.32, 0.6, 0), "t": (0.24, 0.72, 0), "zone": lambda f, u, s: f < 0.36 and u > 0.58},
+    {"n": "neck2", "p": "neck1", "h": (0.24, 0.72, 0), "t": (0.26, 0.84, 0), "zone": lambda f, u, s: f < 0.34 and u > 0.68},
+    {"n": "neck3", "p": "neck2", "h": (0.26, 0.84, 0), "t": (0.27, 0.93, 0), "zone": lambda f, u, s: f < 0.34 and u > 0.8},
+    {"n": "head", "p": "neck3", "h": (0.27, 0.93, 0), "t": (0.0, 0.93, 0), "zone": lambda f, u, s: u > 0.88},
+    {"n": "tail", "p": "root", "h": (0.85, 0.42, 0), "t": (1.0, 0.32, 0), "zone": lambda f, u, s: f > 0.82 and 0.25 < u < 0.5},
+    *_bird_wings((0.36, 0.6), (0.72, 0.48), (0.97, 0.36), 0.85, lambda f, u, s: f > 0.33 and u > 0.36),
+    *_bird_legs((0.53, 0.44), (0.535, 0.22), (0.535, 0.02), (0.40, 0.008), 0.2, 0.45),
+]}
+
+# ---------------------------------------------------------------- emu (Sketchfab "Emu" by sinpei, CC BY 4.0)
+def _emu_clips(lp):
+    look = lambda t: {"neck1": (0.04*math.sin(t*2*math.pi), 0.15*math.sin(t*2*math.pi), 0), "head": (0.05*math.sin(t*4*math.pi), 0.4*math.sin(t*2*math.pi + 1.4), 0)}
+    idle = [(t, {**look(t), "root": (0.015*math.sin(t*4*math.pi), 0, 0), "tail": (0.04*math.sin(t*2*math.pi*2), 0, 0)}) for t in [i/12 for i in range(13)]]
+    pk = {"root": (0.3, 0, 0), "neck1": (0.9, 0, 0), "neck2": (0.5, 0, 0), "head": (0.3, 0, 0)}
+    eat = [(0, {}), (0.25, pk), (0.35, {**pk, "head": (0.55, 0, 0)}), (0.45, pk), (0.55, {**pk, "head": (0.55, 0, 0)}), (0.65, pk), (1.0, {})]
+    return {"idle": (4.0, idle), "eat": (1.6, eat)}
+def _emu_walk(R, P):
+    def head(R, t): R.turn("neck1", (1, 0, 0), 0.1*math.sin(t*4*math.pi)); R.turn("head", (1, 0, 0), -0.08*math.sin(t*4*math.pi))
+    bird_walk(R, P, "walk", 1.1, foot=(0.45, 0.03), toe=(0.33, 0.008), side=0.22, stride=0.22, lift=0.07, head=head)
+    def lean(R, t): R.turn("root", (1, 0, 0), 0.12); R.turn("neck1", (1, 0, 0), 0.25)   # running: body tipped forward, neck stretched out
+    bird_walk(R, P, "run", 0.55, foot=(0.45, 0.03), toe=(0.33, 0.008), side=0.22, stride=0.42, lift=0.16, duty=0.4, head=lean, n=16)
+SPECS["emu"] = {"src": "real_emu", "budget": 9000, "clips": _emu_clips, "rig_clips": _emu_walk, "bones": [
+    {"n": "root", "h": (0.55, 0.45, 0), "t": (0.28, 0.55, 0)},
+    {"n": "neck1", "p": "root", "h": (0.26, 0.55, 0), "t": (0.15, 0.72, 0), "zone": lambda f, u, s: f < 0.32 and u > 0.5},
+    {"n": "neck2", "p": "neck1", "h": (0.15, 0.72, 0), "t": (0.14, 0.88, 0), "zone": lambda f, u, s: f < 0.26 and u > 0.68},
+    {"n": "head", "p": "neck2", "h": (0.14, 0.88, 0), "t": (0.0, 0.93, 0), "zone": lambda f, u, s: f < 0.24 and u > 0.84},
+    {"n": "tail", "p": "root", "h": (0.85, 0.45, 0), "t": (1.0, 0.35, 0), "zone": lambda f, u, s: f > 0.82 and u > 0.25},
+    *_bird_legs((0.52, 0.40), (0.545, 0.2), (0.45, 0.03), (0.33, 0.008), 0.22, 0.42),
+]}
+
+# ---------------------------------------------------------------- quokka (Sketchfab "Quokka" by markcraig, CC BY-NC 4.0): hops like its kangaroo cousins
+def _qlimb(k):
+    sd = _side(k); sg = 1 if k == "L" else -1
+    return [
+        {"n": f"arm{k}", "p": "spine2", "h": (0.21, 0.62, 0.5*sg), "t": (0.22, 0.5, 0.5*sg), "zone": lambda f, u, s, sd=sd: f < 0.28 and 0.38 < u < 0.68 and sd(s)},
+        {"n": f"fore{k}", "p": f"arm{k}", "h": (0.22, 0.5, 0.5*sg), "t": (0.14, 0.5, 0.5*sg), "zone": lambda f, u, s, sd=sd: f < 0.26 and 0.38 < u < 0.6 and sd(s)},
+        {"n": f"hand{k}", "p": f"fore{k}", "h": (0.14, 0.5, 0.5*sg), "t": (0.11, 0.44, 0.5*sg), "zone": lambda f, u, s, sd=sd: f < 0.18 and 0.38 < u < 0.56 and sd(s)},
+        {"n": f"thigh{k}", "p": "root", "h": (0.38, 0.32, 0.55*sg), "t": (0.30, 0.18, 0.55*sg), "zone": lambda f, u, s, sd=sd: 0.2 < f < 0.5 and u < 0.45 and sd(s)},
+        {"n": f"shin{k}", "p": f"thigh{k}", "h": (0.30, 0.18, 0.55*sg), "t": (0.34, 0.04, 0.55*sg), "zone": lambda f, u, s, sd=sd: 0.22 < f < 0.45 and u < 0.25 and sd(s)},
+        {"n": f"foot{k}", "p": f"shin{k}", "h": (0.34, 0.04, 0.55*sg), "t": (0.14, 0.01, 0.55*sg), "zone": lambda f, u, s, sd=sd: f < 0.4 and u < 0.08 and sd(s)},
+    ]
+SPECS["quokka"] = {"src": "real_quokka", "budget": 9000, "clips": _kangaroo_clips, "bones": [
+    {"n": "root", "h": (0.40, 0.30, 0), "t": (0.36, 0.45, 0)},
+    {"n": "spine1", "p": "root", "h": (0.36, 0.45, 0), "t": (0.28, 0.6, 0)},
+    {"n": "spine2", "p": "spine1", "h": (0.28, 0.6, 0), "t": (0.2, 0.72, 0)},
+    {"n": "neck", "p": "spine2", "h": (0.2, 0.72, 0), "t": (0.14, 0.8, 0), "zone": lambda f, u, s: f < 0.3 and u > 0.62},
+    {"n": "head", "p": "neck", "h": (0.14, 0.8, 0), "t": (0.0, 0.74, 0), "zone": lambda f, u, s: f < 0.24 and u > 0.62},
+    {"n": "earL", "p": "head", "h": (0.15, 0.92, 0.4), "t": (0.16, 1.0, 0.45), "zone": lambda f, u, s: u > 0.9 and s > -0.1},
+    {"n": "earR", "p": "head", "h": (0.15, 0.92, -0.4), "t": (0.16, 1.0, -0.45), "zone": lambda f, u, s: u > 0.9 and s < 0.1},
+    *_qlimb("L"), *_qlimb("R"),
+    {"n": "tail1", "p": "root", "h": (0.44, 0.2, 0), "t": (0.55, 0.1, 0), "zone": lambda f, u, s: f > 0.42 and u < 0.3},
+    {"n": "tail2", "p": "tail1", "h": (0.55, 0.1, 0), "t": (0.7, 0.05, 0), "zone": lambda f, u, s: f > 0.53},
+    {"n": "tail3", "p": "tail2", "h": (0.7, 0.05, 0), "t": (0.85, 0.02, 0), "zone": lambda f, u, s: f > 0.68},
+    {"n": "tail4", "p": "tail3", "h": (0.85, 0.02, 0), "t": (1.0, 0.0, 0), "zone": lambda f, u, s: f > 0.83},
+]}
+
+# ---------------------------------------------------------------- lined butterflyfish (Sketchfab "Lined Butterflyfish" by Vltava, CC BY 4.0): a bending spine and fins
+def _fish_clips(lp):
+    def swim(t, a=1.0):
+        ph = t*2*math.pi
+        return {"root": (0, -0.06*a*math.sin(ph), 0), "mid": (0, 0.12*a*math.sin(ph - 0.6), 0), "tail": (0, 0.28*a*math.sin(ph - 1.2), 0), "fin": (0, 0.4*a*math.sin(ph - 1.8), 0),
+                "pecL": (0, 0, 0.5*math.sin(ph*2)), "pecR": (0, 0, -0.5*math.sin(ph*2))}
+    return {"swim": (1.0, [(t, swim(t)) for t in [i/12 for i in range(13)]]), "dart": (0.4, [(t, swim(t, 1.6)) for t in [i/8 for i in range(9)]])}
+SPECS["bfish"] = {"src": "real_bfish", "budget": 5000, "clips": _fish_clips, "bones": [
+    {"n": "root", "h": (0.45, 0.5, 0), "t": (0.2, 0.5, 0)},
+    {"n": "mid", "p": "root", "h": (0.45, 0.5, 0), "t": (0.68, 0.5, 0), "zone": lambda f, u, s: f > 0.38},
+    {"n": "tail", "p": "mid", "h": (0.68, 0.5, 0), "t": (0.84, 0.5, 0), "zone": lambda f, u, s: f > 0.62},
+    {"n": "fin", "p": "tail", "h": (0.84, 0.5, 0), "t": (1.0, 0.5, 0), "zone": lambda f, u, s: f > 0.8},
+    {"n": "pecL", "p": "root", "h": (0.28, 0.45, 0.9), "t": (0.42, 0.42, 0.9), "zone": lambda f, u, s: s > 0.55 and 0.22 < f < 0.46 and 0.32 < u < 0.56},
+    {"n": "pecR", "p": "root", "h": (0.28, 0.45, -0.9), "t": (0.42, 0.42, -0.9), "zone": lambda f, u, s: s < -0.55 and 0.22 < f < 0.46 and 0.32 < u < 0.56},
+]}
+
+# ---------------------------------------------------------------- dragonfly (Sketchfab "Dragonfly" by 7SkyArtist, CC BY 4.0): wings raised in a V in the file;
+# in flight they are held out flat and beat, fore and hind pair a little out of step
+def _dfly_clips(lp):
+    out = lambda k, a: (0, -1.25 if k == "L" else 1.25, (0.9 + a) if k == "L" else -(0.9 + a))   # swung out to the side, then laid flat (roll), beating up and down
+    fly = [(t, {"wingL": out("L", 0.45*math.sin(t*2*math.pi)), "wingR": out("R", 0.45*math.sin(t*2*math.pi)), "abd1": (0.04*math.sin(t*2*math.pi), 0, 0)}) for t in [i/6 for i in range(7)]]
+    perch = [(t, {"wingL": out("L", 0.05*math.sin(t*2*math.pi)), "wingR": out("R", 0.05*math.sin(t*2*math.pi)), "head": (0, 0.2*math.sin(t*2*math.pi), 0),
+                  "abd2": (0.03*math.sin(t*2*math.pi), 0, 0)}) for t in [i/8 for i in range(9)]]
+    return {"fly": (0.12, fly), "idle": (3.0, perch)}
+SPECS["dfly"] = {"src": "real_dfly", "budget": 8000, "clips": _dfly_clips, "mat_bones": {"Material2": lambda f, u, s: "root" if f < 0.15 else "wingL" if s > 0 else "wingR"}, "bones": [
+    {"n": "root", "h": (0.22, 0.45, 0), "t": (0.08, 0.5, 0)},
+    {"n": "head", "p": "root", "h": (0.08, 0.5, 0), "t": (0.0, 0.5, 0), "zone": lambda f, u, s: f < 0.09},
+    {"n": "abd1", "p": "root", "h": (0.25, 0.42, 0), "t": (0.5, 0.32, 0), "zone": lambda f, u, s: f > 0.25 and u < 0.5},
+    {"n": "abd2", "p": "abd1", "h": (0.5, 0.32, 0), "t": (0.75, 0.22, 0), "zone": lambda f, u, s: f > 0.48 and u < 0.42},
+    {"n": "abd3", "p": "abd2", "h": (0.75, 0.22, 0), "t": (1.0, 0.12, 0), "zone": lambda f, u, s: f > 0.72 and u < 0.36},
+    {"n": "wingL", "p": "root", "h": (0.22, 0.55, 0.05), "t": (0.75, 0.85, 0.9), "zone": lambda f, u, s: ((u > 0.5 and f > 0.27) or (u > 0.62 and f > 0.18)) and s > 0.0},
+    {"n": "wingR", "p": "root", "h": (0.22, 0.55, -0.05), "t": (0.75, 0.85, -0.9), "zone": lambda f, u, s: ((u > 0.5 and f > 0.27) or (u > 0.62 and f > 0.18)) and s <= 0.0},
+]}
+
+def paint_zones(ob, mat, colour, size=512):
+    """A new flat colour texture for material `mat`: each face gets colour(f, u, s) of its centre (body fractions, like the bones),
+    rasterised into its own UV triangle (the old texture's layout is kept). Returns the image."""
+    import bpy, numpy as np
+    me = ob.data; d = ob.dimensions; uv = me.uv_layers.active.data
+    mi = next(i for i, m in enumerate(me.materials) if m and m.name.split(".")[0] == mat)
+    img = np.zeros((size, size, 4), dtype=np.float32); img[..., 3] = 1; img[..., :3] = colour(0.5, 0.5, 0)
+    me.calc_loop_triangles()
+    for tri in me.loop_triangles:
+        if tri.material_index != mi: continue
+        c = sum((me.vertices[v].co for v in tri.vertices), ob.matrix_world.to_translation()*0)/3
+        col = colour(c.y + 0.5, c.z/max(d.z, 1e-6), c.x/max(d.x/2, 1e-6))
+        P = np.array([uv[l].uv[:] for l in tri.loops])*(size - 1)
+        x0, y0 = np.floor(P.min(0)).astype(int) - 1; x1, y1 = np.ceil(P.max(0)).astype(int) + 1
+        xs, ys = np.meshgrid(np.arange(max(x0, 0), min(x1, size - 1) + 1), np.arange(max(y0, 0), min(y1, size - 1) + 1))
+        (ax, ay), (bx, by), (cx, cy) = P; den = (by - cy)*(ax - cx) + (cx - bx)*(ay - cy)
+        if abs(den) < 1e-9: continue
+        w1 = ((by - cy)*(xs - cx) + (cx - bx)*(ys - cy))/den; w2 = ((cy - ay)*(xs - cx) + (ax - cx)*(ys - cy))/den; w3 = 1 - w1 - w2
+        m = (w1 > -0.08) & (w2 > -0.08) & (w3 > -0.08)   # (a little over the edge: no seams)
+        img[ys[m], xs[m], :3] = col
+    im = bpy.data.images.new(mat + "_paint", size, size); im.pixels = img.ravel(); im.pack()
+    nt = me.materials[mi].node_tree; bs = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
+    for l in list(nt.links):
+        if l.to_node == bs and l.to_socket.name in ("Base Color", "Emission Color", "Emission Strength"): nt.links.remove(l)
+    tx = nt.nodes.new("ShaderNodeTexImage"); tx.image = im; nt.links.new(tx.outputs["Color"], bs.inputs["Base Color"])
+    return im
+
+def _tancho(f, u, s):
+    # red-crowned crane: white, the neck and throat black with a white nape band, a red cap, an olive-horn bill, the long black
+    # tertials draped over the tail, dark grey legs
+    if u > 0.975 and 0.21 < f < 0.29: return (0.78, 0.06, 0.05)          # bare red crown
+    if f < 0.21 and u > 0.86: return (0.52, 0.53, 0.40)                  # bill
+    if u > 0.6 and f < 0.34:
+        if f > 0.27 and u > 0.8: return (0.93, 0.93, 0.9)                # white nape behind the head
+        return (0.06, 0.06, 0.07)                                        # black neck and face
+    if f > 0.8 and u < 0.52: return (0.06, 0.06, 0.07)                   # black tertial plumes
+    if u < 0.4: return (0.16, 0.16, 0.17)                                # legs
+    return (0.94, 0.94, 0.92)
+SPECS["crane"]["paint"] = lambda ob: paint_zones(ob, "WC_texture", _tancho)

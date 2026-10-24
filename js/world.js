@@ -648,7 +648,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
       if (L < 0.3) k.dest = pick();
       else { d.normalize(); const nx = p.x + d.x*sp*dt, nz = p.z + d.z*sp*dt; if (inPond(nx, nz)){ p.x = nx; p.z = nz; } else k.dest = pick();
         k.g.rotation.y += clamp(wrapA(Math.atan2(d.x, d.z) - k.g.rotation.y), -2*dt, 2*dt); }
-      const w = Math.sin(t*(5 + sp*5) + k.ph); k.tail.rotation.y = w*0.6;
+      const w = Math.sin(t*(5 + sp*5) + k.ph); if (k.tail) k.tail.rotation.y = w*0.6;   // (the realistic koi swim with their own baked bend)
       p.y = WATER_Y - k.depth + Math.sin(t*1.1 + k.ph)*0.03;
       if (k.jump > 0){ k.jump -= dt; const u = 1 - k.jump/0.9; p.y = WATER_Y - 0.1 + Math.sin(u*Math.PI)*0.9; k.g.rotation.x = -Math.cos(u*Math.PI)*0.9; } else k.g.rotation.x = 0;
       k.hb.position.set(p.x, WATER_Y + 0.05, p.z);

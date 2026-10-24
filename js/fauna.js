@@ -61,6 +61,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
 
   // ---------- models ----------
   function frog(){
+    const rf = real && real('frog'); if (rf) return rf;   // (realistic: a scanned Schlegel's green tree frog with its own sitting and jumping)
     const fm = model('frog', m => { m.userData.sac = m.getObjectByName('frog_sac'); m.userData.sacMax = 1.7; }); if (fm) return fm;
     const g = new THREE.Group(), body = mat(['#5aa04a', '#6fae3c', '#4f8f52'][Math.floor(Math.random()*3)], 0.4), belly = mat('#e3e6b0', 0.5);
     const b = ball(0.16, body, 1, 0.7, 1.15); b.position.y = 0.11; g.add(b);
@@ -72,6 +73,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
     return g;
   }
   function dragonfly(){
+    const rd = real && real('dragonfly'); if (rd) return rd;   // (realistic: wings held out flat and beating)
     const g = new THREE.Group(), c = ['#3fa0d8', '#d84a3a', '#55c08a'][Math.floor(Math.random()*3)], m = mat(c, 0.3);
     const body = cyl(0.012, 0.02, 0.36, m); body.rotation.x = Math.PI/2; g.add(body);
     const head = ball(0.035, m); head.position.z = 0.19; g.add(head);
@@ -117,6 +119,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
     g.userData.head = hd; g.userData.beak = beak; return g;
   }
   function beaver(){
+    const rb = real && real('beaver'); if (rb) return rb;
     const bm = model('beaver', m => { m.userData.tail = m.getObjectByName('beaver_tail'); }); if (bm) return bm;
     const g = new THREE.Group(), fur = mat('#7a5233', 0.8), dark = mat('#4a3324', 0.7);
     const b = ball(0.3, fur, 1, 0.8, 1.35); b.position.y = 0.26; g.add(b);
@@ -146,6 +149,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
     return g;
   }
   function quokka(){
+    const rq = real && real('quokka'); if (rq) return rq;
     const qm = model('quokka'); if (qm) return qm;
     const g = new THREE.Group(), fur = mat('#8c6a4c', 0.85), face = mat('#a7876a', 0.8);
     const b = ball(0.2, fur, 0.9, 1.05, 1.1); b.position.y = 0.24; g.add(b);
@@ -157,6 +161,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
     return g;
   }
   function emu(){
+    const re = real && real('emu'); if (re) return re;
     const em = model('emu', m => { m.userData.neck = m.getObjectByName('emu_neck'); }); if (em) return em;
     const g = new THREE.Group(), fe = mat('#5b4d40', 0.95), neckM = mat('#5d6b86', 0.7), leg = mat('#6b6158', 0.8);
     const b = ball(0.42, fe, 0.85, 0.75, 1.15); b.position.y = 1.05; g.add(b);
@@ -375,7 +380,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
   F.setPerches = list => { let i = 0; for (const a of F.list) if (a.kind === 'koala'){ const t = list[i++]; a.perch = t || null; } };
 
   // ---------- behaviour ----------
-  const hop = (a, to, dur, height) => { a.state = 'hop'; a.from = a.g.position.clone(); a.to = to.clone(); a.hopT = 0; a.hopDur = dur; a.hopH = height; };
+  const hop = (a, to, dur, height) => { a.state = 'hop'; a.from = a.g.position.clone(); a.to = to.clone(); a.hopT = 0; a.hopDur = dur; a.hopH = height*(isReal(a) && a.kind === 'frog' ? 0.4 : 1); };   // (the scanned frog's own jump lifts it too)
   function stepHop(a, dt){ a.hopT += dt; const u = Math.min(1, a.hopT/a.hopDur); a.g.position.lerpVectors(a.from, a.to, u); a.g.position.y = lerp(a.from.y, a.to.y, u) + 4*a.hopH*u*(1 - u);
     face(a, a.to.x - a.from.x, a.to.z - a.from.z, 1, 99); return u >= 1; }
   const BIRD_LEGS = ['crane', 'heron', 'peacock', 'emu'], AUTO_LEGS4 = ['beaver'];
@@ -408,7 +413,8 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
               const from = p.clone().add(V3(Math.sin(a.g.rotation.y)*0.17, 0.1, Math.cos(a.g.rotation.y)*0.17)), to = df.g.position.clone();
               a.tongue.position.copy(from); a.tongue.quaternion.setFromUnitVectors(V3(0, 1, 0), to.clone().sub(from).normalize()); a.tongueLen = from.distanceTo(to); a.tongueT = 0.25; a.tongue.visible = true;
               face(a, to.x - p.x, to.z - p.z, 1, 99); df.g.position.set(df.cx + rnd(-df.rad, df.rad), WATER_Y + 1.2, df.cz + rnd(-df.rad, df.rad)); df.dest = null; sound('croak', p); } }   // caught it (another one flies in)
-          const sac = a.g.userData.sac; sac.scale.setScalar(1 + Math.max(0, Math.sin(a.t*9))*(a.croak > 0 ? (a.g.userData.sacMax || 0.8) : 0)); a.croak = (a.croak || 0) - dt;
+          if (isReal(a)){ if (a.state === 'hop'){ const hc = a.g.userData.clips.hop; clip(a, 'hop', hc ? hc.duration/a.hopDur : 1); if (a.hopT <= dt) a.g.userData.act.time = 0; a.pose = true; } else a.pose = 'idle'; }
+          const sac = a.g.userData.sac; if (sac) sac.scale.setScalar(1 + Math.max(0, Math.sin(a.t*9))*(a.croak > 0 ? (a.g.userData.sacMax || 0.8) : 0)); a.croak = (a.croak || 0) - dt;
           if (a.ride){   // sitting on another frog's back (never inside it)
             const b = a.ride, bp = b.g.position;
             if (!b.g.visible || b.state !== 'idle' || b.ride){ unRide(a); a.timer = 0; }
@@ -430,7 +436,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
         case 'dragonfly': {
           if (a.timer <= 0 || !a.dest){ a.timer = rnd(0.4, 1.8); const ang = rnd(0, 6.28), r = Math.sqrt(Math.random())*a.rad; a.dest = V3(a.cx + Math.cos(ang)*r, WATER_Y + rnd(0.4, 1.3), a.cz + Math.sin(ang)*r); }
           const d = a.dest.clone().sub(p), L = d.length(); if (L > 0.02){ p.addScaledVector(d.normalize(), Math.min(L, dt*4)); face(a, d.x, d.z, dt, 12); }
-          a.g.userData.wings.forEach((w, i) => w.rotation.z = Math.sin(t*60 + i)*0.4);
+          if (isReal(a)){ clip(a, 'fly', 1); a.pose = true; } else a.g.userData.wings.forEach((w, i) => w.rotation.z = Math.sin(t*60 + i)*0.4);
           break; }
         case 'turtle': {
           if (isReal(a)){ turtleReal(a, dt, petD); break; }
@@ -469,10 +475,13 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
           else if (a.timer <= 0){ a.timer = rnd(3, 8); a.stab = 0.6; if (Math.random() < 0.3) sound('heron', p); }
           break; }
         case 'beaver': {
-          const tail = a.g.userData.tail;
-          if (petD < 3 && !a.slapped){ a.slapped = true; tail.rotation.x = -1; sound('splash', p); setTimeout(() => { a.slapped = false; }, 8000); }
-          tail.rotation.x *= 0.92;
-          if (a.state === 'gnaw'){ a.g.rotation.x = 0.15 + Math.sin(a.t*18)*0.05; if (Math.random() < dt*6) o.chips && o.chips(p.clone().add(V3(Math.sin(a.g.rotation.y)*0.6, 0.3, Math.cos(a.g.rotation.y)*0.6)));
+          const tail = a.g.userData.tail, rl = isReal(a);
+          if (petD < 3 && !a.slapped){ a.slapped = true; a.slapT = 1.4; if (tail) tail.rotation.x = -1; sound('splash', p); setTimeout(() => { a.slapped = false; }, 8000); }
+          if (tail) tail.rotation.x *= 0.92;
+          if (rl){ const wet_ = world.isWater(p.x, p.z), moving_ = a.dest && Math.hypot(a.dest.x - p.x, a.dest.z - p.z) > 0.2;
+            a.slapT = (a.slapT || 0) - dt;
+            a.pose = a.slapT > 0 ? 'slap' : a.state === 'gnaw' ? 'eat' : wet_ ? (moving_ ? 'swim' : 'float') : null; }
+          if (a.state === 'gnaw'){ if (!rl) a.g.rotation.x = 0.15 + Math.sin(a.t*18)*0.05; if (Math.random() < dt*6) o.chips && o.chips(p.clone().add(V3(Math.sin(a.g.rotation.y)*0.6, 0.3, Math.cos(a.g.rotation.y)*0.6)));
             if (a.timer <= 0){ a.state = 'idle'; a.timer = rnd(4, 8); a.g.rotation.x = 0; } break; }
           if (a.timer <= 0 || !a.dest){ a.timer = rnd(6, 12); const roll = Math.random();
             if (roll < 0.35 && o.treeNear){ const tr = o.treeNear(p.x, p.z, 10); if (tr){ a.dest = V3(tr.x, 0, tr.z); a.toTree = true; } }
@@ -500,6 +509,8 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
             const nx = V3(p.x + away.x*1.4, 0, p.z + away.z*1.4); if (world.inBio('aus', nx.x, nx.z) && !world.isWater(nx.x, nx.z)){ nx.y = gy(nx.x, nx.z); a.left = 2 + Math.floor(Math.random()*3); hop(a, nx, 0.45, 0.6); sound('boing', p); } }
           break; }
         case 'quokka': {
+          if (isReal(a)){ if (a.state === 'hop'){ const hc = a.g.userData.clips.hop; clip(a, 'hop', hc ? hc.duration/a.hopDur : 1); if (a.hopT <= dt) a.g.userData.act.time = 0; a.pose = true; }
+            else a.pose = pet && petD < 4 ? 'idle' : Math.sin(a.t*0.4 + a.idx_) > 0.2 ? 'eat' : 'idle'; }
           if (a.state === 'hop'){ if (stepHop(a, dt)){ a.state = 'idle'; a.timer = rnd(2, 6); } break; }
           if (pet && petD < 4){ face(a, pet.x - p.x, pet.z - p.z, dt, 4); if (!a.smiled){ a.smiled = true; o.onSmile && o.onSmile(p.clone()); setTimeout(() => a.smiled = false, 15000); } break; }
           if (a.timer <= 0){ const to = V3(p.x + rnd(-1.2, 1.2), 0, p.z + rnd(-1.2, 1.2)); if (world.inBio('aus', to.x, to.z)){ to.y = gy(to.x, to.z); hop(a, to, 0.35, 0.25); } else a.timer = 1; }
@@ -507,11 +518,11 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
         case 'emu': {
           const neck = a.g.userData.neck;
           if (Math.random() < dt*0.015) sound('emu', p);
-          if (a.peck > 0){ a.peck -= dt; neck.rotation.x = Math.sin((1 - a.peck/0.8)*Math.PI)*1.2; break; } neck.rotation.x *= 0.9;
+          if (a.peck > 0){ a.peck -= dt; if (neck) neck.rotation.x = Math.sin((1 - a.peck/0.8)*Math.PI)*1.2; else a.pose = 'eat'; break; } if (neck) neck.rotation.x *= 0.9;
           if (a.timer <= 0 || !a.dest){ a.timer = rnd(3, 7); if (Math.random() < 0.4){ a.peck = 0.8; a.dest = p.clone(); } else { const q = landIn(BIO.aus); a.dest = q; } }
           const away = petD < 3 ? V3(p.x - pet.x, 0, p.z - pet.z).normalize() : null; if (away){ a.dest = p.clone().addScaledVector(away, 3); }
           const d = V3(a.dest.x - p.x, 0, a.dest.z - p.z), L = d.length();
-          if (L > 0.2 && world.inBio('aus', p.x + d.x/L, p.z + d.z/L)){ p.addScaledVector(d.normalize(), Math.min(L, dt*(away ? 2.2 : 0.9))); face(a, d.x, d.z, dt, 4); p.y = gy(p.x, p.z) + Math.abs(Math.sin(a.t*8))*0.04; }
+          if (L > 0.2 && world.inBio('aus', p.x + d.x/L, p.z + d.z/L)){ p.addScaledVector(d.normalize(), Math.min(L, dt*(away ? 2.2 : 0.9))); face(a, d.x, d.z, dt, 4); p.y = gy(p.x, p.z) + (isReal(a) ? 0 : Math.abs(Math.sin(a.t*8))*0.04); }
           break; }
         case 'deer': {   // graze, wander, and bound away when the wombat comes close
           if (a.state === 'caught'){ a.g.visible = false; if (a.timer <= 0){ a.state = 'graze'; a.timer = 3; const q = landIn(BIO.forest); p.set(q.x, gy(q.x, q.z), q.z); a.g.visible = true; } break; }
@@ -656,6 +667,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
             const hl = pt(a.g, 'crane_handL'), hr = pt(a.g, 'crane_handR'), lag = a.dk*(0.3 + Math.sin(a.t*5 - 0.9)*0.4);   // the wingtips follow a beat behind, and fold back at rest
             if (hl){ hl.rotation.set(0, 0.9*(1 - a.dk), lag); hr.rotation.set(0, -0.9*(1 - a.dk), -lag); } }   // folded wings tuck in along the body; they open full size to dance
           if (neck) neck.rotation.x = a.state === 'probe' ? 1.1 + Math.sin(a.t*4)*0.1 : a.state === 'dance' ? Math.max(0, Math.sin(a.t*2.5))*0.6 : 0;
+          if (isReal(a)) a.pose = a.state === 'dance' ? 'dance' : a.state === 'probe' ? (Math.sin(a.t*0.5) > -0.3 ? 'eat' : 'idle') : null;
           if (a.state === 'walk' && a.dest && goTo(a, a.dest, 0.7, dt, () => true, 2.5)) a.state = 'probe';
           p.y = Math.max(gy(p.x, p.z), WATER_Y - 0.3) + (a.state === 'dance' ? Math.max(0, Math.sin(a.t*2.5))*0.35 : 0);
           if (a.state === 'dance' && Math.random() < dt*0.3) sound('crane', p);
@@ -735,9 +747,10 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
           if (a.state === 'hide'){ a.g.visible = false; if (a.timer <= 0 && petD > 6){ a.state = 'idle'; a.timer = rnd(2, 4); } break; }
           if (petD < 2.5 && a.state !== 'flee'){ a.state = 'flee'; a.timer = 1.4; a.dest = p.clone().addScaledVector(V3(p.x - pet.x, 0, p.z - pet.z).normalize(), 4); sound('hiss', p); }
           if (a.tongue) a.tongue.scale.setScalar(Math.sin(a.t*7) > 0.6 ? 1 : 0.01);
-          if (a.state === 'flee'){ goTo(a, a.dest, 2.2, dt, () => true, 6); a.wave.value += dt*14; if (a.timer <= 0){ a.state = 'hide'; a.timer = rnd(10, 20); } p.y = gy(p.x, p.z); break; }
+          if (a.state === 'flee'){ goTo(a, a.dest, 2.2, dt, () => true, 6); a.wave.value += dt*14; if (isReal(a)){ clip(a, 'slither', 3); a.pose = true; } if (a.timer <= 0){ a.state = 'hide'; a.timer = rnd(10, 20); } p.y = gy(p.x, p.z); break; }
           if (a.timer <= 0){ a.timer = rnd(4, 9); if (Math.random() < 0.6){ a.state = 'move'; a.dest = p.clone().add(V3(rnd(-4, 4), 0, rnd(-4, 4))); } else a.state = 'idle'; }
           if (a.state === 'move' && a.dest){ const ok = (x, z) => !world.isWater(x, z) && world.slope(x, z) < 0.7; if (goTo(a, a.dest, 0.45, dt, ok, 1.5)) a.state = 'idle'; else a.wave.value += dt*4.5; }
+          if (isReal(a)){ clip(a, 'slither', a.state === 'move' ? 1 : 0.08); a.pose = true; }
           p.y = gy(p.x, p.z);
           break; }
         case 'peacock': {   // pecks about; spreads its tail into a shimmering fan when the wombat comes close (or when you tap it)

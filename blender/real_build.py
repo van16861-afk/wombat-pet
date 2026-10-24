@@ -32,10 +32,16 @@ MODELS = {
     "fox": ("fox", 9000, {"idle": "A1_Stand_Idle_02", "eat": "A2_Stand_Eating_01", "walk": "Loco_Walk", "trot": "Trot", "run": "Run", "sneak": "Sneak", "pounce": "CanonBall",
                          "lie": "Lying_Idle_01", "lieDown": "Trans_Stand_to_Lying", "getUp": "Trans_Lying_to_Stand", "sit": "Sitting_Idle_01", "look": "A3_Stand_Idle_01"}, []),
     "bug_cicada": ("bug_cicada", 7000, {"walk": "Animation"}, []),   # (CC0 scan with its own rig: five-joint legs, wings; its clip is a slow walk)
-    "pondturtle": ("pondturtle", 24000, {"walk": "Animation"}, ["Object_8"]),   # (CC0 scan with its own rig: neck + head, three bones a limb, five in the tail; one diagonal crawl clip)
+    "pondturtle": ("pondturtle", 24000, {"walk": "Animation"}, ["Object_8"]),
+    "gecko": ("real_gecko", 6000, {"walk": "Armature|Armature|Armature|ArmatureAction|Armature|ArmatureActi", "idle": "Lizard_Idle-Armature.001|Armature.001Action"}, []),
+    "beaver2": ("real_beaver", 7000, {"anim": "Take 001"}, []),
+    "frog2": ("real_frog", 8000, {"anim": "Animation"}, []),
+    "snake2": ("real_snake", 8000, {"anim": "Animation"}, []),
+    "dolphin2": ("real_dolphin", 3000, {"swim": "Take 001"}, []),
+    "tang": ("real_tang", 2000, {"swim": "ArmatureAction"}, []),   # (CC0 scan with its own rig: neck + head, three bones a limb, five in the tail; one diagonal crawl clip)
 }
 # these keep the file's own rest pose (Blender's bind-pose guess tips them on their side)
-RAW_BIND = {"wolf", "croc", "moose", "horse", "penguin", "fox", "rabbit2", "trout"}
+RAW_BIND = {"wolf", "croc", "moose", "horse", "penguin", "fox", "rabbit2", "trout", "beaver2", "gecko"}
 os.makedirs(OUT, exist_ok=True)
 only = [s for s in os.environ.get("ONLY", "").split(",") if s]
 
@@ -321,6 +327,15 @@ def _quad(arm, ad, keep, S):
             place(k, tp + W(0, 0.21*H*amp*math.cos(q), 0.19*H + 0.13*H*amp*math.sin(q)), curl=0.4 + 0.4*math.sin(q))
     R.clip("swim", S.get("swimCycle", 1.0), 20, paddle)
     R.clip("float", 2.4, 24, lambda t: paddle(t, 0.35))
+    if S.get("tails"):   # slap: the broad tail lifted high and brought down hard on the water (beavers' alarm signal), then back
+        TL = [B(n) for n in S["tails"]]
+        def slap(t):
+            a = 0.9*min(1, t/0.35) if t < 0.35 else 0.9 - 1.3*min(1, (t - 0.35)/0.12) if t < 0.47 else -0.4*(1 - (t - 0.47)/0.53)
+            body(drop=0.047); head(pitch=-0.2)
+            for i, n in enumerate(TL): R.turn(n, X, a*(0.5 if i == 0 else 0.25))
+            for k in LEGS: place(k, REST[k][4] + W(0, 0, 0.19*H))
+        R.clip("slap", 1.2, 24, slap)
+        keep["slap"] = bpy.data.actions["slap"]
     for c in ("walk", "idle", "eat", "lie", "swim", "float"): keep[c] = bpy.data.actions[c]
     print("  QUAD ground speed (world units/s at rate 1):", STRIDE/(DUTY*CYC), "H", H)
 CAPYBARA = {"base": "base", "pel": "PantherPelvis_01", "neck": [("PantherNeck1_046", 0.55), ("PantherNeck2_047", 0.25), ("PantherHead_048", 0.2)],
@@ -412,7 +427,14 @@ def _tortoise(arm, ad, keep):
     for c in ("walk", "idle", "eat", "hide"): keep[c] = bpy.data.actions[c]
     print("  TORTOISE ground speed (world units/s at rate 1):", STRIDE/(DUTY*CYC), "H", H)
 
-RIGCLIPS = {"capybara2": lambda arm, ad, keep: _quad(arm, ad, keep, CAPYBARA), "hippo2": lambda arm, ad, keep: _quad(arm, ad, keep, HIPPO), "tortoise2": _tortoise}
+BEAVER = {"base": "anim", "pel": "beaver_Pelvis_bone_01", "neck": [("beaver_Neck_bone_021", 0.5), ("beaver_Head_bone_022", 0.5)], "head": "beaver_Head_bone_022",
+          "jaw": "beaver_Mandible_bone_025", "ears": ("beaver_l_Ear_bone_030", "beaver_r_Ear_bone_028"), "tail": "beaver_Tail1_bone_02", "cycle": 0.8, "stride": 1.6,
+          "tails": ["beaver_Tail1_bone_02", "beaver_Tail2_bone_03", "beaver_Tail3_bone_04", "beaver_Tail4_bone_05", "beaver_Tail5_bone_06", "beaver_Tail6_bone_00"],
+          "legs": {"HL": ("beaver_l_Thigh_bone_013", "beaver_l_Knee_bone_014", "beaver_l_Ankle_bone_015", "beaver_l_Toe_bone_016", "beaver_l_Toe-nub_bone_017"),
+                   "HR": ("beaver_r_Thigh_bone_08", "beaver_r_Knee_bone_09", "beaver_r_Ankle_bone_010", "beaver_r_Toe_bone_011", "beaver_r_Toe-nub_bone_012"),
+                   "FL": ("beaver_l_Humerus_bone_047", "beaver_l_Radius_bone_048", "beaver_l_Metacarpus_bone_049", "beaver_l_Paw_bone_050", "beaver_l_Paw-nub_bone_051"),
+                   "FR": ("beaver_r_Humerus_bone_041", "beaver_r_Radius_bone_042", "beaver_r_Metacarpus_bone_043", "beaver_r_Paw_bone_044", "beaver_r_Paw-nub_bone_045")}}
+RIGCLIPS = {"beaver2": lambda arm, ad, keep: _quad(arm, ad, keep, BEAVER), "capybara2": lambda arm, ad, keep: _quad(arm, ad, keep, CAPYBARA), "hippo2": lambda arm, ad, keep: _quad(arm, ad, keep, HIPPO), "tortoise2": _tortoise}
 
 EXTRA = {"seaturtle": ("head.001", "tail.001", _turtle_crawl()), "penguin": ("Head", "Tail1", _penguin_swim()), "pondturtle": ("Bone.007", "Bone.005", _pond_turtle())}
 for name, (src, budget, clips, drop) in MODELS.items():

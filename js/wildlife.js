@@ -53,14 +53,15 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
   for (let i=0;i<4;i++){ const re = pairModel('gullfly', 'gullstand'), g = re || clone('gull'); if (!g) break; if (!re) g.scale.setScalar(1.6); g.rotation.order = 'YXZ'; const z = rnd(Z0 + 6, Z1 - 6);   // herring gulls (realistic: two models, flying and standing)
     g.position.set(shore(z), rnd(4, 7), z); add('gull', g, {hit:0.6, hitY:0.3, cz:z, rad:rnd(4, 8), h:rnd(4, 7), ang:rnd(0, 6.28), dir:Math.random() < 0.5 ? 1 : -1, real:!!re}); }
   // a pod of dolphins (they swim by every minute or two)
-  const pod = []; for (let i=0;i<3;i++){ const g = clone('dolphin'); if (!g) break; g.visible = false; pod.push(add('dolphin', g, {hit:1.2, idx:i})); }
+  const pod = []; for (let i=0;i<3;i++){ const g = (real && real('dolphin')) || clone('dolphin'); if (!g) break; if (g.userData.mixer){ const ac = g.userData.mixer.clipAction(g.userData.clips.swim); ac.play(); ac.time = i*0.4; } g.visible = false; pod.push(add('dolphin', g, {hit:1.2, idx:i})); }
   let podT = rnd(15, 40), podRun = null;
   // a whale far out at sea
   const whaleG = (real && real('whale')) || clone('whale'), whale = whaleG ? add('whale', whaleG, {hit:4}) : null; if (whale){ whaleG.visible = false; const wm = whaleG.userData; if (wm.mixer){ wm.mixer.clipAction(wm.clips.swim).play(); wm.mixer.update(0); whaleG.updateMatrixWorld(true); const b = new THREE.Box3().setFromObject(whaleG, true); wm.H = b.max.y - b.min.y; wm.L = b.max.z - b.min.z; } }   // (realistic humpback: its own swimming; H, L: its size, for how far it rises and where it blows)
   let whaleT = rnd(40, 90), whaleRun = null;
   // tropical fish in the shallows
   const SEA_LOOKS = [['#2f7fd8', '#f3d250', '#f3d250'], ['#f3d250', '#2a2a2a', '#f3d250'], ['#f08a3c', '#ffffff', '#ffffff'], ['#9b6fc4', '#f3d250', '#f2a6be'], ['#3fc0b0', '#ffffff', '#2f7fd8']];
-  for (let i=0;i<8;i++){ const [b, s, f] = SEA_LOOKS[i % SEA_LOOKS.length], g = clone('fish', {FishBody:b, FishSpot:s, FishFin:f}); if (!g) break; g.scale.setScalar(1.5);
+  for (let i=0;i<8;i++){ const [b, s, f] = SEA_LOOKS[i % SEA_LOOKS.length], rf = real && real(i % 2 ? 'tang' : 'bfish'), g = rf || clone('fish', {FishBody:b, FishSpot:s, FishFin:f}); if (!g) break; if (!rf) g.scale.setScalar(1.5);   // (realistic: blue tangs and lined butterflyfish)
+    if (rf){ const ac = rf.userData.mixer.clipAction(rf.userData.clips.swim); ac.play(); ac.time = Math.random(); }
     const z = rnd(Z0 + 4, Z1 - 4); g.position.set(shore(z) + rnd(3.5, 7), WATER_Y - 0.25, z); add('seafish', g, {hit:0.4, tail:part(g, 'fish_tail'), cz:z, cx:g.position.x, ang:rnd(0, 6.28), sp:rnd(0.3, 0.6)}); }
   // owls (night) and eagles (day) use the trees game.js passes in; lizards and some beetles use the rocks
   for (let i=0;i<2;i++){ const g = (real && real('owl')) || clone('owl'); if (!g) break; g.scale.setScalar(g.userData.mixer ? 1 : 1.5); g.visible = false; add('owl', g, {hit:0.5, hitY:0.3, perch:null}); }
@@ -68,7 +69,7 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
   // showing changes as it lands and takes off
   for (let i=0;i<2;i++){ const re = eagleModel(), g = re || clone('eagle'); if (!g) break; if (!re) g.scale.setScalar(1.9); g.rotation.order = 'YXZ'; g.position.set(rnd(-20, 10), 12, rnd(-30, 10));
     add('eagle', g, {hit:1.2, state:'soar', cx:rnd(-20, 10), cz:rnd(-30, 10), rad:rnd(7, 12), h:rnd(10, 14), ang:rnd(0, 6.28), timer:rnd(8, 20), real:!!re}); }
-  for (let i=0;i<4;i++){ const g = clone('lizard'); if (!g) break; g.scale.setScalar(2.2); g.visible = false; add('lizard', g, {hit:0.4, rock:null, tail:part(g, 'lizard_tail')}); }
+  for (let i=0;i<4;i++){ const g = (real && real('lizard')) || clone('lizard'); if (!g) break; if (!g.userData.mixer) g.scale.setScalar(2.2); g.visible = false; add('lizard', g, {hit:0.4, rock:null, tail:part(g, 'lizard_tail')}); }   // (realistic: a gecko with its own walk)
 
   // wild rabbits: two warrens on open grassland, a few rabbits each
   const warrens = [];
@@ -337,7 +338,7 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
           if (u < 0.02 && !a.leapt){ a.leapt = true; a.flip = Math.random() < 0.35; if (Math.hypot(x - cam.x, z - cam.z) < 40) fx.splash(V3(x, WATER_Y, z), 0.8); }
           if (u > 0.5) a.leapt = false;
           a.g.position.set(x, WATER_Y - 0.5 + jump*2.2, z); a.g.rotation.set(-Math.cos(u/0.4*Math.PI)*0.6*(u < 0.4 ? 1 : 0), podRun.dir > 0 ? 0 : Math.PI, a.flip && u < 0.4 ? u/0.4*Math.PI*2 : 0, 'YXZ');
-          const tail = part(a.g, 'dolphin_tail'); if (tail) tail.rotation.x = Math.sin(t*8 + i)*0.3;
+          const tail = part(a.g, 'dolphin_tail'); if (tail) tail.rotation.x = Math.sin(t*8 + i)*0.3; if (a.g.userData.mixer) a.g.userData.mixer.update(dt);   // (realistic: its own tail strokes)
           if (u > 0.38 && u < 0.4 && Math.hypot(x - cam.x, z - cam.z) < 40) fx.splash(V3(x, WATER_Y, z), 0.6); });
         if ((podRun.dir > 0 && podRun.z > Z1 + 14) || (podRun.dir < 0 && podRun.z < Z0 - 14)){ podRun = null; podT = rnd(60, 120); pod.forEach(a => a.g.visible = false); } } }
     // the whale: rises, spouts a few times, then dives showing its tail
@@ -389,7 +390,7 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
         case 'seafish': {
           a.ang += dt*a.sp*0.4; const x = a.cx + Math.cos(a.ang)*1.6, z = a.cz + Math.sin(a.ang*0.7)*2.5;
           const d = V3(x - p.x, 0, z - p.z); p.x = x; p.z = z; if (d.lengthSq() > 1e-6) a.g.rotation.y = Math.atan2(d.x, d.z);
-          p.y = WATER_Y - 0.25 + Math.sin(a.t)*0.04; a.g.visible = true; if (a.tail) a.tail.rotation.y = Math.sin(a.t*10)*0.5;
+          p.y = WATER_Y - 0.25 + Math.sin(a.t)*0.04; a.g.visible = true; if (a.tail) a.tail.rotation.y = Math.sin(a.t*10)*0.5; if (a.g.userData.mixer) a.g.userData.mixer.update(dt);
           break; }
         case 'owl': {
           a.g.visible = night && !!a.perch;
@@ -416,6 +417,7 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
           if (petD < 2.5 && a.state !== 'flee'){ a.state = 'flee'; a.timer = 0.8; o.onSound && o.onSound('scurry', p); }
           const top = V3(r.x + (a.off || 0.2), r.y, r.z); if (!a.off){ a.off = rnd(-0.3, 0.3); }
           const lizLegs = k => { for (const [n, ph] of [['FL', 0], ['BR', 0], ['FR', Math.PI], ['BL', Math.PI]]){ const l = part(a.g, 'lizard_leg' + n); if (l) l.rotation.y = Math.sin(a.t*28 + ph)*0.7*k*(n[1] === 'L' ? 1 : -1); } };
+          const lm = a.g.userData; if (lm.mixer){ playR(lm, a.state === 'flee' ? 'walk' : 'idle', a.state === 'flee' ? 2.5 : 1); lm.mixer.update(dt); }
           if (a.state === 'flee'){ p.x += Math.sin(a.g.rotation.y)*dt*4; p.z += Math.cos(a.g.rotation.y)*dt*4; lizLegs(1); if (a.tail) a.tail.rotation.y = Math.sin(a.t*28)*0.4; if (a.timer <= 0){ a.state = 'hidden'; a.timer = rnd(8, 15); } break; }
           lizLegs(0);
           p.copy(top); if (a.timer <= 0){ a.timer = rnd(2, 6); a.g.rotation.y += rnd(-1.2, 1.2); }

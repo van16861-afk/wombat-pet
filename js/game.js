@@ -217,9 +217,11 @@ const REAL_CFG = {tiger:{yaw:Math.PI/2, like:'tiger', k:1.15}, deer:{like:'deer'
   donkey:{len:1.8, stride:{walk:0.55, run:1.6}}, fox:{len:1.9}, gullfly:{len:0.95}, gullstand:{len:0.95}, waspnest:{raw:true},
   hippo2:{len:4.4, k:0.6, stride:{walk:0.245}}, capybara2:{len:1.8, k:0.76, stride:{walk:0.33}}, tortoise2:{len:1.25, stride:{walk:0.051}}, koala2:{h:1.1, meshBox:true, split:{idle:[25.5, 28.5]}},   // (its one clip is a demo reel: clinging while it climbs, a step on the ground, a climb, a still cling at the top - only that is used)
   rabbit2:{len:0.75, k:0.25},   // (k: their bones don't span the whole body, measured in game)
-  whale2:{len:16}, trout:{len:0.45}, butterfly2:{len:0.28}, yacht:{raw:true}};
+  whale2:{len:16}, trout:{len:0.45}, butterfly2:{len:0.28}, yacht:{raw:true},
+  crane:{h:1.7, stride:{walk:0.24}}, emu:{h:1.85, stride:{walk:0.37, run:2.2}}, quokka:{len:1.1}, beaver2:{len:1.3, stride:{walk:0.31}}, frog2:{len:0.32, yaw:-Math.PI/2, split:{idle:[1.9, 6.9], hop:[7.2, 8.2]}},
+  snake2:{len:1.8, yaw:Math.PI/2, meshBox:true, split:{slither:[3.5, 7.75]}}, dfly:{len:0.3}, gecko:{len:0.6, yaw:Math.PI/2}, dolphin2:{len:3.6}, tang:{len:0.35}, bfish:{len:0.35}, koi:{len:0.45}};   // (koi: the pond scales them up 1.5-2.1x)
 // realistic replacements for the animals first made in Blender (fauna.js / wildlife.js ask for the old names)
-const REAL_ALIAS = {hippo:'hippo2', capybara:'capybara2', tortoise:'tortoise2', koala:'koala2', rabbit:'rabbit2', whale:'whale2'};   // (raw: built at game size, origin at the keel)
+const REAL_ALIAS = {hippo:'hippo2', capybara:'capybara2', tortoise:'tortoise2', koala:'koala2', rabbit:'rabbit2', whale:'whale2', beaver:'beaver2', frog:'frog2', snake:'snake2', dragonfly:'dfly', lizard:'gecko', dolphin:'dolphin2'};   // (raw: built at game size, origin at the keel)
 const REAL_LOADS = Object.fromEntries(Object.keys(REAL_CFG).map(n => [n, new GLTFLoader().setDRACOLoader(draco).loadAsync(`assets/models/real/${n}.glb`)]));
 Object.values(REAL_LOADS).forEach(pr => pr.catch(() => {}));
 let gltf;
@@ -456,7 +458,7 @@ function realClone(n){
 }
 const FISH_LOOKS = [['#f08a3c', '#ffffff', '#f6b26b'], ['#f2efe8', '#e0483a', '#f3c9b0'], ['#e0483a', '#f6d0c0', '#f08a6a'], ['#4f86c6', '#cfe6ff', '#7fb2e0'], ['#f3d250', '#fff6c8', '#f6e08a'], ['#7a8c5a', '#c8d49a', '#a0b07a'], ['#c3ccd6', '#ffffff', '#dfe6ee'], ['#2f3a40', '#e8a33c', '#5a6a70']];
 const FISH_MIX = [];   // the realistic river trout's swimming (updated with the butterflies, every frame)
-const fishModel = (i, koi) => { const rt = !koi && realClone('trout'); if (rt){ const ac = rt.userData.mixer.clipAction(rt.userData.clips.swim); ac.play(); ac.time = Math.random()*2; FISH_MIX.push(rt.userData.mixer); return {g:rt, tail:null}; }
+const fishModel = (i, koi) => { const rt = realClone(koi ? 'koi' : 'trout'); if (rt){ const ac = rt.userData.mixer.clipAction(rt.userData.clips.swim); ac.play(); ac.time = Math.random()*2; FISH_MIX.push(rt.userData.mixer); return {g:rt, tail:null}; }
   const [b, s, f] = FISH_LOOKS[i % FISH_LOOKS.length], g = animalClone('fish', {FishBody:b, FishSpot:s, FishFin:f}); return g ? {g, tail:g.getObjectByName('fish_tail')} : null; };
 // swap a named material inside a cloned prop (e.g. the lamp bulb becomes a night-glow material)
 const swapMat = (obj, name, m) => obj.traverse(o => { if (!o.isMesh) return; if (Array.isArray(o.material)) o.material = o.material.map(x => x.name === name ? m : x); else if (o.material.name === name) o.material = m; });

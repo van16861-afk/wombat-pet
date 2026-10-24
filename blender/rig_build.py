@@ -52,8 +52,11 @@ def prep(name, src, budget, flip=False, turn=0, drop=()):
         if now <= budget*1.1: break
         d = ob.modifiers.new("Dec", 'DECIMATE'); d.ratio = budget/now; d.use_collapse_triangulate = True
         bpy.context.view_layer.objects.active = ob; bpy.ops.object.modifier_apply(modifier="Dec")
-    for im in bpy.data.images:
+    for im in list(bpy.data.images):
         if im.size[0] > 1024: im.scale(1024, max(1, 1024*im.size[1]//im.size[0]))
+        if im.has_data and im.depth <= 8:   # (8-bit grey PNGs won't save as WebP: copied into a colour image)
+            ni = bpy.data.images.new(im.name + "_rgb", im.size[0], im.size[1], alpha=True); ni.pixels = im.pixels[:]; ni.colorspace_settings.name = im.colorspace_settings.name
+            ni.pack(); im.user_remap(ni)
     for m in bpy.data.materials: m.use_backface_culling = False   # heavy reduction flips a few faces: draw both sides so they don't show as holes
     print("PREP", name, "tris", tris, "->", sum(len(p.vertices) - 2 for p in me.polygons), "size", tuple(round(v, 3) for v in ob.dimensions))
     return ob
@@ -84,12 +87,20 @@ def build_rig(ob, bones):
 def seg_dist(p, a, b):
     ab = b - a; t = max(0.0, min(1.0, (p - a).dot(ab)/max(ab.length_squared, 1e-9))); return (p - (a + ab*t)).length
 
-def skin(ob, arm, bones):
-    """Weights from the distance to each bone; `zone(f, u, s)` says which bones a vertex may follow."""
+def skin(ob, arm, bones, mat_bones=None):
+    """Weights from the distance to each bone; `zone(f, u, s)` says which bones a vertex may follow. `mat_bones`: {material: bone(f, u, s)}
+    hands whole parts to one bone (a dragonfly's wings: thin planes that the distance rule would share with the body)."""
     d = ob.dimensions; segs = {b["n"]: (P(ob, *b["h"]), P(ob, *b["t"]), b.get("zone")) for b in bones}
     groups = {n: ob.vertex_groups.new(name=n) for n in segs}
+    names = [m.name.split(".")[0] if m else "" for m in ob.data.materials]
+    by_mat = {}
+    for poly in ob.data.polygons:
+        fn = (mat_bones or {}).get(names[poly.material_index] if poly.material_index < len(names) else "")
+        if fn:
+            for i in poly.vertices: by_mat[i] = fn
     for v in ob.data.vertices:
         p = v.co; f = p.y + 0.5; u = p.z/max(d.z, 1e-6); s = p.x/max(d.x/2, 1e-6)
+        if v.index in by_mat: groups[by_mat[v.index](f, u, s)].add([v.index], 1.0, 'REPLACE'); continue
         cand = [(seg_dist(p, a, b), n) for n, (a, b, z) in segs.items() if z is None or z(f, u, s)]
         if not cand: cand = [(seg_dist(p, a, b), n) for n, (a, b, z) in segs.items()]
         cand.sort(); cand = cand[:3]; w = [1/(c[0] + 0.004)**4 for c in cand]; tw = sum(w)
@@ -135,9 +146,10 @@ only = [s for s in os.environ.get("ONLY", "").split(",") if s]
 for name, sp in SPECS.items():
     if only and name not in only: continue
     ob = prep(name, sp["src"], sp["budget"], sp.get("flip", False), sp.get("turn", 0), sp.get("drop", ()))
+    if sp.get("paint"): sp["paint"](ob)   # (a new colour texture: the crane is repainted as a red-crowned crane)
     if os.environ.get("PREP"):
         export(os.path.join(PREP, name + ".glb"), False); continue
-    arm = build_rig(ob, sp["bones"]); skin(ob, arm, sp["bones"])
+    arm = build_rig(ob, sp["bones"]); skin(ob, arm, sp["bones"], sp.get("mat_bones"))
     for cname, (secs, frames) in sp["clips"](lerp_pose).items(): clip(arm, cname, secs, frames)
     if sp.get("rig_clips"):   # clips keyed with feet placed on the ground by a limb solve (blender/pose_kit.py), positions in body fractions
         from pose_kit import Rig
