@@ -215,7 +215,7 @@ const REAL_CFG = {tiger:{yaw:Math.PI/2, like:'tiger', k:1.15}, deer:{like:'deer'
   moose:{like:'deer', k:1.9, parts:{antlers:'M_Moose_Antler'}}, horse:{like:'horse', k:1.25}, croc:{like:'croc', bright:1.8}, kangaroo:{like:'kangaroo', k:1.45}, heron:{like:'heron', k:1.1}, crab:{len:0.32}, hermit:{len:0.42}, seaturtle:{len:1.3}, penguin:{h:0.85}, flamingo:{len:1.3}, owl:{h:0.7}, peacock:{like:'peacock', k:1.15, stride:{walk:0.57}}, mangrove:{h:4.2}, fiddler:{len:0.3}, mudskipper:{len:0.34}, fishboat:{raw:true}, monkey:{len:1.7, stride:{walk:0.6, run:2.6}}, pondturtle:{len:0.75}, eagle:{len:1.6}, eagleperch:{h:1.35},
   bug_rhino:{len:0.42}, bug_stag:{len:0.48}, bug_green:{len:0.3}, bug_longhorn:{len:0.5}, bug_grasshopper:{len:0.42}, bug_cricket:{len:0.38}, bug_mantis:{len:0.6}, bug_cicada:{len:0.4},   // insects: CC0 scans, jointed legs
   donkey:{len:1.8, stride:{walk:0.55, run:1.6}}, fox:{len:1.9}, gullfly:{len:0.95}, gullstand:{len:0.95}, waspnest:{raw:true},
-  hippo2:{len:4.4, k:0.6}, capybara2:{len:1.8, k:0.76}, tortoise2:{len:1.25}, koala2:{h:1.1, k:2}, rabbit2:{len:0.75, k:0.25},   // (k: their bones don't span the whole body, measured in game)
+  hippo2:{len:4.4, k:0.6}, capybara2:{len:1.8, k:0.76, stride:{walk:0.33}}, tortoise2:{len:1.25}, koala2:{h:1.1, k:2}, rabbit2:{len:0.75, k:0.25},   // (k: their bones don't span the whole body, measured in game)
   whale2:{len:16}, trout:{len:0.45}, butterfly2:{len:0.28}};
 // realistic replacements for the animals first made in Blender (fauna.js / wildlife.js ask for the old names)
 const REAL_ALIAS = {hippo:'hippo2', capybara:'capybara2', tortoise:'tortoise2', koala:'koala2', rabbit:'rabbit2', whale:'whale2'};   // (raw: built at game size, origin at the keel)
@@ -410,8 +410,11 @@ for (const [n, pr] of Object.entries(REAL_LOADS)){
   try { const g = await pr, cfg = REAL_CFG[n];
     g.scene.traverse(o => { if (!o.isMesh) return; const s = o.material;   // textures arrive as colour data: keep them as display values like the rest of the scene
       if (s.map){ s.map.colorSpace = THREE.NoColorSpace; s.map.needsUpdate = true; }
-      o.material = new THREE.MeshStandardMaterial({name:s.name, map:s.map, color:new THREE.Color(1, 1, 1).multiplyScalar(cfg.bright || 1), roughness:0.85, metalness:0, alphaTest:s.alphaTest || (s.transparent ? 0.5 : 0), side:s.side});
+      o.material = new THREE.MeshStandardMaterial({name:s.name, map:s.map, color:(s.map ? new THREE.Color(1, 1, 1) : s.color.clone()).multiplyScalar(cfg.bright || 1), roughness:s.map ? 0.85 : Math.min(0.85, s.roughness), metalness:0, alphaTest:s.alphaTest || (s.transparent ? 0.5 : 0), side:s.side});
       o.frustumCulled = false; });   // skinned: the bind-pose bounds don't follow the animation
+    // clips start at time 0 (some files key them from frame 227 on: three.js would hold the first pose for nine seconds each loop)
+    for (const c of g.animations){ const t0 = Math.min(...c.tracks.map(t => t.times[0])); if (t0 > 0.01){
+      for (const T of new Set(c.tracks.map(t => t.times))) for (let i=0;i<T.length;i++) T[i] -= t0; c.resetDuration(); } }   // (tracks share time arrays: each one once)
     // looping clips stay in place (some walk the body a stride forward and jump back each loop): the game moves the animal itself
     for (const c of g.animations) if (!/^(lieDown|getUp|jump|attack)$/.test(c.name)) for (const t of c.tracks){
       if (!t.name.endsWith('.position')) continue; const v = t.values, T = t.times, n = T.length, d = [v[3*n-3] - v[0], v[3*n-2] - v[1], v[3*n-1] - v[2]], span = T[n-1] - T[0] || 1;

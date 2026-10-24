@@ -696,16 +696,18 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
           break; }
         case 'capybara': {   // calm: grazes on the bank, has a swim, and doesn't mind the wombat at all
           const wet = world.isWater(p.x, p.z);
-          if (a.chill > 0){ a.chill -= dt; if (pet) face(a, pet.x - p.x, pet.z - p.z, dt, 2); a.g.rotation.x += (-0.22 - a.g.rotation.x)*Math.min(1, dt*4);
+          const rl = isReal(a);   // (the realistic one has its own clips: lying down, grazing, paddling; the body itself is not tipped)
+          if (a.chill > 0){ a.chill -= dt; if (pet) face(a, pet.x - p.x, pet.z - p.z, dt, 2); if (rl) a.pose = wet ? 'float' : 'lie'; else a.g.rotation.x += (-0.22 - a.g.rotation.x)*Math.min(1, dt*4);
             for (const n of ['BL', 'BR']){ const l = pt(a.g, 'capybara_leg' + n); if (l) l.rotation.x = -0.9; }
             if (!a.zzd && a.chill < 4){ a.zzd = true; o.onZzz && o.onZzz(p.clone().add(V3(0, 0.9, 0))); o.onSmile && o.onSmile(p.clone()); }
             if (a.chill <= 0){ a.zzd = false; for (const n of ['BL', 'BR']){ const l = pt(a.g, 'capybara_leg' + n); if (l) l.rotation.x = 0; } }
             p.y = wet ? WATER_Y - 0.36*a.g.scale.y : gy(p.x, p.z); break; }
-          a.g.rotation.x += ((!a.dest && !wet ? 0.12 + Math.max(0, Math.sin(a.t*6))*0.03 : 0) - a.g.rotation.x)*Math.min(1, dt*3);   // nose down nibbling grass
+          if (!rl) a.g.rotation.x += ((!a.dest && !wet ? 0.12 + Math.max(0, Math.sin(a.t*6))*0.03 : 0) - a.g.rotation.x)*Math.min(1, dt*3);   // nose down nibbling grass
           if (a.timer <= 0){ const r_ = Math.random(); a.timer = rnd(6, 12);
             if (r_ < 0.25){ a.dest = riverPt(a); a.state = 'swim'; } else if (r_ < 0.6){ a.dest = bankPt(a, Math.sign(p.x - world.riverX(p.z)) || 1); a.state = 'walk'; } else { a.state = 'rest'; if (pet && petD < 5) o.onZzz && o.onZzz(p.clone().add(V3(0, 0.6, 0))); } }
           if (a.dest && a.state !== 'rest'){ if (goTo(a, a.dest, 0.6, dt, (x, z) => inZ(a, z), 2)) a.dest = null; }
           legSwing(a, a.dest && a.state !== 'rest' ? (wet ? 0.6 : 0.45) : 0, wet ? 6 : 7);
+          if (rl) a.pose = wet ? (a.dest ? 'swim' : 'float') : a.dest ? null : a.state === 'rest' ? 'lie' : 'eat';
           p.y = wet ? WATER_Y - 0.36*a.g.scale.y + Math.sin(a.t*1.2)*0.02 : gy(p.x, p.z);
           break; }
         case 'tortoise': {   // plods slowly, munches, pulls its head in when the wombat comes close

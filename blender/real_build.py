@@ -22,7 +22,7 @@ MODELS = {
     "fiddler": ("fiddler", 3000, {"dance": "Dance"}, ["AOFLoor"]),
     "penguin": ("penguin", 3500, {"idle": "Iddle", "walk": "Walk", "slide": "Slide", "peck": "Bite", "fall": "Fall"}, []),
     "hippo2": ("real_hippo", 9000, {"walk": "Play_anim_Hippo"}, []),
-    "capybara2": ("real_capybara", 9000, {"walk": "Take 001"}, []),
+    "capybara2": ("real_capybara", 9000, {"base": "Take 001"}, []),   # (its one clip only rolls the eyes: the standing pose the clips below start from)
     "whale2": ("real_whale", 5000, {"swim": "Take 001"}, []),
     "tortoise2": ("real_tortoise", 8000, {"walk": "walking", "look": "looking"}, []),
     "koala2": ("real_koala", 7000, {"idle": "Animations"}, ["Material_32", "material", "Text"]),   # (drops the leg it clings to in the demo, and the caption)
@@ -84,7 +84,9 @@ def build(name, src, budget, clips, drop):
         if not o.data.polygons or (len(o.data.polygons) <= 80 and not mats) or any(m in drop for m in mats) or o.name in drop:   # helper spheres, saddles (drop: material or object names)
             bpy.data.objects.remove(o, do_unlink=True); continue
         if not any(md.type == 'ARMATURE' for md in o.modifiers):   # rigid part: weight it to the bone it hangs from, in the body mesh's space
-            bone = o.parent_bone if o.parent_type == 'BONE' else nearest_bone(arm, o)
+            up_ = o   # (hung on a bone through empties, e.g. the capybara's eyes: that bone)
+            while up_.parent and up_.parent_type != 'BONE': up_ = up_.parent
+            bone = up_.parent_bone if up_.parent_type == 'BONE' else nearest_bone(arm, o)
             mw = o.matrix_world.copy(); o.parent = None; o.data.transform(skinned.matrix_world.inverted() @ mw)
             vg = o.vertex_groups.new(name=bone); vg.add(range(len(o.data.vertices)), 1.0, 'REPLACE')
             md = o.modifiers.new("Armature", 'ARMATURE'); md.object = arm
@@ -125,6 +127,7 @@ def build(name, src, budget, clips, drop):
         if bone_slot: st.action_slot = bone_slot   # an action can hold several objects' channels; the armature takes the bones' ones
         if bone_slot: hold_rest(arm, ac, bone_slot)
     ad.action = None; arm.data.pose_position = 'POSE'
+    if name in RIGCLIPS: RIGCLIPS[name](arm, ad, keep)   # clips keyed with the paws placed by a limb solve (the model has no real ones)
     if name in EXTRA: add_clips(arm, ad, *EXTRA[name])   # clips made here for what the model lacks (a turtle crawling on land, a penguin swimming)
     for ac in keep.values(): print("  CLIP", ac.name, [sl.identifier for sl in getattr(ac, "slots", [])], "bones:", bones_slot(ac).identifier if bones_slot(ac) else None)
     print("MODEL", name, "faces", total, "->", tris, "tris; clips", sorted(keep), "missing", sorted(set(clips) - set(keep)))
@@ -213,6 +216,105 @@ def _pond_turtle():
     inn = {**FRONT, "Bone_93": lv, "Bone.006": (-0.3, 0, 0, (0, -0.05, -0.42)), "Bone.007": (0.9, 0, 0)}
     hide = [(0, {**FRONT, "Bone_93": lv, "Bone.006": (0.15, 0, 0), "Bone.007": (0.1, 0, 0)}), (0.12, inn), (0.85, inn), (1.0, {**FRONT, "Bone_93": lv, "Bone.006": (0.15, 0, 0), "Bone.007": (0.1, 0, 0)})]
     return {"bask": (6.0, bask), "hide": (3.0, hide)}
+
+
+def _capybara(arm, ad, keep):
+    # The capybara file's one clip only rolls the eyes, so every move is keyed here on its own skeleton (a 3ds Max "Panther" rig:
+    # its bone tails point nowhere useful, so each bone is swung by where its CHILD joint goes). It faces -Y, up is +Z, feet at z = 0.
+    #   walk  - lateral-sequence walk (left hind, left fore, right hind, right fore): each paw stays planted through its stance while
+    #           the body passes over it, then lifts with the knee/elbow folding and the toes curling back, and plants ahead
+    #   idle  - standing: breathing, ears flicking, the head turning a little
+    #   eat   - grazing: neck down, muzzle in the grass, nibbling with small head bobs
+    #   lie   - body lowered onto the belly, legs folded under it, head resting forward (they doze like this on the bank)
+    #   swim  - dog-paddle: body level and low, all four legs paddling in circles, head held up
+    #   float - resting in the water: slow paddles
+    import sys; sys.path.insert(0, os.path.dirname(__file__))
+    from pose_kit import Rig
+    from mathutils import Matrix
+    base = keep.pop("base"); ad.action = base; sl = bones_slot(base)
+    if sl: ad.action_slot = sl
+    bpy.context.scene.frame_set(int(base.frame_range[0]) + 1); bpy.context.view_layer.update()
+    B0 = {pb.name: pb.matrix_basis.copy() for pb in arm.pose.bones}
+    ad.action = None
+    for tr in [tr for tr in ad.nla_tracks if tr.name == "base"]: ad.nla_tracks.remove(tr)
+    bpy.data.actions.remove(base)
+    class R_(Rig):
+        def reset(self):
+            for pb in self.PB: pb.rotation_mode = 'QUATERNION'; pb.matrix_basis = B0[pb.name]
+            self.upd()
+        def J(self, n): return self.PB[n].head.copy()
+        def swing(self, n, child, target):   # turn bone n about its joint so its child's joint heads for `target`
+            h = self.J(n); q = (self.J(child) - h).rotation_difference(Vector(target) - h)
+            pb = self.PB[n]; pb.matrix = Matrix.Translation(h) @ q.to_matrix().to_4x4() @ Matrix.Translation(-h) @ pb.matrix; self.upd()
+    R = R_(arm); R.reset()
+    X = Vector((1, 0, 0)); Z = Vector((0, 0, 1))
+    PEL, N1, N2, HEAD, JAW, EARL, EARR, TAIL = ("PantherPelvis_01", "PantherNeck1_046", "PantherNeck2_047",
+        "PantherHead_048", "PantherHeadBone003_051", "PantherHeadBone002_050", "PantherHeadBone001_049", "PantherTail1_052")
+    # legs: (upper, lower, paw, toe bone, toe tip, knee/elbow bends toward)
+    LEGS = {"HL": ("PantherLLeg1_02", "PantherLLeg2_00", "PantherLLegPalm_03", "PantherLLegDigit11_06", "PantherLLegDigit12_07", (0, -1, 0)),
+            "HR": ("PantherRLeg1_010", "PantherRLeg2_011", "PantherRLegPalm_012", "PantherRLegDigit11_015", "PantherRLegDigit12_016", (0, -1, 0)),
+            "FL": ("PantherLLeg1_023", "PantherLLeg2_024", "PantherLLegPalm_025", "PantherLLegDigit11_028", "PantherLLegDigit12_029", (0, 1, 0)),
+            "FR": ("PantherRLeg1_035", "PantherRLeg2_036", "PantherRLegPalm_037", "PantherRLegDigit11_040", "PantherRLegDigit12_041", (0, 1, 0))}
+    REST = {k: [R.J(n) for n in v[:5]] for k, v in LEGS.items()}   # hip, knee, hock, toe joint, toe tip in the standing pose
+    def place(k, tip, curl=0.0):
+        """Put a paw's toe tip on `tip`: the foot keeps its standing angle, turned back by `curl` (radians) as it lifts."""
+        up, lo, paw, toe, tipb, bend = LEGS[k]; hp0, kn0, hk0, t0, tp0 = REST[k]
+        d = Quaternion(X, curl) @ (tp0 - hk0)   # hock (wrist) -> toe tip
+        hk = Vector(tip) - d; S = R.J(up)
+        a = (kn0 - hp0).length; b = (hk0 - kn0).length
+        dv = hk - S; L = min(dv.length, (a + b)*0.999); dn = dv.normalized()
+        x = (a*a - b*b + L*L)/(2*L); h = math.sqrt(max(0.0, a*a - x*x)); o = Vector(bend); o = (o - dn*o.dot(dn)).normalized()
+        R.swing(up, lo, S + dn*x + o*h); R.swing(lo, paw, S + dn*L); R.swing(paw, tipb, R.J(paw) + d)
+    def step(t, off, duty, stride, lift):   # (forward offset, height) of a paw over the cycle
+        p = (t - off) % 1.0
+        if p < duty: return stride/2 - stride*(p/duty), 0.0
+        q = (p - duty)/(1 - duty); return -stride/2 + stride*(0.5 - 0.5*math.cos(math.pi*q)), lift*math.sin(math.pi*q)
+    def head(pitch=0.0, yaw=0.0, jaw=0.0, ears=(0.0, 0.0)):
+        pitch += 0.3   # (the file stands it nose-up, sniffing the air: level by default)
+        R.turn(N1, X, pitch*0.55); R.turn(N2, X, pitch*0.25); R.turn(HEAD, X, pitch*0.2); R.turn(HEAD, Z, yaw)
+        if jaw: R.turn(JAW, X, -jaw)
+        R.turn(EARL, Vector((0, 1, 0)), ears[0]); R.turn(EARR, Vector((0, 1, 0)), -ears[1])
+    def body(drop=0.0, pitch=0.0, sway=0.0):   # pelvis (and so the whole body) lowered / tipped nose-down / swayed side to side
+        R.move(PEL, (sway, 0, -drop))
+        if pitch: R.turn(PEL, X, pitch, about=R.J(PEL) + Vector((0, -110, 0)))
+    STRIDE, DUTY, LIFT = 105.0, 0.66, 22.0
+    def walk(t, stride=STRIDE, duty=DUTY, lift=LIFT, offs=(0.0, 0.25, 0.5, 0.75)):
+        ph = t*2*math.pi
+        body(drop=3*math.cos(2*ph), sway=2.5*math.sin(ph)); R.turn(TAIL, Z, 0.08*math.sin(ph))
+        head(pitch=0.04*math.sin(2*ph + 0.6), yaw=0.04*math.sin(ph), ears=(0.05*math.sin(2*ph), 0.05*math.sin(2*ph)))
+        for k, off in (("HL", offs[0]), ("FL", offs[1]), ("HR", offs[2]), ("FR", offs[3])):
+            f, l = step(t, off, duty, stride, lift); tp = REST[k][4]
+            place(k, (tp.x, tp.y - f, tp.z + l), curl=(0.9 if k[0] == "H" else 0.7)*l/lift)
+    R.clip("walk", 1.2, 24, walk)
+    def stand(t):
+        ph = t*2*math.pi; flick = max(0, math.sin(ph*3 - 1))**8
+        body(drop=1.2*math.sin(ph*2)); head(pitch=0.05*math.sin(ph), yaw=0.18*math.sin(ph + 0.7), ears=(0.5*flick, 0.3*flick))
+        for k in LEGS: place(k, REST[k][4])
+    R.clip("idle", 6.0, 36, stand)
+    def graze(t):
+        ph = t*2*math.pi
+        body(drop=6, pitch=0.12)
+        head(pitch=1.05 + 0.05*math.sin(ph*4), yaw=0.12*math.sin(ph), jaw=0.12*max(0, math.sin(ph*8)), ears=(0.1, 0.1))
+        for k in LEGS: place(k, REST[k][4])
+    R.clip("eat", 3.0, 36, graze)
+    def lie(t):
+        ph = t*2*math.pi
+        body(drop=78 + 1.5*math.sin(ph)); head(pitch=-0.05 + 0.03*math.sin(ph), yaw=0.06*math.sin(ph*0.5), ears=(0.15*max(0, math.sin(ph*2))**6, 0))
+        for k in LEGS:   # paws tucked under the body, flat on the ground
+            tp = REST[k][4]; place(k, (tp.x*0.9, tp.y + (-30 if k[0] == "H" else 25), tp.z), curl=-0.3 if k[0] == "H" else 0.9)
+    R.clip("lie", 5.0, 30, lie)
+    def paddle(t, amp=1.0):
+        ph = t*2*math.pi
+        body(drop=10); R.turn(TAIL, Z, 0.05*math.sin(ph))
+        head(pitch=-0.25, yaw=0.05*math.sin(ph*0.5))
+        for k, off in (("HL", 0.0), ("FL", 0.5), ("HR", 0.5), ("FR", 0.0)):   # diagonal pairs stroke together, as swimming mammals do
+            q = 2*math.pi*(t - off); tp = REST[k][4]
+            place(k, (tp.x, tp.y + 45*amp*math.cos(q), tp.z + 40 + 28*amp*math.sin(q)), curl=0.4 + 0.4*math.sin(q))
+    R.clip("swim", 1.0, 20, paddle)
+    R.clip("float", 2.4, 24, lambda t: paddle(t, 0.35))
+    for c in ("walk", "idle", "eat", "lie", "swim", "float"): keep[c] = bpy.data.actions[c]
+    print("  CAPYBARA ground speed (model units/s at rate 1):", STRIDE/(DUTY*1.2))
+RIGCLIPS = {"capybara2": _capybara}
 
 EXTRA = {"seaturtle": ("head.001", "tail.001", _turtle_crawl()), "penguin": ("Head", "Tail1", _penguin_swim()), "pondturtle": ("Bone.007", "Bone.005", _pond_turtle())}
 for name, (src, budget, clips, drop) in MODELS.items():
