@@ -29,7 +29,7 @@ def prep(name, src, budget, flip=False, turn=0, drop=()):
     ob = bpy.context.view_layer.objects.active; ob.name = name; me = ob.data
     # scans come split into 65k-vertex pieces (and some with every triangle loose): weld them back into one surface first,
     # or the reduction below tears them apart
-    bm = bmesh.new(); bm.from_mesh(me); dmax = max(ob.dimensions); bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=dmax*2e-5); bm.to_mesh(me); bm.free()
+    bm = bmesh.new(); bm.from_mesh(me); dmax = max(ob.dimensions); bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=dmax*float(os.environ.get("WELD", "2e-5"))); bm.to_mesh(me); bm.free()
     # main horizontal axis (PCA on the ground plane) -> Y
     vs = [v.co for v in me.vertices]; n = len(vs)
     mx = sum(v.x for v in vs)/n; my = sum(v.y for v in vs)/n
@@ -47,7 +47,7 @@ def prep(name, src, budget, flip=False, turn=0, drop=()):
     me.transform(Matrix.Scale(s, 4) @ Matrix.Translation(-c))
     # decimate
     tris = sum(len(p.vertices) - 2 for p in me.polygons)
-    for _ in range(4):   # very dense scans need more than one pass
+    for _ in range(8):   # very dense scans need more than one pass
         now = sum(len(p.vertices) - 2 for p in me.polygons)
         if now <= budget*1.1: break
         d = ob.modifiers.new("Dec", 'DECIMATE'); d.ratio = budget/now; d.use_collapse_triangulate = True

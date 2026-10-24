@@ -496,3 +496,6 @@ SPECS["gullstand"] = {**SPECS["gullstand"], "clips": _gullstand_clips, "rig_clip
     {"n": "wingR", "p": "root", "h": (0.23, 0.69, -0.55), "t": (0.98, 0.37, -0.5), "zone": lambda f, u, s: s < -0.45 and u > 0.3 and f > 0.2},
     *_bird_legs((0.43, 0.33), (0.44, 0.26), (0.44, 0.05), (0.28, 0.01), 0.2, 0.34),
 ]}
+
+# ---------------------------------------------------------------- the tree nest (RISD Nature Lab "Paper Wasp Nest", CC BY 4.0): static, prep only, copied to assets/models/real
+SPECS["waspnest"] = {"src": "waspnest", "budget": 5000, "bones": [], "clips": lambda lp: {}}

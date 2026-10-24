@@ -214,7 +214,7 @@ Object.values(LOADS).forEach(pr => pr.catch(() => {}));
 const REAL_CFG = {tiger:{yaw:Math.PI/2, like:'tiger', k:1.15}, deer:{like:'deer', k:1.45, parts:{antlers:'Chifre'}}, wolf:{like:'wolf', k:1.05},
   moose:{like:'deer', k:1.9, parts:{antlers:'M_Moose_Antler'}}, horse:{like:'horse', k:1.25}, croc:{like:'croc', bright:1.8}, kangaroo:{like:'kangaroo', k:1.45}, heron:{like:'heron', k:1.1}, crab:{len:0.32}, hermit:{len:0.42}, seaturtle:{len:1.3}, penguin:{h:0.85}, flamingo:{len:1.3}, owl:{h:0.7}, peacock:{like:'peacock', k:1.15, stride:{walk:0.57}}, mangrove:{h:4.2}, fiddler:{len:0.3}, mudskipper:{len:0.34}, fishboat:{raw:true}, monkey:{len:1.7, stride:{walk:0.6, run:2.6}}, pondturtle:{len:0.75}, eagle:{len:1.6}, eagleperch:{h:1.35},
   bug_rhino:{len:0.42}, bug_stag:{len:0.48}, bug_green:{len:0.3}, bug_longhorn:{len:0.5}, bug_grasshopper:{len:0.42}, bug_cricket:{len:0.38}, bug_mantis:{len:0.6}, bug_cicada:{len:0.4},   // insects: CC0 scans, jointed legs
-  donkey:{len:1.8, stride:{walk:0.55, run:1.6}}, fox:{len:1.9}, gullfly:{len:0.95}, gullstand:{len:0.95}};   // (raw: built at game size, origin at the keel)
+  donkey:{len:1.8, stride:{walk:0.55, run:1.6}}, fox:{len:1.9}, gullfly:{len:0.95}, gullstand:{len:0.95}, waspnest:{raw:true}};   // (raw: built at game size, origin at the keel)
 const REAL_LOADS = Object.fromEntries(Object.keys(REAL_CFG).map(n => [n, new GLTFLoader().setDRACOLoader(draco).loadAsync(`assets/models/real/${n}.glb`)]));
 Object.values(REAL_LOADS).forEach(pr => pr.catch(() => {}));
 let gltf;
@@ -1859,11 +1859,13 @@ function makeTree(d){
     const bark = mat(euc ? '#e6ddcc' : '#7a5634', 0.95), trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.27, 1.5, 9), bark); trunk.position.y = 0.75; g.add(trunk);
     CANOPY_BLOBS.forEach(([x,y,z,r],i) => { const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), new THREE.MeshStandardMaterial({color:['#5f8f3e','#6fa148','#4f7d34'][i%3], roughness:0.9, flatShading:true, transparent:true})); m.position.set(x, y, z); g.add(m); });
   }
-  if (d.hive){
-    const h = new THREE.Group(), body = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), mat('#d9a23a', 0.6)); body.scale.set(0.22, 0.3, 0.22); h.add(body);
-    for (let i=0;i<3;i++){ const ring = new THREE.Mesh(new THREE.TorusGeometry(0.21 - Math.abs(i-1)*0.05, 0.025, 6, 20), mat('#b07a22', 0.6)); ring.rotation.x = Math.PI/2; ring.position.y = (i-1)*0.12; h.add(ring); }
-    const hole = new THREE.Mesh(new THREE.CircleGeometry(0.05, 12), new THREE.MeshBasicMaterial({color:'#2a1a08'})); hole.position.set(0, -0.05, 0.22); h.add(hole);
-    h.position.set(0.5, 1.3, 0.4); g.add(h); g.userData.hive = h;
+  if (d.hive){   // a paper wasp nest hanging from a branch under the crown (scanned; the old honey-pot shape if the model is missing)
+    const h = new THREE.Group(), nest = realClone('waspnest');
+    if (nest){ nest.scale.setScalar(0.6); h.add(nest); h.position.set(0.56, 1.95, 0.46); }
+    else { const body = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), mat('#d9a23a', 0.6)); body.scale.set(0.22, 0.3, 0.22); h.add(body);
+      for (let i=0;i<3;i++){ const ring = new THREE.Mesh(new THREE.TorusGeometry(0.21 - Math.abs(i-1)*0.05, 0.025, 6, 20), mat('#b07a22', 0.6)); ring.rotation.x = Math.PI/2; ring.position.y = (i-1)*0.12; h.add(ring); }
+      h.position.set(0.5, 1.3, 0.4); }
+    h.userData.y0 = h.position.y; g.add(h); g.userData.hive = h;
   }
   g.position.set(d.x, gy(d.x, d.z) - 0.05, d.z); g.rotation.y = d.ry || 0; g.scale.setScalar(d.s); scene.add(g);
   const hb = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 2.6, 8), hbMat); hb.position.y = 1.3; hb.userData.kind = 'tree'; g.add(hb);
@@ -1913,7 +1915,7 @@ function sting(){
   S.st.happy = clamp(S.st.happy - 12, 0, 100); S.st.health = clamp(S.st.health - 8, 0, 100); S.aff = clamp(S.aff - 2, 0, 100);
   showEmote('😭', 2.5); cry('angry'); sfx('buzz'); sqv += 2;
   for (let i=0;i<7;i++){ const s = new THREE.Sprite(new THREE.SpriteMaterial({map:emojiTex('🐝'), transparent:true, depthWrite:false})); s.scale.setScalar(0.34); scene.add(s); bees.push({s, ph:i/7*Math.PI*2, life:4.5}); }
-  toast(`${S.name || '牠'}撞到蜂窩，被蜜蜂叮得滿頭包！到商店的「藥品」買消腫藥膏。`); hudDirty = true;
+  toast(`${S.name || '牠'}撞到蜂窩，被胡蜂叮得滿頭包！到商店的「藥品」買消腫藥膏。`); hudDirty = true;
 }
 function updateTrees(dt){
   if (BG.windmill) BG.windmill.userData.spin.rotation.z -= dt*1.4;
@@ -1951,15 +1953,15 @@ function treeMenu(tr){
   if (tr.d.hive) acts.push({label:`清除蜂窩（${HIVE_PRICE}）`, onClick:() => removeHive(tr)});
   acts.push({label:hasSkill('gnaw') ? `讓${nm}啃倒（免費，+6 代幣）` : `砍掉（${TREE_PRICE}）`, onClick:() => cutTree(tr)});
   showModal(tr.d.hive ? '掛著蜂窩的樹' : '一棵樹', `<div class="bigicon">${tr.d.hive ? '🐝' : '🌳'}</div>`
-    + `<p>${tr.d.hive ? `${nm}跑去抓樹的時候可能會被蜜蜂叮。花 ${HIVE_PRICE} 代幣請人把蜂窩拿掉，樹會留著。` : `${nm}有時候會跑來抓抓樹、磨磨爪子。`}</p><p>想空出位置蓋東西，可以花 ${TREE_PRICE} 代幣把樹砍掉。</p>`, acts);
+    + `<p>${tr.d.hive ? `${nm}跑去抓樹的時候可能會被胡蜂叮。花 ${HIVE_PRICE} 代幣請人把蜂窩拿掉，樹會留著。` : `${nm}有時候會跑來抓抓樹、磨磨爪子。`}</p><p>想空出位置蓋東西，可以花 ${TREE_PRICE} 代幣把樹砍掉。</p>`, acts);
 }
 function pay(n){ if (S.coins < n){ toast('代幣不夠。清大便、拔雜草可以賺代幣。'); return false; } S.coins -= n; sfx('coin'); hudDirty = true; return true; }
 function removeHive(tr){
   if (!tr.d.hive || !pay(HIVE_PRICE)) return;
   tr.d.hive = false; const h = tr.g.userData.hive, at = h.getWorldPosition(V3(0,0,0));
   for (let i=0;i<6;i++) floatSprite(emojiTex('🐝'), at.clone().add(V3(rnd(-0.3,0.3), rnd(0,0.3), rnd(-0.3,0.3))), {size:0.3, vy:rnd(1,2), vx:rnd(-1.5,1.5), vz:rnd(-1.5,1.5), max:1.6, grow:0});
-  tools.push({t:0, dur:1.0, update(t){ h.position.y = 1.3 - t*t*1.3; h.rotation.z = t*3; h.scale.setScalar(Math.max(0.01, 1 - t)); }, done(){ h.parent && h.parent.remove(h); }});
-  sfx('buzz'); toast('蜂窩清掉了，蜜蜂都飛走了。'); track('hive'); save();
+  tools.push({t:0, dur:1.0, update(t){ h.position.y = h.userData.y0 - t*t*h.userData.y0; h.rotation.z = t*3; h.scale.setScalar(Math.max(0.01, 1 - t)); }, done(){ h.parent && h.parent.remove(h); }});
+  sfx('buzz'); toast('蜂窩清掉了，胡蜂都飛走了。'); track('hive'); save();
 }
 // ---------- using a learned skill on the spot ----------
 const slashTex = (() => { const cv = document.createElement('canvas'); cv.width = cv.height = 128; const x = cv.getContext('2d');
@@ -2474,7 +2476,7 @@ const CARE = [
 ];
 const MEDS = [
   {id:'coldmed',  icon:'🌡️', name:'感冒藥', price:10, health:45, desc:'生病的時候吃，健康 +45。'},
-  {id:'ointment', icon:'🧴', name:'消腫藥膏', price:25, desc:'被蜜蜂叮得滿頭包時擦一擦，腫包馬上消。'}
+  {id:'ointment', icon:'🧴', name:'消腫藥膏', price:25, desc:'被胡蜂叮得滿頭包時擦一擦，腫包馬上消。'}
 ];
 const FOOD_ICON = {grass:'🌿', carrot:'🥕', apple:'🍎', clover:'🍀', potato:'🍠', root:'🪵', water:'💧', milk:'🥛', coco:'🥥'};
 [...FOODS, ...DRINKS].forEach(f => f.icon = FOOD_ICON[f.id]);
@@ -2975,8 +2977,8 @@ const ACH = [
   {id:'tree10', icon:'🌲', name:'樵夫', desc:'砍掉 10 棵樹', test:() => stat('tree') >= 10, coins:40},
   {id:'bush1', icon:'🌳', name:'修剪樹叢', desc:'第一次清掉樹叢', test:() => stat('bush') >= 1, coins:10},
   {id:'bush10', icon:'✂️', name:'園藝高手', desc:'清掉 10 個樹叢', test:() => stat('bush') >= 10, coins:30},
-  {id:'hive', icon:'🍯', name:'跟蜜蜂說再見', desc:'清除一個蜂窩', test:() => stat('hive') >= 1, coins:15},
-  {id:'sting', icon:'🐝', name:'好痛！', desc:'袋熊被蜜蜂叮了', test:() => stat('sting') >= 1, coins:10},
+  {id:'hive', icon:'🐝', name:'跟胡蜂說再見', desc:'清除一個蜂窩', test:() => stat('hive') >= 1, coins:15},
+  {id:'sting', icon:'🐝', name:'好痛！', desc:'袋熊被胡蜂叮了', test:() => stat('sting') >= 1, coins:10},
   {id:'bridge', icon:'🌉', name:'過河', desc:'蓋第一座橋', test:() => stat('bridge') >= 1, coins:20},
   {id:'pet100', icon:'🤲', name:'摸摸大師', desc:'摸摸牠 100 次', test:() => stat('pet') >= 100, coins:30},
   {id:'moon', icon:'🌕', name:'花前月下', desc:'和牠一起賞月', test:() => stat('trick:moonview') >= 1, coins:30},
