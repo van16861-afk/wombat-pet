@@ -771,7 +771,7 @@ const BUILDS = [
   {id:'xmastree',  name:'聖誕樹',   price:90, desc:'掛滿彩球，頂端有顆星星。', holiday:'christmas', spot:310, size:[2,2]}
 ];
 BUILDS.forEach(b => { if (b.size) b.r = Math.max(0.5, Math.hypot(b.size[0], b.size[1])/2*0.72); });   // radius the wombat steers around
-const BG = {}, nightGlow = [], trees = [];
+const BG = {}, nightGlow = [], trees = [], fences = [];   // (fences: the pieces bought one at a time)
 function faceCenter(g, p){ g.position.copy(p); g.rotation.y = Math.atan2(-p.x, -p.z); }
 function glowMat(color, emissive){ const m = new THREE.MeshStandardMaterial({color, emissive, emissiveIntensity:0, roughness:0.5}); nightGlow.push(m); return m; }
 function signTexture(name){
@@ -979,7 +979,7 @@ function build(id){
   scene.add(g); BG[id] = g; applyPlace(id);
 }
 function unbuildAll(){ Object.keys(BG).forEach(id => { scene.remove(BG[id]); delete BG[id]; }); nightGlow.length = 0; }
-function obstacles(){ return BUILDS.filter(b => b.r && BG[b.id]).map(b => ({c:SPOTS[b.id], r:b.r})).concat(trees.map(tr => ({c:tr.g.position, r:0.55*tr.d.s})), world ? world.feats.map(f => ({c:f.g.position, r:world.featR(f.d)})) : []); }
+function obstacles(){ return BUILDS.filter(b => b.r && BG[b.id]).map(b => ({c:SPOTS[b.id], r:b.r})).concat(trees.map(tr => ({c:tr.g.position, r:0.55*tr.d.s})), fences.flatMap(o => fenceDots(o.f).map(c => ({c, r:0.24}))), world ? world.feats.map(f => ({c:f.g.position, r:world.featR(f.d)})) : []); }
 // the spot in front of the door; always outside the ring the house keeps the wombat out of (else it walks on the spot there)
 function houseDoor(){ const h = SPOTS.house, ry = BG.house ? BG.house.rotation.y : Math.atan2(-h.x, -h.z), d = V3(Math.sin(ry), 0, Math.cos(ry)), hb = bdef('house');
   return h.clone().addScaledVector(d, Math.max(2.2 + 1.6*petS + 0.3, ((hb && hb.r) || 0) + 0.9*petS + 0.3)); }
@@ -1140,17 +1140,20 @@ function updatePlace(){
 }
 function placePointer(e){
   const hitP = groundHit(e); if (!hitP) return;
+  if (placing.piece){ const q = placing.kind === 'fence' ? {x:Math.round(hitP.x*2)/2, z:Math.round(hitP.z*2)/2} : {x:+hitP.x.toFixed(2), z:+hitP.z.toFixed(2)};
+    if (q.x !== placing.p.x || q.z !== placing.p.z){ placing.p.x = q.x; placing.p.z = q.z; updatePiece(); } return; }
   if (placing.bridge){ if (Math.abs(hitP.z - placing.z) > 0.15){ placing.z = clamp(hitP.z, Z0 + 1, Z1 - 1); updateBridgeGhost(); } return; }
   const P = placing, [w, d] = rotSize(P.b, P.p.rot), i = Math.round(hitP.x - w/2), j = Math.round(hitP.z - d/2);
   if (i !== P.p.i || j !== P.p.j){ P.p.i = i; P.p.j = j; updatePlace(); }
 }
 function endPlace(){
-  const P = placing; placing = null; $('#placeRot').hidden = false;
+  const P = placing; placing = null; $('#placeRot').hidden = false; foot.rotation.z = 0;
   gridMesh.visible = foot.visible = doorArrow.visible = false; document.body.classList.remove('placing'); $('#placeBar').hidden = true;
   yaw = P.cam.yaw; pitch = P.cam.pitch; zoom = P.cam.zoom; panTarget.set(P.mesh.position.x, 0, P.mesh.position.z); save(); hudDirty = true;
 }
 function commitPlace(){
   const P = placing; if (!P || !P.ok) return;
+  if (P.piece) return commitPiece();
   if (P.bridge) return commitBridge();
   if (P.isNew){ if (S.coins < P.b.price){ toast('代幣不夠。'); cancelPlace(); return; }
     S.coins -= P.b.price; S.builds[P.id] = true; BG[P.id] = P.mesh; sfx('grow'); toast(`${P.b.name}蓋好了！之後點一下建築就能再移動。`); }
@@ -1167,11 +1170,14 @@ function commitPlace(){
 function cancelPlace(){
   const P = placing; if (!P) return;
   if (P.bridge){ scene.remove(P.mesh); if (P.movingFrom !== undefined){ world.addBridge(P.movingFrom); NAV.dirty = true; } endPlace(); return; }   // a cancelled move puts the bridge back
+  if (P.piece){ scene.remove(P.mesh); P.mesh = {position:P.p.x !== undefined ? V3(P.p.x, 0, P.p.z) : camTarget.clone()}; endPlace(); return; }
   if (P.isNew){ scene.remove(P.mesh); if (S.place) delete S.place[P.id]; }
   else { S.place[P.id] = P.prev; applyPlace(P.id); }
   endPlace();
 }
-$('#placeRot').onclick = () => { const P = placing; if (!P) return; const c = placeCenter(P.b, P.p); P.p.rot = (P.p.rot + 1) % 4;
+$('#placeRot').onclick = () => { const P = placing; if (!P) return;
+  if (P.piece){ P.p.r = wrapA(P.p.r + (P.kind === 'fence' ? Math.PI/4 : Math.PI/6)); sfx('pop'); updatePiece(); return; }
+  const c = placeCenter(P.b, P.p); P.p.rot = (P.p.rot + 1) % 4;
   const [w, d] = rotSize(P.b, P.p.rot); P.p.i = Math.round(c.x - w/2); P.p.j = Math.round(c.z - d/2); sfx('pop'); updatePlace(); };
 $('#placeView').onclick = () => { S.buildView = S.buildView === 'iso' ? 'top' : 'iso'; $('#placeView').textContent = S.buildView === 'iso' ? '視角：45 度' : '視角：俯視'; };
 $('#placeOk').onclick = commitPlace;
@@ -1862,15 +1868,42 @@ function updatePests(dt){
     if (r.leaving && dist < 0.2){ scene.remove(r.g); roaches.splice(i,1); }
   }
 }
-// ---------- trees: planted at random when a game starts; some carry a beehive ----------
+// ---------- trees: planted at random when a game starts; some carry a beehive. More can be bought and planted (園藝). ----------
+const TREE_KINDS = {
+  oak:{name:'橡樹', price:40, icon:'🌳', desc:'枝葉茂密的大樹，貓頭鷹和老鷹會停在上面。'},
+  apple:{name:'蘋果樹', price:70, icon:'🍎', fruit:'#c22a24', desc:'樹上掛著紅蘋果。蘋果熟了的時候搖一搖，會掉下蘋果。'},
+  orange:{name:'橘子樹', price:70, icon:'🍊', fruit:'#f08a1c', desc:'結滿橘子。熟了搖一搖會掉下橘子，可以賣代幣。'},
+  maple:{name:'楓樹', price:80, icon:'🍁', tint:'#d6492a', desc:'一整樹紅葉。'},
+  cherry:{name:'櫻花樹', price:90, icon:'🌸', tint:'#f6b6cc', petals:true, desc:'開滿粉紅色的櫻花，花瓣會隨風飄落。'},
+};
+const tintMats = {};
+function tintCanopy(m, hex){   // a crown recoloured (the leaves' light and shade kept): blossom pink, autumn red
+  if (Array.isArray(m)) return m.map(x => tintCanopy(x, hex));
+  const key = m.uuid + hex; if (tintMats[key]) return tintMats[key];
+  const c = m.clone(), col = new THREE.Color(hex), base = m.onBeforeCompile, ck = m.customProgramCacheKey ? m.customProgramCacheKey() : '';
+  c.onBeforeCompile = sh => { base && base(sh); sh.fragmentShader = sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+    { float l = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11)); diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${col.r.toFixed(3)}, ${col.g.toFixed(3)}, ${col.b.toFixed(3)})*(0.78 + 0.9*l), 0.9); }`); };
+  c.customProgramCacheKey = () => ck + '|tint' + hex;
+  return tintMats[key] = c;
+}
+function fruitOn(g, geo, color, n){   // fruit hanging on the outside of the crown
+  const P = geo.attributes.position; geo.computeBoundingBox(); const bb = geo.boundingBox, mid = bb.getCenter(V3(0, 0, 0)), cand = [];
+  for (let i=0;i<P.count;i+=7){ const v = V3(P.getX(i), P.getY(i), P.getZ(i)); if (v.y > bb.min.y + (bb.max.y - bb.min.y)*0.18 && v.distanceTo(mid) > (bb.max.x - bb.min.x)*0.32) cand.push(v); }
+  if (!cand.length) return;
+  const im = new THREE.InstancedMesh(new THREE.SphereGeometry(0.075, 8, 6), mat(color, 0.45), n), M = new THREE.Matrix4();
+  for (let k=0;k<n;k++){ const v = cand[Math.floor(Math.random()*cand.length)]; M.makeTranslation(v.x, v.y - 0.05, v.z); im.setMatrixAt(k, M); }
+  im.userData.noFade = true; g.add(im); g.userData.fruit = im;
+}
 const SWAMP_CANOPY = swaying(new THREE.MeshLambertMaterial({vertexColors:true, color:'#97a284', map:canopyTex, alphaTest:0.45, side:THREE.DoubleSide}), 3.6, 0.4, 0.12);
-function makeTree(d){
+function makeTree(d, preview){
   // the Blender tree (outback trees are eucalyptus, swamp trees get a darker, mossier tint); simple shapes if the model is missing
   const euc = !!d.euc, g = new THREE.Group(), set = TREE_MODELS && (euc ? TREE_MODELS.euc : TREE_MODELS.oak);
   if (set && set.length){
     const m = set[Math.abs(Math.round(d.x*7 + d.z*13)) % set.length];
-    const trunk = new THREE.Mesh(m.trunk, m.trunkMat || world.TRUNK_M), crown = new THREE.Mesh(m.canopy, d.swamp ? (m.swampMat || SWAMP_CANOPY) : (m.canopyMat || world.CANOPY_M));
+    const K = TREE_KINDS[d.sp] || {}, cm = d.swamp ? (m.swampMat || SWAMP_CANOPY) : (m.canopyMat || world.CANOPY_M);
+    const trunk = new THREE.Mesh(m.trunk, m.trunkMat || world.TRUNK_M), crown = new THREE.Mesh(m.canopy, K.tint ? tintCanopy(cm, K.tint) : cm);
     trunk.userData.noFade = crown.userData.noFade = true; g.add(trunk, crown);
+    if (K.fruit) fruitOn(g, m.canopy, K.fruit, 26);
   } else {
     const bark = mat(euc ? '#e6ddcc' : '#7a5634', 0.95), trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.27, 1.5, 9), bark); trunk.position.y = 0.75; g.add(trunk);
     CANOPY_BLOBS.forEach(([x,y,z,r],i) => { const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), new THREE.MeshStandardMaterial({color:['#5f8f3e','#6fa148','#4f7d34'][i%3], roughness:0.9, flatShading:true, transparent:true})); m.position.set(x, y, z); g.add(m); });
@@ -1884,6 +1917,7 @@ function makeTree(d){
     h.userData.y0 = h.position.y; g.add(h); g.userData.hive = h;
   }
   g.position.set(d.x, gy(d.x, d.z) - 0.05, d.z); g.rotation.y = d.ry || 0; g.scale.setScalar(d.s); scene.add(g);
+  if (preview) return {d, g};   // (a sapling being placed: not a tree yet)
   const hb = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 2.6, 8), hbMat); hb.position.y = 1.3; hb.userData.kind = 'tree'; g.add(hb);
   const fade = []; g.traverse(o => { if (o.isMesh && o !== hb && !o.userData.noFade) { o.material = seeThrough(o.material.clone()); o.material.transparent = true; fade.push(o.material); } });
   const tr = {d, g, hb, fade, alpha:1, shake:0, sh:makeShadow(2.6*d.s, 2.6*d.s)}; tr.sh.g.position.set(d.x, gy(d.x, d.z), d.z); hb.userData.ref = tr; trees.push(tr); NAV.dirty = true; return tr;
@@ -1942,6 +1976,7 @@ function updateTrees(dt){
     b.s.position.set(c.x + Math.cos(a)*0.8*Math.max(petS,0.6), c.y + Math.sin(a*1.6)*0.25, c.z + Math.sin(a)*0.8*Math.max(petS,0.6)); b.s.material.opacity = Math.min(1, b.life);
     if (b.life <= 0){ scene.remove(b.s); bees.splice(i,1); } }
   for (const tr of trees){
+    if (tr.d.sp === 'cherry' && Math.random() < dt*0.8 && tr.g.position.distanceTo(camTarget) < 30) floatSprite(petalTex, tr.g.position.clone().add(V3(rnd(-1.2, 1.2)*tr.d.s, rnd(1.4, 2.3)*tr.d.s, rnd(-1.2, 1.2)*tr.d.s)), {size:0.14, vy:-0.35, vx:rnd(0.1, 0.5), vz:rnd(-0.2, 0.2), max:3.2, fade:0.8, grow:0, rot:rnd(0, 6), spin:rnd(-2, 2)});
     if (tr.shake > 0){ tr.shake = Math.max(0, tr.shake - dt*1.2); tr.g.rotation.z = Math.sin(tr.shake*28)*0.07*tr.shake; }
     // see-through when it stands between the camera and what we're looking at
     const cp = camera.position, seg = V3(camTarget.x - cp.x, 0, camTarget.z - cp.z), L2 = seg.lengthSq() || 1, u = clamp(((tr.d.x - cp.x)*seg.x + (tr.d.z - cp.z)*seg.z)/L2, 0, 1);
@@ -1959,17 +1994,27 @@ function updateTrees(dt){
     }
   }
 }
+const petalTex = canvasTex(32, 32, (x) => { x.fillStyle = '#f7c4d4'; x.beginPath(); x.ellipse(16, 16, 12, 7, 0.6, 0, Math.PI*2); x.fill(); x.fillStyle = '#fbe0e8'; x.beginPath(); x.ellipse(13, 14, 5, 3, 0.6, 0, Math.PI*2); x.fill(); });
 const treeReach = tr => 0.45*tr.d.s + 0.9*Math.max(petS, 0.5);
 const leafFall = (tr, n) => { for (let k=0;k<n;k++) floatSprite(leafTexs[k%3], tr.g.position.clone().add(V3(rnd(-1,1), rnd(1.6,2.4)*tr.d.s, rnd(-1,1))), {size:0.26, vy:-0.6, vx:rnd(-0.4,0.4), max:2.4, fade:0.6, grow:0, rot:rnd(0,6), spin:rnd(-3,3)}); };
 // Tapping a tree: give it a shake, pay to take the beehive down, or pay to cut the tree.
 const HIVE_PRICE = 30, TREE_PRICE = 40;
 function treeMenu(tr){
   if (tr.cut) return;
-  const nm = S.name || '袋熊', acts = [{label:'關閉', ghost:true, onClick:()=>{}}, {label:'搖一搖', ghost:true, onClick:() => { tr.shake = 1; sfx('whoosh'); leafFall(tr, 4); }}];
+  const nm = S.name || '袋熊', acts = [{label:'關閉', ghost:true, onClick:()=>{}}, {label:'搖一搖', ghost:true, onClick:() => { tr.shake = 1; sfx('whoosh'); leafFall(tr, 4); shakeFruit(tr); }}];
   if (tr.d.hive) acts.push({label:`清除蜂窩（${HIVE_PRICE}）`, onClick:() => removeHive(tr)});
   acts.push({label:hasSkill('gnaw') ? `讓${nm}啃倒（免費，+6 代幣）` : `砍掉（${TREE_PRICE}）`, onClick:() => cutTree(tr)});
   showModal(tr.d.hive ? '掛著蜂窩的樹' : '一棵樹', `<div class="bigicon">${tr.d.hive ? '🐝' : '🌳'}</div>`
     + `<p>${tr.d.hive ? `${nm}跑去抓樹的時候可能會被胡蜂叮。花 ${HIVE_PRICE} 代幣請人把蜂窩拿掉，樹會留著。` : `${nm}有時候會跑來抓抓樹、磨磨爪子。`}</p><p>想空出位置蓋東西，可以花 ${TREE_PRICE} 代幣把樹砍掉。</p>`, acts);
+}
+function shakeFruit(tr){   // a ripe apple or orange tree drops a fruit (ripe again ten minutes later)
+  const K = TREE_KINDS[tr.d.sp]; if (!K || !K.fruit) return;
+  if (tr.d.ripeAt && Date.now() < tr.d.ripeAt){ toast(`${K.name}的果子還沒熟，晚點再來搖。`); return; }
+  tr.d.ripeAt = Date.now() + 10*60000; const at = tr.g.position.clone().add(V3(rnd(-0.6, 0.6), 2.2*tr.d.s, rnd(-0.6, 0.6)));
+  floatSprite(emojiTex(tr.d.sp === 'apple' ? '🍎' : '🍊'), at, {size:0.45, vy:-0.5, g:6, max:1.2, grow:0}); sfx('pop');
+  if (tr.d.sp === 'apple' && !(S.food && S.food.apple)){ S.food = S.food || {}; S.food.apple = true; toast('掉下一顆蘋果！以後蘋果隨時都能免費給牠吃。'); }
+  else { addCoins(3, at); toast(`掉下一顆${tr.d.sp === 'apple' ? '蘋果' : '橘子'}，賣了 3 代幣。`); }
+  save();
 }
 function pay(n){ if (S.coins < n){ toast('代幣不夠。清大便、拔雜草可以賺代幣。'); return false; } S.coins -= n; sfx('coin'); hudDirty = true; return true; }
 function removeHive(tr){
@@ -2160,6 +2205,80 @@ function makeCrab(hermit){
   const p = beachSpot(false) || V3(world.shoreX(0) - 2, 0, 0); g.position.copy(p); g.scale.setScalar(hermit ? 1.2 : 1.3); scene.add(g);
   const hb = new THREE.Mesh(new THREE.SphereGeometry(0.4, 8, 6), hbMat); hb.position.y = 0.1; hb.userData.kind = 'crab'; g.add(hb);
   const c = {g, legs, hermit, tgt:p.clone(), wait:rnd(0, 3), hide:0, hb}; hb.userData.ref = c; crabs.push(c); beachHit.push(hb); return c;
+}
+// ---------- fence pieces: bought one at a time and set down anywhere, turned in 45° steps (a run of them makes a fence) ----------
+const FENCE_KINDS = {wood:{name:'木圍籬（一段）', price:5, icon:'🪵', desc:'一段木頭圍籬。可以一段一段接起來，圍出你想要的形狀。'},
+  picket:{name:'白色柵欄（一段）', price:8, icon:'🤍', desc:'一段白色的尖頭柵欄。可以一段一段接起來。'}};
+
+function fenceMesh(f){
+  const g = new THREE.Group(), white = f.st === 'picket', m = white ? mat('#f2efe6', 0.7) : mat('#8a6440', 0.9);
+  const post = new THREE.BoxGeometry(0.12, white ? 0.8 : 0.95, 0.12), rail = new THREE.BoxGeometry(1.0, 0.07, 0.05);
+  for (const x of [-0.5, 0.5]){ const p = new THREE.Mesh(post, m); p.position.set(x, white ? 0.4 : 0.47, 0); g.add(p); }
+  for (const y of white ? [0.28, 0.58] : [0.35, 0.7]){ const r = new THREE.Mesh(rail, m); r.position.y = y; g.add(r); }
+  if (white) for (let i=0;i<4;i++){ const pk = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.78, 0.035), m); pk.position.set(-0.3 + i*0.2, 0.39, 0.04); g.add(pk);
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.065, 0.1, 4), m); tip.position.set(-0.3 + i*0.2, 0.83, 0.04); tip.rotation.y = Math.PI/4; g.add(tip); }
+  g.position.set(f.x, gy(f.x, f.z), f.z); g.rotation.y = f.r; scene.add(g); return g;
+}
+function makeFence(f){
+  const g = fenceMesh(f), hb = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.0, 0.45), hbMat); hb.position.y = 0.5; hb.userData.kind = 'fencepiece'; g.add(hb);
+  const o = {f, g, hb}; hb.userData.ref = o; fences.push(o); NAV.dirty = true; return o;
+}
+const fenceDots = f => [-0.4, 0, 0.4].map(u => V3(f.x + Math.cos(f.r)*u, 0, f.z - Math.sin(f.r)*u));   // (points along a piece, for paths and overlaps)
+function fenceMenu(o){
+  const K = FENCE_KINDS[o.f.st] || FENCE_KINDS.wood;
+  showModal(K.name, `<div class="bigicon">${K.icon}</div><p>拆掉會退回 ${Math.ceil(K.price/2)} 代幣。</p>`, [{label:'關閉', ghost:true, onClick:() => {}},
+    {label:'拆掉', onClick:() => { scene.remove(o.g); fences.splice(fences.indexOf(o), 1); S.fences = S.fences.filter(x => x !== o.f); addCoins(Math.ceil(K.price/2), o.g.position.clone().add(V3(0, 0.8, 0))); NAV.dirty = true; save(); }}]);
+}
+// placing a tree or a fence piece: free position (fence snaps to half units), turned with 「旋轉」
+function pieceOK(P){
+  const {x, z} = P.p, K = P.kind;
+  if (!world.inWorld(x, z) || !world.isOpen(x, z)) return {ok:false, why:'這裡還沒開拓，先把這塊地整理好。'};
+  const pts = K === 'fence' ? fenceDots({x, z, r:P.p.r}) : [V3(x, 0, z)];
+  if (pts.some(q => world.isWater(q.x, q.z) || !world.buildable(q.x, q.z))) return {ok:false, why:'這裡太斜、或在水裡，不能放。'};
+  const pad = K === 'tree' ? 0.9 : 0.15;
+  if (pts.some(q => inBuild(q.x, q.z, pad))) return {ok:false, why:'跟建築重疊了。'};
+  if (pts.some(q => trees.some(tr => Math.hypot(q.x - tr.d.x, q.z - tr.d.z) < (K === 'tree' ? 2.2 : 0.55)*tr.d.s))) return {ok:false, why: K === 'tree' ? '離別的樹太近了。' : '有樹擋在這裡。'};
+  if (pts.some(q => world.feats.some(f => Math.hypot(q.x - f.d.x, q.z - f.d.z) < world.featR(f.d) + 0.2))) return {ok:false, why:'有石頭或樹叢擋在這裡（點一下可以清掉）。'};
+  if (K === 'fence' && fences.some(o => Math.hypot(o.f.x - x, o.f.z - z) < 0.45 && Math.abs(Math.sin(o.f.r - P.p.r)) < 0.5)) return {ok:false, why:'這裡已經有一段圍籬了。'};
+  if (K === 'tree' && fences.some(o => fenceDots(o.f).some(q => Math.hypot(q.x - x, q.z - z) < 0.9))) return {ok:false, why:'離圍籬太近了。'};
+  if (petActive() && Math.hypot(pos.x - x, pos.z - z) < (K === 'tree' ? 1.4 : 0.8)) return {ok:false, why:`${S.name || '牠'}站在這裡。`};
+  return {ok:true};
+}
+function startPiece(kind, sp){
+  if (placing) return;
+  const K = kind === 'tree' ? TREE_KINDS[sp] : FENCE_KINDS[sp]; if (!K) return;
+  if (S.coins < K.price){ toast('代幣不夠。'); return; }
+  closeSheet(); $('#modal').hidden = true;
+  const c = camTarget, p = {x:+(Math.round(c.x*2)/2).toFixed(2), z:+(Math.round(c.z*2)/2).toFixed(2), r:0};
+  placing = {piece:true, kind, sp, p, b:{name:K.name, price:K.price}, cam:{yaw, pitch, zoom}, isNew:true};
+  piecePreview(); gridMesh.visible = foot.visible = true; document.body.classList.add('placing'); $('#placeBar').hidden = false;
+  $('#placeName').textContent = `${kind === 'tree' ? '種' : '蓋'}${K.name}（${K.price} 代幣）`;
+  updatePiece();
+}
+function piecePreview(){
+  const P = placing; if (P.mesh) scene.remove(P.mesh);
+  if (P.kind === 'tree'){ const d = {x:P.p.x, z:P.p.z, s:1, ry:P.p.r, sp:P.sp}; P.mesh = makeTree(d, true).g; }
+  else P.mesh = fenceMesh({x:P.p.x, z:P.p.z, r:P.p.r, st:P.sp});
+}
+function updatePiece(){
+  const P = placing, {x, z, r} = P.p; P.mesh.position.set(x, gy(x, z) - (P.kind === 'tree' ? 0.05 : 0), z); P.mesh.rotation.y = r;
+  const v = pieceOK(P); P.ok = v.ok;
+  foot.position.set(x, gy(x, z) + 0.06, z); foot.rotation.z = -r; foot.scale.set(P.kind === 'tree' ? 1.6 : 1.1, P.kind === 'tree' ? 1.6 : 0.35, 1); foot.material.color.set(v.ok ? '#5ad16a' : '#e05a4f'); layGrid(x, z);
+  $('#placeHint').textContent = v.ok ? (P.kind === 'fence' ? '拖曳移動，「旋轉」轉 45 度，「確定」蓋好後會接著蓋下一段，按「取消」結束。' : '拖曳移動位置，按「旋轉」轉方向，好了按「確定」。') : v.why;
+  $('#placeOk').disabled = !v.ok;
+}
+function commitPiece(){
+  const P = placing; if (!P.ok) return;
+  if (S.coins < P.b.price){ toast('代幣不夠。'); cancelPlace(); return; }
+  S.coins -= P.b.price; sfx(P.kind === 'tree' ? 'grow' : 'pop'); hudDirty = true;
+  if (P.kind === 'tree'){
+    const d = {x:P.p.x, z:P.p.z, s:+rnd(0.92, 1.08).toFixed(2), ry:+P.p.r.toFixed(2), sp:P.sp, p:plotKey(P.p.x, P.p.z), planted:true};
+    S.trees.push(d); scene.remove(P.mesh); P.mesh = null; const tr = makeTree(d); tr.g.scale.setScalar(0.01);
+    tools.push({t:0, dur:0.9, update(t){ tr.g.scale.setScalar(Math.max(0.01, d.s*Math.min(1, t/0.7))); }, done(){ tr.g.scale.setScalar(d.s); }});
+    toast(`${P.b.name}種好了！`); track('plant'); wildPlaces(); P.mesh = tr.g; endPlace(); return; }
+  const f = {x:P.p.x, z:P.p.z, r:+P.p.r.toFixed(4), st:P.sp}; (S.fences = S.fences || []).push(f); scene.remove(P.mesh); makeFence(f); save();
+  if (S.coins < P.b.price){ toast('代幣用完了，圍籬先蓋到這裡。'); P.mesh = fences[fences.length - 1].g; endPlace(); return; }
+  P.p = {x:+(f.x + Math.cos(f.r)).toFixed(2), z:+(f.z - Math.sin(f.r)).toFixed(2), r:f.r}; piecePreview(); updatePiece();   // the next piece, carrying on from the end of this one
 }
 const SHELL_KINDS = [['#f6d7c8', 'fan'], ['#fbeee0', 'conch'], ['#e8b4b8', 'fan'], ['#f3e3b5', 'spiral'], ['#d9e4f0', 'fan']];
 function makeShell(p){
@@ -3808,7 +3927,7 @@ function updateWorld(dt, t){
   updateBeach(dt, t);
   updateAmbience(dt, t, di.n > 0.6);
   if (badWeather()) wetUntil = Date.now() + 600000;   // worms come up in the rain and for a while after it
-  wild.update(dt, t, {cam:camTarget, pet: petActive() && root.visible ? pos : null, night:di.n, wet: Date.now() < wetUntil, onSound: (n, at) => sfx(n, at),
+  wild.update(dt, t, {cam:camTarget, home: BG.house ? BG.house.position : SPOTS.house, pet: petActive() && root.visible ? pos : null, night:di.n, wet: Date.now() < wetUntil, onSound: (n, at) => sfx(n, at),
     onEvent: (e, at) => { if (e === 'eagleCatch' && Math.hypot(at.x - camTarget.x, at.z - camTarget.z) < 35){ const first = !stat('eagleCatch'); track('eagleCatch'); if (first) toast('老鷹俯衝抓到獵物了！'); } }});
   fauna.update(dt, t, {bad:badWeather(), cam:camTarget, pet: petActive() && root.visible ? pos : null, night:di.n, onScare:animalScare, onSmile: p => floatSprite(emojiTex('😊'), p.add(V3(0, 0.9, 0)), {size:0.5, vy:0.5, max:1.6}), onZzz: p => floatSprite(textTex('Z','#5d6e8f','bold 90px sans-serif','rgba(255,255,255,.85)'), p, {size:0.35, vy:0.5, vx:0.2, max:2}),
     chips: p => floatSprite(radialTex('rgba(201,160,110,1)','rgba(201,160,110,0)'), p, {size:0.12, vx:rnd(-1,1), vz:rnd(-1,1), vy:rnd(1,2), g:8, max:0.6, grow:0}), treeNear:(x, z, r) => { const tr = trees.find(t => Math.hypot(t.d.x - x, t.d.z - z) < r); return tr ? tr.d : null; }});
@@ -4029,11 +4148,15 @@ function shopEntries(tab){
     body:`<p>${b.desc}</p><p>${b.holiday ? `${HOLIDAYS.find(x=>x.id===b.holiday).name}限定。` : ''}${S.builds[b.id] ? '已經蓋好了。' : `${b.price} 代幣`}</p>`,
     actions: S.builds[b.id] ? (b.size ? [...no, {label:'移動', onClick:() => startPlace(b.id, false)}] : no) : !holLive(b) ? no : [...no, {label: b.size ? '選位置蓋' : '建造', onClick:() => b.size ? startPlace(b.id, true) : buyBuild(b)}]});
   if (tab === 'cloth') return CLOTHES.filter(c => !c.holiday || S.owned[c.id] || holLive(c)).map(clothE);
-  if (tab === 'build') return BUILDS.filter(b => !b.holiday || S.builds[b.id] || holLive(b)).map(buildE);
+  if (tab === 'build') return BUILDS.filter(b => (!b.holiday || S.builds[b.id] || holLive(b)) && (b.id !== 'fence' || S.builds.fence)).map(buildE);
+  if (tab === 'garden') return [...Object.entries(TREE_KINDS).map(([k, K]) => ({icon:K.icon, name:K.name, badge:`${K.price}`, body:`<p>${K.desc}</p><p>${K.price} 代幣。種在開拓過的地上，可以轉方向。</p>`,
+      actions:[...no, {label:'選位置種', onClick:() => startPiece('tree', k)}]})),
+    ...Object.entries(FENCE_KINDS).map(([k, K]) => ({icon:K.icon, name:K.name, badge:`${K.price}`, body:`<p>${K.desc}</p><p>一段 ${K.price} 代幣。每蓋好一段會接著出現下一段，可以一直蓋下去。點蓋好的圍籬可以拆掉。</p>`,
+      actions:[...no, {label:'開始蓋', onClick:() => startPiece('fence', k)}]}))];
   if (tab === 'limited'){ const h = activeHoliday(); return h ? [...CLOTHES.filter(c => c.holiday === h.id).map(clothE), ...BUILDS.filter(b => b.holiday === h.id).map(buildE)] : []; }
   return [];
 }
-const SHOP_TABS = [['food','食物'],['drink','飲料'],['care','保健'],['med','藥品'],['trick','招式'],['dye','染劑'],['item','道具'],['cloth','服裝'],['build','建築']];
+const SHOP_TABS = [['food','食物'],['drink','飲料'],['care','保健'],['med','藥品'],['trick','招式'],['dye','染劑'],['item','道具'],['cloth','服裝'],['build','建築'],['garden','園藝']];
 function renderSheet(){
   if (!sheetKind) return;
   $('#sheetTitle').textContent = {play:'玩耍', shop:'商店', wardrobe:'衣櫥', settings:'設定', feed:'餵食', water:'喝水', tasks:'任務與成就'}[sheetKind];
@@ -4433,7 +4556,7 @@ function pickAt(e){
   cubes.forEach(c => list.push(c.hb)); weeds.forEach(w => list.push(w.hb)); foods.forEach(f => list.push(f.hb)); if (bowl) list.push(bowl.hb);
   if (BG.house) list.push(BG.house.userData.dome);
   Object.values(BG).forEach(g => g.userData.hb && list.push(g.userData.hb));
-  trees.forEach(tr => list.push(tr.hb)); if (tomb && tomb.userData.hb) list.push(tomb.userData.hb);
+  trees.forEach(tr => list.push(tr.hb)); fences.forEach(o => list.push(o.hb)); if (tomb && tomb.userData.hb) list.push(tomb.userData.hb);
   list.push(...world.pick, ...beachPick(), ...fauna.pick, ...wild.pick);
   scene.updateMatrixWorld(true);
   const hits = ray.intersectObjects(list, false).filter(h => isShown(['poop','weed'].includes(h.object.userData.kind) ? h.object.parent : h.object));
@@ -4531,6 +4654,7 @@ function up(e){
     else if (k === 'weed') pullWeed(tapObj.userData.ref);
     else if (k === 'tomb') releaseSpirit();
     else if (k === 'tree') treeMenu(tapObj.userData.ref);
+    else if (k === 'fencepiece') fenceMenu(tapObj.userData.ref);
     else if (k === 'house'){ if (B.mode === 'inHouse'){ if (B.sleeping) wake(true); exitHouse(); } else buildMenu('house'); }
     else if (k === 'build') buildMenu(tapObj.userData.ref);
     else if (k === 'rock' || k === 'bush') featMenu(tapObj.userData.ref);
@@ -4687,7 +4811,7 @@ if (!S.world.balanced){ S.world.balanced = 1; const taken = (x, z, r) => S.trees
     if (mine.length < 4) world.topUpFeats(k, 4 + Math.floor(Math.random()*2), taken);
     else if (mine.length > 7){ const drop = mine.slice(7).map(d => d.id); S.world.feats = S.world.feats.filter(d => !drop.includes(d.id)); world.data.feats = S.world.feats; } } }
 // (seedWorldNature above fills any plot that has no rocks, bushes or trees yet: new worlds, and the plots added when the world grew to 4 × 4)
-S.trees.filter(d => world.isOpenKey(d.p || '0,0')).forEach(makeTree); applyBumps();
+S.trees.filter(d => world.isOpenKey(d.p || '0,0')).forEach(makeTree); applyBumps(); (S.fences || []).forEach(makeFence);
 world.showFeats();
 const fauna = createFauna({scene, world, mat, hbMat, onSound: (n, at) => sfx(n, at), clone: n => animalClone(n), real: n => realClone(REAL_ALIAS[n] || n), lod:furLOD}); fauna.setTrunk(trunkShape);
 const koalaPerches = () => fauna.setPerches([...trees.filter(tr => tr.d.euc && !tr.cut).map(tr => tr.d), ...world.lockedEucs(BIO.aus)]);
@@ -4720,7 +4844,7 @@ if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
 if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
-if (new URLSearchParams(location.search).has('debug')) window.W = {flock, boats, BEACH_LIFE, wear, art, setArt, inBuild, freeNear, poopNow, spawnWeed, weedSpotOK, overBridge, moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+if (new URLSearchParams(location.search).has('debug')) window.W = {flock, boats, startPiece, fences, TREE_KINDS, BEACH_LIFE, wear, art, setArt, inBuild, freeNear, poopNow, spawnWeed, weedSpotOK, overBridge, moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   sim:(secs) => { skipRender = true; try { for (let i=0;i<secs*30;i++) step(true); } finally { skipRender = false; } clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};

@@ -109,8 +109,18 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
   let trees = [], rocks = [], bushes = [];
   let trunkOf = null; L.setTrunk = fn => { trunkOf = fn; };   // the bark's real outline (game.js trunkShape): insects stay on its outside
   let wildTrees = [];   // trees on locked plots: insects can live there, owls and eagles keep to the yard's trees
+  // Perches: never two birds in one tree. One owl always roosts in the tree nearest the wombat's home; the other in another tree.
+  let home = {x:0, z:0};
+  const takenBy = me => new Set(L.list.filter(b => b !== me && ((b.kind === 'eagle' && ['toTree', 'perch'].includes(b.state)) || b.kind === 'owl')).map(b => b.perch).filter(Boolean));
+  function roostOwls(){
+    const owls = L.list.filter(a => a.kind === 'owl'); if (!owls.length) return;
+    const near = trees.slice().sort((a, b) => Math.hypot(a.x - home.x, a.z - home.z) - Math.hypot(b.x - home.x, b.z - home.z));
+    owls[0].perch = near[0] || null;
+    for (const ow of owls.slice(1)) if (!ow.perch || !trees.includes(ow.perch) || owls.some(b => b !== ow && b.perch === ow.perch)){
+      const free = trees.filter(t => !owls.some(b => b !== ow && b.perch === t)); ow.perch = free.length ? free[Math.floor(Math.random()*free.length)] : null; }
+  }
   L.setPlaces = (treeList, rockList, bushList, wildList) => { trees = treeList; rocks = rockList; bushes = bushList || []; wildTrees = wildList || [];
-    L.list.forEach(a => { if (a.kind === 'owl' && (!a.perch || !trees.includes(a.perch))) a.perch = trees[Math.floor(Math.random()*trees.length)] || null;
+    roostOwls(); L.list.forEach(a => {
       if (a.kind === 'lizard' && (!a.rock || !rocks.includes(a.rock))){   // one lizard per rock (they bask near each other in real life, but never inside each other)
         const free = rocks.filter(r => !L.list.some(b => b !== a && b.kind === 'lizard' && b.rock === r)); a.rock = free.length ? free[Math.floor(Math.random()*free.length)] : null; }
       if (a.bug && a.hab !== 'ground' && a.spot && !(a.hab === 'tree' ? [...trees, ...wildTrees] : a.hab === 'rock' ? rocks : bushes).includes(a.spot)) placeBeetle(a); }); };
@@ -146,7 +156,7 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
           a.timer = rnd(14, 28); const prey = preyList().filter(b => Math.hypot(b.g.position.x - p.x, b.g.position.z - p.z) < 28), roll_ = Math.random();
           if (!a.carry && prey.length && roll_ < 0.45){ a.prey = prey[Math.floor(Math.random()*prey.length)]; go('stoop'); o.onSound && o.onSound('eagle', p);
             if (a.prey.kind === 'rabbit') a.prey.spotted = Math.random() < 0.6 ? a : null; }   // most rabbits notice the shadow in time
-          else if (!a.carry && trees.length && roll_ < 0.8){ a.perch = trees[Math.floor(Math.random()*trees.length)]; go('toTree'); }
+          else if (!a.carry && trees.length && roll_ < 0.8){ const tk = takenBy(a), free = trees.filter(t => !tk.has(t)); if (free.length){ a.perch = free[Math.floor(Math.random()*free.length)]; go('toTree'); } }   // (only an empty tree)
           else { a.cx = rnd(X0 + 8, X1 - 8); a.cz = rnd(Z0 + 8, Z1 - 8); a.rdir = Math.random() < 0.5 ? 1 : -1; }
         }
         if (Math.random() < dt*0.03) o.onSound && o.onSound('eagle', p);
@@ -330,6 +340,7 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
 
   L.update = (dt, t, o) => {
     const cam = o.cam, pet = o.pet, night = o.night > 0.6;
+    if (o.home && (Math.abs(o.home.x - home.x) > 0.5 || Math.abs(o.home.z - home.z) > 0.5)){ home = {x:o.home.x, z:o.home.z}; roostOwls(); }   // (the burrow was moved: the home owl follows)
     // a pod passes by: all dolphins travel together along the coast, leaping in turn
     if (pod.length){ podT -= dt;
       if (!podRun && podT <= 0){ const dir = Math.random() < 0.5 ? 1 : -1; podRun = {dir, z:dir > 0 ? Z0 - 10 : Z1 + 10, x:0}; pod.forEach((a, i) => { a.g.visible = true; a.ph = i*0.9; a.spin = 0; }); }
