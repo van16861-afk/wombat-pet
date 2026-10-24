@@ -43,8 +43,15 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
   const landOK = (x, z) => world.inWorld(x, z) && !world.isWater(x, z) && world.slope(x, z) < 0.5 && gy(x, z) > WATER_Y + 0.25;
 
   // seagulls circling over the beach, sometimes landing on the sand
-  for (let i=0;i<4;i++){ const g = clone('gull'); if (!g) break; g.scale.setScalar(1.6); g.rotation.order = 'YXZ'; const z = rnd(Z0 + 6, Z1 - 6);
-    g.position.set(shore(z), rnd(4, 7), z); add('gull', g, {hit:0.6, hitY:0.3, cz:z, rad:rnd(4, 8), h:rnd(4, 7), ang:rnd(0, 6.28), dir:Math.random() < 0.5 ? 1 : -1}); }
+  const pairModel = (flyN, sitN, idle = 'idle') => { const fl = real && real(flyN), pr = fl && real(sitN);   // one bird as two models: wings out (flying) and wings folded (sitting / standing)
+    if (!fl || !pr) return null; const g = new THREE.Group(); g.add(fl, pr); pr.visible = false;
+    const ia = pr.userData.mixer.clipAction(pr.userData.clips[idle]); ia.play(); pr.userData.act = ia; pr.userData.cur = idle; pr.userData.mixer.update(0); pr.updateMatrixWorld(true);
+    const b = new THREE.Box3().setFromObject(pr, true); pr.position.y = -b.min.y;   // talons on whatever it stands on
+    g.userData.fl = fl.userData; g.userData.pr = pr.userData; g.userData.flG = fl; g.userData.prG = pr; return g; };
+  const eagleModel = () => pairModel('eagle', 'eagleperch');
+  const playR = (m, name, ts = 1) => { if (!m.clips[name]) return; if (m.cur !== name){ const ac = m.mixer.clipAction(m.clips[name]); ac.reset().fadeIn(0.25).play(); if (m.act) m.act.fadeOut(0.25); m.act = ac; m.cur = name; } if (m.act) m.act.timeScale = ts; };
+  for (let i=0;i<4;i++){ const re = pairModel('gullfly', 'gullstand'), g = re || clone('gull'); if (!g) break; if (!re) g.scale.setScalar(1.6); g.rotation.order = 'YXZ'; const z = rnd(Z0 + 6, Z1 - 6);   // herring gulls (realistic: two models, flying and standing)
+    g.position.set(shore(z), rnd(4, 7), z); add('gull', g, {hit:0.6, hitY:0.3, cz:z, rad:rnd(4, 8), h:rnd(4, 7), ang:rnd(0, 6.28), dir:Math.random() < 0.5 ? 1 : -1, real:!!re}); }
   // a pod of dolphins (they swim by every minute or two)
   const pod = []; for (let i=0;i<3;i++){ const g = clone('dolphin'); if (!g) break; g.visible = false; pod.push(add('dolphin', g, {hit:1.2, idx:i})); }
   let podT = rnd(15, 40), podRun = null;
@@ -59,11 +66,6 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
   for (let i=0;i<2;i++){ const g = (real && real('owl')) || clone('owl'); if (!g) break; g.scale.setScalar(g.userData.mixer ? 1 : 1.5); g.visible = false; add('owl', g, {hit:0.5, hitY:0.3, perch:null}); }
   // eagles: the realistic bald eagle is two models of the same bird, wings out (flying) and wings folded (sitting); the one
   // showing changes as it lands and takes off
-  const eagleModel = () => { const fl = real && real('eagle'), pr = fl && real('eagleperch');
-    if (!fl || !pr) return null; const g = new THREE.Group(); g.add(fl, pr); pr.visible = false;
-    const ia = pr.userData.mixer.clipAction(pr.userData.clips.idle); ia.play(); pr.userData.act = ia; pr.userData.cur = 'idle'; pr.userData.mixer.update(0); pr.updateMatrixWorld(true);
-    const b = new THREE.Box3().setFromObject(pr, true); pr.position.y = -b.min.y;   // talons on whatever it stands on
-    g.userData.fl = fl.userData; g.userData.pr = pr.userData; g.userData.flG = fl; g.userData.prG = pr; return g; };
   for (let i=0;i<2;i++){ const re = eagleModel(), g = re || clone('eagle'); if (!g) break; if (!re) g.scale.setScalar(1.9); g.rotation.order = 'YXZ'; g.position.set(rnd(-20, 10), 12, rnd(-30, 10));
     add('eagle', g, {hit:1.2, state:'soar', cx:rnd(-20, 10), cz:rnd(-30, 10), rad:rnd(7, 12), h:rnd(10, 14), ang:rnd(0, 6.28), timer:rnd(8, 20), real:!!re}); }
   for (let i=0;i<4;i++){ const g = clone('lizard'); if (!g) break; g.scale.setScalar(2.2); g.visible = false; add('lizard', g, {hit:0.4, rock:null, tail:part(g, 'lizard_tail')}); }
@@ -87,7 +89,7 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
   BEETLES.forEach((k, i) => { const r_ = real && real('bug_' + k), g = r_ || clone('beetle_' + k); if (!g) return; if (!r_) g.scale.setScalar(2.4); g.rotation.order = 'YXZ'; g.visible = false;
     add('beetle', g, {hit:0.3, hitY:0.05, sort:k, bug:true, sp:k, hab:i < 4 ? 'tree' : 'rock', onTree:i < 4, spot:null, state:'away', timer:0}); });
   // more insects: cicadas and longhorn beetles on trunks, praying mantises on bushes, grasshoppers and crickets in the grass.
-  // A plot never has more than two kinds of insect at once.
+  // A plot never has more than three kinds of insect at once.
   for (const [k, hab, n] of [['cicada', 'tree', 3], ['longhorn', 'tree', 2], ['mantis', 'bush', 4], ['grasshopper', 'ground', 4], ['cricket', 'ground', 3]])
     for (let i=0;i<n;i++){ const r_ = real && real('bug_' + k), g = r_ || clone('bug_' + k); if (!g) break; if (!r_) g.scale.setScalar(2.6); g.rotation.order = 'YXZ'; g.visible = false;
       if (k === 'mantis' && !r_) g.scale.setScalar(3.6);   // bigger, so it can be spotted on a green bush
@@ -116,7 +118,7 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
   function placeBeetle(a){
     let list = a.hab === 'tree' ? [...trees, ...wildTrees].filter(t => !t.swamp) : a.hab === 'rock' ? rocks : a.hab === 'bush' ? bushes : null;
     if (!list){ list = []; for (let i=0;i<30;i++){ const x = rnd(X0 + 2, X1 - 2), z = rnd(Z0 + 2, Z1 - 2); if (landOK(x, z)) list.push({x, z}); } }
-    const ok = list.filter(s => { const k = plotKey(s.x, s.z), ks = bugKinds(k, a); return k && (ks.has(a.sp) || ks.size < 2); });
+    const ok = list.filter(s => { const k = plotKey(s.x, s.z), ks = bugKinds(k, a); return k && (ks.has(a.sp) || ks.size < 3); });   // (up to three kinds of insect in a plot at once)
     a.spot = ok.length ? ok[Math.floor(Math.random()*ok.length)] : null; a.plot = a.spot ? plotKey(a.spot.x, a.spot.z) : null;
     a.ang = rnd(0, 6.28); a.hgt = rnd(0.45, 1.1); a.state = a.spot ? 'crawl' : 'away'; a.timer = a.spot ? rnd(1, 4) : rnd(10, 20); a.g.position.y = -50; a.tappedOnce = false; a.hop = null;
     if (a.spot && a.hab === 'ground') a.home = {x:a.spot.x, z:a.spot.z};
@@ -332,7 +334,7 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
         if ((podRun.dir > 0 && podRun.z > Z1 + 14) || (podRun.dir < 0 && podRun.z < Z0 - 14)){ podRun = null; podT = rnd(60, 120); pod.forEach(a => a.g.visible = false); } } }
     // the whale: rises, spouts a few times, then dives showing its tail
     if (whale){ whaleT -= dt;
-      if (!whaleRun && whaleT <= 0){ const z = rnd(Z0 + 5, Z1 - 5); whaleRun = {t:0, x:shore(z) + rnd(19, 25), z, ry:Math.random() < 0.5 ? 0 : Math.PI}; whaleG.visible = true; o.onSound && o.onSound('whale', V3(whaleRun.x - 6, 0, z)); }
+      if (!whaleRun && whaleT <= 0){ const z = rnd(Z0 + 5, Z1 - 5); whaleRun = {t:0, x:shore(z) + rnd(15, 20), z, ry:Math.random() < 0.5 ? 0 : Math.PI}; whaleG.visible = true; o.onSound && o.onSound('whale', V3(whaleRun.x - 6, 0, z)); }
       if (whaleRun){ const w = whaleRun; w.t += dt; const T = w.t;
         const rise = T < 3 ? T/3 : T < 12 ? 1 : 0, dive = T >= 12 ? Math.min(1, (T - 12)/4) : 0;
         whaleG.position.set(w.x, WATER_Y - 1.9 + rise*1.35 - dive*2.5, w.z + (w.ry ? -1 : 1)*T*0.5);
@@ -349,7 +351,18 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
       switch (a.kind){
         case 'gull': {
           a.g.visible = true; const legs = part(a.g, 'gull_legs');
-          if (a.state === 'land'){ wingPose(a, 0, ease(a, 'fold', 1, 4, dt)); a.g.rotation.z = 0; a.g.rotation.x = ease(a, 'px', Math.sin(a.t*1.3) > 0.85 ? 0.55 : 0, 8, dt);   // pecks at the sand now and then if (legs) legs.rotation.x = ease(a, 'lx', 0, 6, dt);
+          if (a.real){   // the realistic gull: standing model on the sand (walks, pecks, calls), wings-out model in the air
+            const u = a.g.userData, sit = a.state === 'land'; u.flG.visible = !sit; u.prG.visible = sit;
+            if (sit){ a.g.rotation.x = 0; a.g.rotation.z = 0; a.sub = (a.sub || 0) - dt;
+              if (a.sub <= 0){ const r_ = Math.random(); a.do = r_ < 0.3 ? 'walk' : r_ < 0.6 ? 'peck' : r_ < 0.75 ? 'call' : 'idle'; a.sub = a.do === 'call' ? 2.0 : a.do === 'peck' ? 1.2 : rnd(1.5, 4);
+                if (a.do === 'call') o.onSound && o.onSound('gull', p); if (a.do === 'walk') a.g.rotation.y += rnd(-1.2, 1.2); }
+              if (a.do === 'walk'){ const nx = p.x + Math.sin(a.g.rotation.y)*dt*0.35, nz = p.z + Math.cos(a.g.rotation.y)*dt*0.35;
+                if (landOK(nx, nz) && nx < shore(nz) + 0.5){ p.x = nx; p.z = nz; p.y = gy(nx, nz); } else { a.g.rotation.y += Math.PI*0.7; a.do = 'idle'; } }
+              playR(u.pr, a.do || 'idle'); u.pr.mixer.update(dt); }
+            else { const near = a.state === 'down' && p.y - gy(p.x, p.z) < 0.9; playR(u.fl, near ? 'land' : a.state === 'up' || a.state === 'down' ? 'fly' : Math.sin(a.t*0.5) > 0.2 ? 'glide' : 'fly', a.state === 'up' ? 1.4 : 1); u.fl.mixer.update(dt);
+              if (near) a.g.rotation.x = 0; }
+          }
+          if (a.state === 'land'){ wingPose(a, 0, ease(a, 'fold', 1, 4, dt)); a.g.rotation.z = 0; a.g.rotation.x = a.real ? 0 : ease(a, 'px', Math.sin(a.t*1.3) > 0.85 ? 0.55 : 0, 8, dt);   // pecks at the sand now and then if (legs) legs.rotation.x = ease(a, 'lx', 0, 6, dt);
             if (a.timer <= 0 || petD < 3){ a.state = 'up'; a.st = 0; a.fold = 0; if (petD < 3) o.onSound && o.onSound('gull', p); }
             else if (Math.random() < dt*0.4){ a.g.rotation.y += rnd(-1, 1); } break; }
           if (a.state === 'up'){ a.st += dt; p.y += dt*2.5; wingPose(a, Math.sin(a.t*11)*0.8, 0, Math.sin(a.t*11 - 0.7)*0.5); a.g.rotation.x = ease(a, 'px', -0.3, 5, dt);

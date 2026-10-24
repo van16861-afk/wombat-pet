@@ -440,3 +440,59 @@ def _donkey_walk(R, P):
     R.clip("walk", 1.2, 24, pose)
     R.clip("trot", 0.7, 16, lambda t: pose(t, offs=(0.0, 0.5, 0.5, 0.0), duty=0.45, stride=0.42, lift=0.14))   # diagonal pairs together
 SPECS["donkey"] = {"src": "donkey", "budget": 12000, "bones": _donkey_bones(), "clips": _donkey_clips, "rig_clips": _donkey_walk}
+
+# ---------------------------------------------------------------- herring gulls: one model with its wings out (flying), one standing (on the beach); wildlife.js swaps them on landing
+SPECS.setdefault("gullfly", {"src": "gullfly", "budget": 8000, "turn": -90, "bones": [], "clips": lambda lp: {}})   # (its wingspan is longer than the body)
+SPECS.setdefault("gullstand", {"src": "gullstand", "budget": 8000, "bones": [], "clips": lambda lp: {}})
+
+def _gullfly_clips(lp):
+    def flap(k, lag):   # k -1 = wings up .. 1 = wings down; the hands follow a little behind
+        return {"wingL": (0, 0, -0.75*k), "wingR": (0, 0, 0.75*k), "handL": (0, 0, -0.45*lag), "handR": (0, 0, 0.45*lag)}
+    tuck = {f"thigh{k}": (-1.2, 0, 0) for k in "LR"} | {f"shin{k}": (-0.6, 0, 0) for k in "LR"}   # feet folded back under the tail
+    fly = [(t, {**flap(math.sin(t*2*math.pi), math.sin(t*2*math.pi - 0.9)), **tuck, "root": (0.04*math.sin(t*2*math.pi), 0, 0),
+                "head": (-0.04*math.sin(t*2*math.pi), 0, 0), "tail": (0.05*math.sin(t*2*math.pi + 1), 0, 0)}) for t in [i/8 for i in range(9)]]
+    glide = [(t, {**flap(-0.12, -0.18), **tuck, "head": (0, 0.2*math.sin(t*2*math.pi), 0), "tail": (0, 0.06*math.sin(t*2*math.pi), 0)}) for t in (0, 0.25, 0.5, 0.75, 1)]
+    # landing: the body tips up, wings swing forward and beat short and fast, the tail fans down, the feet swing forward to touch down
+    flare = lambda k: {"root": (-0.5, 0, 0), "wingL": (0.55, -0.5, -0.6*k), "wingR": (0.55, 0.5, 0.6*k), "handL": (0, 0, -0.3*k), "handR": (0, 0, 0.3*k),
+                       "tail": (0.35, 0, 0), "head": (0.45, 0, 0), **{f"thigh{s}": (0.4, 0, 0) for s in "LR"}}
+    land = [(t, flare(math.sin(t*2*math.pi*3))) for t in [i/12 for i in range(13)]]
+    return {"fly": (0.55, fly), "glide": (3.0, glide), "land": (0.8, land)}
+SPECS["gullfly"] = {**SPECS["gullfly"], "clips": _gullfly_clips, "bones": [
+    {"n": "root", "h": (0.56, 0.54, 0), "t": (0.24, 0.7, 0)},
+    {"n": "head", "p": "root", "h": (0.2, 0.82, 0), "t": (0.0, 0.84, 0), "zone": lambda f, u, s: f < 0.22 and abs(s) < 0.15},
+    {"n": "tail", "p": "root", "h": (0.64, 0.6, 0), "t": (0.99, 0.76, 0), "zone": lambda f, u, s: f > 0.62 and abs(s) < 0.2},
+    *_bird_wings((0.3, 0.87), (0.214, 0.87), (0.17, 0.87), 0.11, lambda f, u, s: abs(s) > 0.12 and u > 0.55),
+    *[b for k, sg in (("L", 1), ("R", -1)) for b in (
+        {"n": f"thigh{k}", "p": "root", "h": (0.46, 0.38, 0.06*sg), "t": (0.46, 0.28, 0.06*sg), "zone": lambda f, u, s, sg=sg: u < 0.4 and s*sg > -0.02 and 0.25 < f < 0.6},
+        {"n": f"shin{k}", "p": f"thigh{k}", "h": (0.46, 0.28, 0.06*sg), "t": (0.42, 0.06, 0.06*sg), "zone": lambda f, u, s, sg=sg: u < 0.3 and s*sg > -0.02 and 0.25 < f < 0.6},
+        {"n": f"foot{k}", "p": f"shin{k}", "h": (0.42, 0.06, 0.06*sg), "t": (0.3, 0.0, 0.06*sg), "zone": lambda f, u, s, sg=sg: u < 0.08 and s*sg > -0.02})],
+]}
+# (the wing bones go out from the shoulder: _bird_wings mirrors s; here the wrist and tip sit far out to the side)
+for _b in SPECS["gullfly"]["bones"]:
+    if _b["n"] in ("wingL", "wingR", "handL", "handR"):
+        sg = 1 if _b["n"].endswith("L") else -1
+        if _b["n"].startswith("wing"): _b["h"] = (0.3, 0.87, 0.11*sg); _b["t"] = (0.214, 0.87, 0.56*sg); _b["p"] = "root"
+        else: _b["h"] = (0.214, 0.87, 0.56*sg); _b["t"] = (0.17, 0.87, 0.97*sg)
+
+def _gullstand_clips(lp):
+    look = lambda t: {"neck": (0.03*math.sin(t*2*math.pi), 0.3*math.sin(t*2*math.pi), 0), "head": (0.05*math.sin(t*4*math.pi), 0.45*math.sin(t*2*math.pi + 1.2), 0)}
+    idle = [(t, {**look(t), "root": (0.015*math.sin(t*4*math.pi), 0, 0), "tail": (0, 0.05*math.sin(t*2*math.pi*3), 0)}) for t in [i/12 for i in range(13)]]
+    pk = {"root": (0.35, 0, 0), "neck": (0.7, 0, 0), "head": (0.4, 0, 0)}
+    peck = [(0, {}), (0.25, pk), (0.35, {**pk, "head": (0.6, 0, 0)}), (0.45, pk), (0.55, {**pk, "head": (0.6, 0, 0)}), (1.0, {})]
+    # the long call: head down and forward, then thrown up and back calling, wings lifted a little at the wrists
+    down = {"neck": (0.6, 0, 0), "head": (0.3, 0, 0), "root": (0.15, 0, 0)}
+    up = {"neck": (-0.55, 0, 0), "head": (-0.7, 0, 0), "wingL": (0, 0, 0.15), "wingR": (0, 0, -0.15)}
+    call = [(0, {}), (0.18, down), (0.38, up), (0.55, {**up, "head": (-0.55, 0, 0)}), (0.72, up), (1.0, {})]
+    return {"idle": (4.0, idle), "peck": (1.2, peck), "call": (2.0, call)}
+def _gullstand_walk(R, P):
+    def head(R, t): R.turn("neck", (1, 0, 0), 0.14*math.sin(t*4*math.pi)); R.turn("head", (1, 0, 0), -0.1*math.sin(t*4*math.pi))
+    bird_walk(R, P, "walk", 0.8, foot=(0.44, 0.05), toe=(0.28, 0.01), side=0.2, stride=0.16, lift=0.06, head=head)
+SPECS["gullstand"] = {**SPECS["gullstand"], "clips": _gullstand_clips, "rig_clips": _gullstand_walk, "bones": [
+    {"n": "root", "h": (0.54, 0.44, 0), "t": (0.195, 0.59, 0)},
+    {"n": "neck", "p": "root", "h": (0.195, 0.59, 0), "t": (0.2, 0.84, 0), "zone": lambda f, u, s: u > 0.55 and f < 0.4},
+    {"n": "head", "p": "neck", "h": (0.2, 0.84, 0), "t": (0.0, 0.88, 0), "zone": lambda f, u, s: u > 0.76 and f < 0.32},
+    {"n": "tail", "p": "root", "h": (0.73, 0.41, 0), "t": (1.0, 0.36, 0), "zone": lambda f, u, s: f > 0.7},
+    {"n": "wingL", "p": "root", "h": (0.23, 0.69, 0.55), "t": (0.98, 0.37, 0.5), "zone": lambda f, u, s: s > 0.45 and u > 0.3 and f > 0.2},
+    {"n": "wingR", "p": "root", "h": (0.23, 0.69, -0.55), "t": (0.98, 0.37, -0.5), "zone": lambda f, u, s: s < -0.45 and u > 0.3 and f > 0.2},
+    *_bird_legs((0.43, 0.33), (0.44, 0.26), (0.44, 0.05), (0.28, 0.01), 0.2, 0.34),
+]}

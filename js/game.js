@@ -214,7 +214,7 @@ Object.values(LOADS).forEach(pr => pr.catch(() => {}));
 const REAL_CFG = {tiger:{yaw:Math.PI/2, like:'tiger', k:1.15}, deer:{like:'deer', k:1.45, parts:{antlers:'Chifre'}}, wolf:{like:'wolf', k:1.05},
   moose:{like:'deer', k:1.9, parts:{antlers:'M_Moose_Antler'}}, horse:{like:'horse', k:1.25}, croc:{like:'croc', bright:1.8}, kangaroo:{like:'kangaroo', k:1.45}, heron:{like:'heron', k:1.1}, crab:{len:0.32}, hermit:{len:0.42}, seaturtle:{len:1.3}, penguin:{h:0.85}, flamingo:{len:1.3}, owl:{h:0.7}, peacock:{like:'peacock', k:1.15, stride:{walk:0.57}}, mangrove:{h:4.2}, fiddler:{len:0.3}, mudskipper:{len:0.34}, fishboat:{raw:true}, monkey:{len:1.7, stride:{walk:0.6, run:2.6}}, pondturtle:{len:0.75}, eagle:{len:1.6}, eagleperch:{h:1.35},
   bug_rhino:{len:0.42}, bug_stag:{len:0.48}, bug_green:{len:0.3}, bug_longhorn:{len:0.5}, bug_grasshopper:{len:0.42}, bug_cricket:{len:0.38}, bug_mantis:{len:0.6}, bug_cicada:{len:0.4},   // insects: CC0 scans, jointed legs
-  donkey:{len:1.8, stride:{walk:0.55, run:1.6}}, fox:{len:1.5}};   // (raw: built at game size, origin at the keel)
+  donkey:{len:1.8, stride:{walk:0.55, run:1.6}}, fox:{len:1.9}, gullfly:{len:0.95}, gullstand:{len:0.95}};   // (raw: built at game size, origin at the keel)
 const REAL_LOADS = Object.fromEntries(Object.keys(REAL_CFG).map(n => [n, new GLTFLoader().setDRACOLoader(draco).loadAsync(`assets/models/real/${n}.glb`)]));
 Object.values(REAL_LOADS).forEach(pr => pr.catch(() => {}));
 let gltf;
@@ -1484,10 +1484,11 @@ function loadAnimalClips(){
   for (const n of Object.values(ANIMAL_CLIPS).flat()) fetch(`assets/sounds/${n}.mp3`).then(r => r.ok ? r.arrayBuffer() : null)
     .then(ab => ab && new Promise(res => SND.ctx.decodeAudioData(ab, res, () => res(null)))).then(b => { if (b) ACLIP[n] = b; }).catch(() => {});
 }
+const SFX_RANGE = {horn:3.5, whale:3, bray:1.4, howl:1.6};   // loud calls carry further (a ship's horn, a whale out at sea)
 function sfx(name, at){   // `at`: where the sound comes from — quieter the further it is from where the camera looks
   if (!SND.fx || !SND.ctx) return;
   const c = SND.ctx, t = c.currentTime; let out = SND.sfx, o;
-  if (at){ const v = clamp(1 - Math.hypot(at.x - camTarget.x, at.z - camTarget.z)/(26*Math.max(0.8, zoom)), 0, 1); if (v < 0.03) return; out = c.createGain(); out.gain.value = v*v; out.connect(SND.sfx); }
+  if (at){ const v = clamp(1 - Math.hypot(at.x - camTarget.x, at.z - camTarget.z)/(26*Math.max(0.8, zoom)*(SFX_RANGE[name] || 1)), 0, 1); if (v < 0.03) return; out = c.createGain(); out.gain.value = v*v; out.connect(SND.sfx); }
   if (ANIMAL_CLIPS[name]){ loadAnimalClips(); const have = ANIMAL_CLIPS[name].filter(n => ACLIP[n]);
     if (have.length){ if ((clipBusy[name] || 0) > t || (clipBusy.any || 0) > t) return;   // one animal call at a time, with a pause between calls
       const b = ACLIP[have[Math.floor(Math.random()*have.length)]], s = c.createBufferSource(), g = c.createGain();
@@ -2264,7 +2265,7 @@ function updateBoats(dt, t){
       c.bob.position.copy(bob); const a = c.line.geometry.attributes.position; a.setXYZ(0, tip.x, tip.y, tip.z); a.setXYZ(1, bob.x, bob.y, bob.z); a.needsUpdate = true; }
     if (T > IN*2 + c.stay){ scene.remove(c.g, c.line, c.bob); boats.canoe = null; boats.canoeT = rnd(180, 420); } }
   // the yacht crosses far out, sounding its horn as it passes
-  if (!boats.yacht){ boats.yachtT -= dt; if (boats.yachtT <= 0){ const y = makeYacht(), dir = Math.random() < 0.5 ? 1 : -1; y.dir = dir; y.x = sea(cz) + rnd(48, 62); y.z0 = cz - dir*(PLOT*2.6); boats.yacht = y; } }
+  if (!boats.yacht){ boats.yachtT -= dt; if (boats.yachtT <= 0){ const y = makeYacht(), dir = Math.random() < 0.5 ? 1 : -1; y.dir = dir; y.x = sea(cz) + rnd(24, 30); y.z0 = cz - dir*(PLOT*2.6); boats.yacht = y; } }
   else { const y = boats.yacht; y.t += dt; const z = y.z0 + y.dir*y.t*3.2, p = y.g.position;
     p.set(y.x, WATER_Y - 0.15 + Math.sin(t*0.8)*0.06, z); y.g.rotation.set(Math.sin(t*0.6)*0.02, y.dir > 0 ? 0 : Math.PI, Math.sin(t*0.7)*0.03);
     if (y.honked < 2 && Math.abs(z - camTarget.z) < (y.honked ? 12 : 26) && y.t > (y.honked ? y.hT + 6 : 0)){ y.honked++; y.hT = y.t; sfx('horn', V3(world.shoreX(z), 0, z)); }
@@ -3774,7 +3775,7 @@ function updateWorld(dt, t){
   if (BG.lamp) BG.lamp.userData.glows.forEach(m => m.opacity = on);
   rain.visible = w === 'rain' || w === 'storm';
   if (rain.visible){
-    rain.position.set(camTarget.x, gy(camTarget.x, camTarget.z), camTarget.z);
+    rain.position.set(camTarget.x, gy(camTarget.x, camTarget.z), camTarget.z); rain.scale.setScalar(Math.max(1, camera.position.distanceTo(camTarget)/11));   // the rain fills the whole view however far out the camera is
     for (let i=0;i<RN;i++){ let y = rainPos[i*6+1] - rainSpd[i]*dt*(w==='storm'?1.3:1);
       if (y < 0){ y += 11; const x = rnd(-11,11), z = rnd(-11,11); rainPos[i*6] = x; rainPos[i*6+2] = z; rainPos[i*6+3] = x+0.08; rainPos[i*6+5] = z; }
       rainPos[i*6+1] = y; rainPos[i*6+4] = y + 0.4; }
@@ -3782,7 +3783,7 @@ function updateWorld(dt, t){
   }
   snow.visible = w === 'snow';
   if (snow.visible){
-    snow.position.set(camTarget.x, gy(camTarget.x, camTarget.z), camTarget.z);
+    snow.position.set(camTarget.x, gy(camTarget.x, camTarget.z), camTarget.z); snow.scale.setScalar(Math.max(1, camera.position.distanceTo(camTarget)/11));
     for (let i=0;i<SN;i++){ let y = snowPos[i*3+1] - 0.9*dt; snowPos[i*3] += Math.sin(t*0.8 + i)*0.25*dt;
       if (y < 0){ y += 11; snowPos[i*3] = rnd(-11,11); snowPos[i*3+2] = rnd(-11,11); } snowPos[i*3+1] = y; }
     snowGeo.attributes.position.needsUpdate = true;
@@ -4355,7 +4356,8 @@ function panBy(dx, dy){
   panTarget.addScaledVector(right, -dx*k).addScaledVector(fwd, dy*k/Math.max(0.5, Math.sin(pitch)));
   clampPan();
 }
-function clampPan(){ panTarget.x = clamp(panTarget.x, X0, X1 + 4); panTarget.z = clamp(panTarget.z, Z0, Z1); }
+function clampPan(){ panTarget.x = clamp(panTarget.x, X0, X1 + 16);   // (out over the sea far enough to watch the whale and the ships)
+   panTarget.z = clamp(panTarget.z, Z0, Z1); }
 
 // ---------- input ----------
 const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.014,0.014,1,8), new THREE.MeshBasicMaterial({color:'#3f6b55'}));
@@ -4384,7 +4386,8 @@ function pickAt(e){
   trees.forEach(tr => list.push(tr.hb)); if (tomb && tomb.userData.hb) list.push(tomb.userData.hb);
   list.push(...world.pick, ...beachPick(), ...fauna.pick, ...wild.pick);
   scene.updateMatrixWorld(true);
-  return ray.intersectObjects(list, false).find(h => isShown(['poop','weed'].includes(h.object.userData.kind) ? h.object.parent : h.object)) || null;
+  const hits = ray.intersectObjects(list, false).filter(h => isShown(['poop','weed'].includes(h.object.userData.kind) ? h.object.parent : h.object));
+  return hits.find(h => ['poop', 'weed'].includes(h.object.userData.kind)) || hits[0] || null;   // a poop under the river's surface can still be tapped (the water would catch the tap first)
 }
 function updatePointerWorld(e){
   setNdc(e); ray.setFromCamera(ndc, camera); const p = V3(0,0,0);
