@@ -80,6 +80,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
     g.userData.wings = wings; return g;
   }
   function turtle(){
+    const rt = real && real('pondturtle'); if (rt) return rt;   // the realistic scanned turtle (its own skeleton)
     const tm = model('turtle', m => { m.userData.head = m.getObjectByName('turtle_head'); m.userData.legs = ['FL', 'FR', 'BL', 'BR'].map(n => m.getObjectByName('turtle_leg' + n)).filter(Boolean); }); if (tm) return tm;
     const g = new THREE.Group(), shell = mat('#5b6b3a', 0.5), skin = mat('#7c9a52', 0.6);
     const s = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 8, 0, Math.PI*2, 0, Math.PI/2), shell); s.scale.set(1, 0.6, 1.2); g.add(s);
@@ -243,8 +244,9 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
     if (pose === true) return;
     if (pose){ clip(a, pose); return; }
     if (a.spd < 0.12*sc){ clip(a, 'idle'); return; }
-    const u = a.g.userData, g_ = a.spd > 3.3*sc && (u.clips.run || u.clips.trot) ? 'run' : a.spd > 1.6*sc && u.clips.trot ? 'trot' : 'walk';
-    const name = clip(a, g_); clip(a, g_, clamp(a.spd/((STRIDE[name] || 1)*sc), 0.3, 2.6));
+    const u = a.g.userData, st = u.stride;   // (stride: the model's own ground speed per gait, for clips made here)
+    const g_ = st ? (a.spd > st.walk*2*sc && u.clips.run ? 'run' : 'walk') : a.spd > 3.3*sc && (u.clips.run || u.clips.trot) ? 'run' : a.spd > 1.6*sc && u.clips.trot ? 'trot' : 'walk';
+    const name = clip(a, g_); clip(a, g_, clamp(a.spd/(((st && st[name]) || STRIDE[name] || 1)*sc), 0.3, 2.6));
   }
   // after the clips: the head turns toward what the animal is watching, and the jaw opens (crocodile snaps)
   const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _Y = V3(0, 1, 0);
@@ -303,6 +305,35 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
   const goTo = (a, dest, speed, dt, ok = () => true, turn = 3) => { const d = V3(dest.x - a.g.position.x, 0, dest.z - a.g.position.z), L_ = d.length();
     if (L_ < 0.3) return true; d.normalize(); const nx = a.g.position.x + d.x*0.6, nz = a.g.position.z + d.z*0.6;
     if (!ok(nx, nz)) return true; a.g.position.addScaledVector(d, Math.min(L_, dt*speed)); face(a, d.x, d.z, dt, turn); return false; };
+  // the realistic pond turtle: swims with diagonal strokes, climbs out onto a stone to bask, pulls its head in and slips back
+  // into the water when disturbed, dives when something comes close while it swims
+  const STONE_TOP = WATER_Y + 0.22;
+  function turtleReal(a, dt, petD){
+    const p = a.g.position, shy = petD < 2.6 || a.shy > 0; a.shy = (a.shy || 0) - dt;
+    const st = a.stone, edge = st ? V3(st.x + Math.sin(a.edgeA)*0.8, 0, st.z + Math.cos(a.edgeA)*0.8) : null;
+    if (a.state === 'toStone' && st){ const d = V3(edge.x - p.x, 0, edge.z - p.z), L = d.length();
+      if (L > 0.05){ p.addScaledVector(d.normalize(), Math.min(L, dt*0.3)); face(a, d.x, d.z, dt, 2); } else { a.state = 'climb'; a.st = 0; }
+      p.y = WATER_Y - 0.12; clip(a, 'walk', 0.9); a.pose = true; return; }
+    if (a.state === 'climb' && st){ a.st += dt; const u = Math.min(1, a.st/1.8), k = u*u*(3 - 2*u);   // hauls itself up over the edge with its front legs
+      p.set(edge.x + (st.x - edge.x)*k*0.85, WATER_Y - 0.12 + (STONE_TOP - WATER_Y + 0.12)*Math.min(1, u*1.6), edge.z + (st.z - edge.z)*k*0.85); face(a, st.x - edge.x, st.z - edge.z, dt, 3);
+      clip(a, 'walk', 1.3); a.pose = true; if (u >= 1){ a.state = 'sun'; a.timer = rnd(12, 25); } return; }
+    if (a.state === 'sun'){ p.y = STONE_TOP; if (shy){ a.state = 'hide'; a.st = 0; } else { clip(a, 'bask'); a.pose = true; if (a.timer <= 0){ a.state = 'slide'; a.st = 0; } } return; }
+    if (a.state === 'hide'){ a.st += dt; clip(a, 'hide', 1, true); a.pose = true; if (a.st > 1.4){ a.state = 'slide'; a.st = 0; } return; }
+    if (a.state === 'slide' && st){ a.st += dt; const u = Math.min(1, a.st/1.2);   // walks off the edge and drops in
+      const out = V3(Math.sin(a.edgeA), 0, Math.cos(a.edgeA)); face(a, out.x, out.z, dt, 6); p.x += out.x*dt*0.6; p.z += out.z*dt*0.6;
+      p.y = STONE_TOP - (STONE_TOP - (WATER_Y - 0.3))*u*u; clip(a, 'walk', 1.2); a.pose = true;
+      if (u >= 1){ a.state = 'dive'; a.timer = rnd(3, 5); a.stone = null; } return; }
+    // in the water: round the pond, or down under for a while (scared)
+    if (shy && a.state === 'swim'){ a.state = 'dive'; a.timer = rnd(3, 5); }
+    const under = a.state === 'dive'; if (under && a.timer <= 0){ a.state = 'swim'; a.timer = rnd(8, 15); }
+    if (a.state !== 'dive') a.state = 'swim';
+    a.ang += dt*(under ? 0.22 : 0.15); const r = world.pondR(a.ang)*0.55, x = P.x + Math.cos(a.ang)*r, z = P.z + Math.sin(a.ang)*r;
+    const d = V3(x - p.x, 0, z - p.z); if (d.length() > 0.02){ p.addScaledVector(d.normalize(), Math.min(d.length(), dt*(under ? 0.5 : 0.35))); face(a, d.x, d.z, dt, 2); }
+    p.y += ((under ? WATER_Y - 0.45 : WATER_Y - 0.12 + Math.sin(a.t)*0.015) - p.y)*Math.min(1, dt*2);
+    clip(a, 'walk', under ? 1.3 : 0.8); a.pose = true;
+    if (!under && a.timer <= 0){ const s = stones[Math.floor(Math.random()*stones.length)]; a.timer = 10;
+      if (s){ a.stone = s; a.edgeA = Math.atan2(p.x - s.x, p.z - s.z); a.state = 'toStone'; } }
+  }
   // ---------- the realistic macaque: walks on all fours, climbs hand over hand up the outside of the bark, sits in the fork ----------
   let trunkOf = null; F.setTrunk = fn => { trunkOf = fn; };
   function monkeyReal(a, dt, pet, petD){
@@ -399,6 +430,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
           a.g.userData.wings.forEach((w, i) => w.rotation.z = Math.sin(t*60 + i)*0.4);
           break; }
         case 'turtle': {
+          if (isReal(a)){ turtleReal(a, dt, petD); break; }
           const ud = a.g.userData, shy = petD < 2.6 || a.shy > 0; a.shy = (a.shy || 0) - dt;
           if (ud.head){ if (ud.head.userData.z0 === undefined) ud.head.userData.z0 = ud.head.position.z; ud.head.position.z += ((ud.head.userData.z0 - (shy ? 0.13 : 0)) - ud.head.position.z)*Math.min(1, dt*6); ud.head.rotation.y = shy ? 0 : Math.sin(a.t*0.6)*0.3; }
           if (ud.legs) ud.legs.forEach((l, i) => { l.rotation.y = a.state === 'sun' || shy ? 0 : Math.sin(a.t*3 + i*1.6)*0.45*(i % 2 ? -1 : 1); });
@@ -701,7 +733,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
       case 'crane': a.state = 'dance'; a.timer = 5; sound('crane', p); break;
       case 'monkey': if (isReal(a)){ if (!['up', 'climb', 'down'].includes(a.state)){ a.state = 'toTree'; a.fast = true; } } else if (a.state !== 'up'){ a.state = 'climb'; a.from = p.clone(); a.st = 0; } sound('monkey', p); break;
       case 'capybara': a.state = 'rest'; a.timer = 7; a.dest = null; a.chill = 6; a.zzd = false; sound('capy', p); break;
-      case 'turtle': a.shy = 3; if (a.state === 'sun'){ a.state = 'idle'; a.timer = 10; } break;
+      case 'turtle': a.shy = 3; if (a.state === 'sun' && !isReal(a)){ a.state = 'idle'; a.timer = 10; } break;   // (the realistic one pulls its head in and slips off by itself)
     }
     return a.kind;
   };

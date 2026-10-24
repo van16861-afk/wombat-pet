@@ -186,6 +186,32 @@ SPECS["owl"] = {"src": "owl", "budget": 7000, "clips": _owl_clips, "bones": [
         {"n": f"foot{k}", "p": f"shin{k}", "h": (0.41, 0.09, 0.3*sg), "t": (0.28, 0.02, 0.3*sg), "zone": lambda f, u, s, sg=sg: u < 0.08 and s*sg > -0.05})],
 ]}
 
+
+# ---------------------------------------------------------------- birds walking with planted feet (rig_build "rig_clips": a limb solve per frame)
+def _step(t, off, duty, stride, lift):
+    """A foot's place along the ground (+ ahead) and height at time t of a stride: planted and sliding back under the moving body,
+    then lifted and carried forward."""
+    p = (t - off) % 1.0
+    if p < duty: return stride/2 - stride*(p/duty), 0.0
+    q = (p - duty)/(1 - duty); return -stride/2 + stride*(0.5 - 0.5*math.cos(math.pi*q)), lift*math.sin(math.pi*q)
+def bird_walk(R, P, name, secs, foot, toe, side, stride, lift, duty=0.62, head=None, extra=None, n=24):
+    """Two-legged walk: one foot always on the ground; the heel (the bird's backward-bending joint) folds as the foot comes forward,
+    the toes curl up while the foot is in the air and spread flat when it lands; the body rocks over the standing leg."""
+    from mathutils import Vector
+    def pose(t):
+        ph = t*2*math.pi
+        R.move("root", (0, 0, -0.012*abs(math.sin(ph))*P(0, 1).z))   # a dip between steps
+        R.turn("root", (0, 1, 0), 0.035*math.sin(ph))                  # rocking onto the standing leg
+        if head: head(R, t)
+        if extra: extra(R, t)
+        for k, sg, off in (("L", 1, 0.0), ("R", -1, 0.5)):
+            a, l = _step(t, off, duty, stride, lift)
+            f0 = P(foot[0], foot[1], side*sg); tgt = Vector((f0.x, f0.y - a, f0.z + l))   # (ahead = -Y)
+            R.reach("thigh" + k, "shin" + k, tgt, (0, 1, 0.2))           # the heel points back
+            an = R.head("foot" + k); ln = (P(toe[0], toe[1]) - P(foot[0], foot[1])).length
+            curl = 0.6 if l > 0.002 else 0.0
+            R.aim("foot" + k, an + Vector((0, -math.cos(curl), -math.sin(curl) - 0.08))*ln)
+    R.clip(name, secs, n, pose)
 # ---------------------------------------------------------------- Indian peafowl (Sketchfab "Indian Peacock" by Pigcraft, CC BY 4.0)
 def _peacock_clips(lp):
     bob = lambda t: {"neck": (0.18*math.sin(t*4*math.pi), 0, 0), "head": (-0.12*math.sin(t*4*math.pi), 0, 0)}
@@ -196,8 +222,13 @@ def _peacock_clips(lp):
     fan = lambda shake=0: {"tail1": (1.25 + shake, 0, 0, None, (2.4, 1, 1)), "tail2": (0.25, 0, 0, None, (1.5, 1.05, 1)), "tail3": (0.1, 0, 0, None, (1.3, 1.05, 1)),
                            "wingL": (0, 0, 0.25), "wingR": (0, 0, -0.25), "neck": (-0.1, 0, 0)}
     display = [(0, {})] + [(0.15 + i*0.07, fan(0.04*((-1)**i))) for i in range(11)] + [(1.0, {})]   # up and spread, a shimmering shiver, then down
-    return {"idle": (3.6, idle), "walk": (1.0, walk), "peck": (1.0, peck), "display": (6.0, display)}
-SPECS["peacock"] = {"src": "peacock", "budget": 60000, "clips": _peacock_clips, "bones": [
+    return {"idle": (3.6, idle), "peck": (1.0, peck), "display": (6.0, display)}   # (walk: _peacock_walk, feet planted)
+def _peacock_walk(R, P):
+    def head(R, t):   # the head holds still, then thrusts forward with each step
+        R.turn("neck", (1, 0, 0), 0.16*math.sin(t*4*math.pi)); R.turn("head", (1, 0, 0), -0.12*math.sin(t*4*math.pi))
+    def tail(R, t): R.turn("tail1", (1, 0, 0), 0.03*math.sin(t*4*math.pi))
+    bird_walk(R, P, "walk", 1.0, foot=(0.23, 0.025), toe=(0.17, 0.01), side=0.25, stride=0.13, lift=0.05, head=head, extra=tail)
+SPECS["peacock"] = {"src": "peacock", "budget": 60000, "clips": _peacock_clips, "rig_clips": _peacock_walk, "bones": [
     {"n": "root", "h": (0.31, 0.42, 0), "t": (0.13, 0.58, 0)},
     {"n": "neck", "p": "root", "h": (0.13, 0.58, 0), "t": (0.1, 0.83, 0), "zone": lambda f, u, s: f < 0.22 and u > 0.5},
     {"n": "head", "p": "neck", "h": (0.1, 0.83, 0), "t": (0.005, 0.86, 0), "zone": lambda f, u, s: f < 0.2 and u > 0.76},

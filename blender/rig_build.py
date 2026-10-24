@@ -6,7 +6,8 @@
 # Step 2 (rig): a skeleton from the bone list (positions as fractions of the body: f 0 = nose .. 1 = tail end, u 0 = ground .. 1 = top,
 #   s -1 = right .. 1 = left side), skin weights from the distance to each bone (limited to the bones allowed for that part of the
 #   body), and clips keyed bone by bone -> assets/models/real/<name>.glb, played by fauna.js like the other rigged animals.
-import bpy, bmesh, os, math
+import bpy, bmesh, os, sys, math
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # (rig_specs.py, pose_kit.py)
 from mathutils import Vector, Matrix, Quaternion
 SRC = r"C:\Users\User\Documents\wombat-pet\assets\source\sketchfab"
 PREP = r"C:\Users\User\Documents\wombat-pet\assets\source\rigprep"
@@ -135,4 +136,7 @@ for name, sp in SPECS.items():
         export(os.path.join(PREP, name + ".glb"), False); continue
     arm = build_rig(ob, sp["bones"]); skin(ob, arm, sp["bones"])
     for cname, (secs, frames) in sp["clips"](lerp_pose).items(): clip(arm, cname, secs, frames)
+    if sp.get("rig_clips"):   # clips keyed with feet placed on the ground by a limb solve (blender/pose_kit.py), positions in body fractions
+        from pose_kit import Rig
+        sp["rig_clips"](Rig(arm), lambda f, u, s=0.0: P(ob, f, u, s))
     export(os.path.join(OUT, name + ".glb"), True)

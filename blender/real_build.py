@@ -21,6 +21,7 @@ MODELS = {
     "seaturtle": ("seaturtle", 6000, {"swim": "Swim Cycle"}, []),
     "fiddler": ("fiddler", 3000, {"dance": "Dance"}, ["AOFLoor"]),
     "penguin": ("penguin", 3500, {"idle": "Iddle", "walk": "Walk", "slide": "Slide", "peck": "Bite", "fall": "Fall"}, []),
+    "pondturtle": ("pondturtle", 24000, {"walk": "Animation"}, ["Object_8"]),   # (CC0 scan with its own rig: neck + head, three bones a limb, five in the tail; one diagonal crawl clip)
 }
 # these keep the file's own rest pose (Blender's bind-pose guess tips them on their side)
 RAW_BIND = {"wolf", "croc", "moose", "horse", "penguin"}
@@ -67,7 +68,7 @@ def build(name, src, budget, clips, drop):
     skinned = next(o for o in meshes if any(md.type == 'ARMATURE' for md in o.modifiers))
     for o in meshes:
         mats = [m.name.split('.')[0] for m in o.data.materials if m]
-        if not o.data.polygons or (len(o.data.polygons) <= 80 and not mats) or any(m in drop for m in mats):   # helper spheres, saddles
+        if not o.data.polygons or (len(o.data.polygons) <= 80 and not mats) or any(m in drop for m in mats) or o.name in drop:   # helper spheres, saddles (drop: material or object names)
             bpy.data.objects.remove(o, do_unlink=True); continue
         if not any(md.type == 'ARMATURE' for md in o.modifiers):   # rigid part: weight it to the bone it hangs from, in the body mesh's space
             bone = o.parent_bone if o.parent_type == 'BONE' else nearest_bone(arm, o)
@@ -151,7 +152,8 @@ def add_clips(arm, ad, head, tail, clips):
                 M = (Wr @ qb.to_matrix().inverted()).inverted()   # world axes into the bone's own frame
                 q = Quaternion((M @ up).normalized(), yw) @ Quaternion((M @ side).normalized(), pr) @ Quaternion((M @ fwd).normalized(), rl)
                 pb.rotation_quaternion = q @ qb; pb.keyframe_insert("rotation_quaternion", frame=f)
-                pb.location = lb + ((Ws @ qb.to_matrix().inverted()).inverted() @ (up*v[3]) if len(v) > 3 else Vector((0, 0, 0))); pb.keyframe_insert("location", frame=f)
+                lv = (side*v[3][0] + up*v[3][1] + fwd*v[3][2]) if len(v) > 3 and isinstance(v[3], tuple) else up*v[3] if len(v) > 3 else None   # lift: up, or (side, up, forward)
+                pb.location = lb + ((Ws @ qb.to_matrix().inverted()).inverted() @ lv if lv is not None else Vector((0, 0, 0))); pb.keyframe_insert("location", frame=f)
         tr = ad.nla_tracks.new(); tr.name = cname; st = tr.strips.new(cname, 1, act); st.name = cname; tr.mute = True
         ad.action = None
         print("  EXTRA CLIP", cname)
@@ -181,7 +183,17 @@ def _penguin_swim():
             (0.6, flat({"Hips": (2.2, 0, 0), "Neck": (0.2, 0, 0), "Jaw": (0.4, 0, 0)})), (1.0, flat({"Neck": (-0.5, 0, 0)}))]
     return {"swim": (0.7, swim), "dive": (1.6, dive)}
 
-EXTRA = {"seaturtle": ("head.001", "tail.001", _turtle_crawl()), "penguin": ("Head", "Tail1", _penguin_swim())}
+def _pond_turtle():
+    # its own clip is a swim (body tipped up, head out of the water, diagonal strokes); on a stone it lies level:
+    # bask - shell flat, hind feet stretched back, the head slowly turning in the sun
+    # hide - pulls its head back into the shell: the neck slides in and folds (an S-bend, as cryptodire turtles do), then pokes out again
+    lv = (0.35, 0, 0); FRONT = {"Bone.008": (0, 0, -1.0), "Bone.011": (0, 0, 1.0)}   # front legs spread out flat to the sides (not hanging into the stone)
+    bask = [(t, {**FRONT, "Bone_93": lv, "Bone.006": (0.15 + 0.05*math.sin(t*2*math.pi), 0.2*math.sin(t*2*math.pi), 0), "Bone.007": (0.1, 0.15*math.sin(t*2*math.pi + 1), 0)}) for t in [i/8 for i in range(9)]]
+    inn = {**FRONT, "Bone_93": lv, "Bone.006": (-0.3, 0, 0, (0, -0.05, -0.42)), "Bone.007": (0.9, 0, 0)}
+    hide = [(0, {**FRONT, "Bone_93": lv, "Bone.006": (0.15, 0, 0), "Bone.007": (0.1, 0, 0)}), (0.12, inn), (0.85, inn), (1.0, {**FRONT, "Bone_93": lv, "Bone.006": (0.15, 0, 0), "Bone.007": (0.1, 0, 0)})]
+    return {"bask": (6.0, bask), "hide": (3.0, hide)}
+
+EXTRA = {"seaturtle": ("head.001", "tail.001", _turtle_crawl()), "penguin": ("Head", "Tail1", _penguin_swim()), "pondturtle": ("Bone.007", "Bone.005", _pond_turtle())}
 for name, (src, budget, clips, drop) in MODELS.items():
     if only and name not in only: continue
     build(name, src, budget, clips, drop)

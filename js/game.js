@@ -212,7 +212,7 @@ Object.values(LOADS).forEach(pr => pr.catch(() => {}));
 // Realistic rigged animals (Sketchfab, converted by blender/real_build.py; authors in assets/models/CREDITS.md). Each has its own
 // skeleton and clips (walk, run, graze, lie down...). `yaw` turns the model to face +Z; `like` is the old model whose size it takes.
 const REAL_CFG = {tiger:{yaw:Math.PI/2, like:'tiger', k:1.15}, deer:{like:'deer', k:1.45, parts:{antlers:'Chifre'}}, wolf:{like:'wolf', k:1.05},
-  moose:{like:'deer', k:1.9, parts:{antlers:'M_Moose_Antler'}}, horse:{like:'horse', k:1.25}, croc:{like:'croc', bright:1.8}, kangaroo:{like:'kangaroo', k:1.45}, heron:{like:'heron', k:1.1}, crab:{len:0.32}, hermit:{len:0.42}, seaturtle:{len:1.3}, penguin:{h:0.85}, flamingo:{len:1.3}, owl:{h:0.7}, peacock:{like:'peacock', k:1.15}, mangrove:{h:4.2}, fiddler:{len:0.3}, mudskipper:{len:0.34}, fishboat:{raw:true}, monkey:{len:1.7}};   // (raw: built at game size, origin at the keel)
+  moose:{like:'deer', k:1.9, parts:{antlers:'M_Moose_Antler'}}, horse:{like:'horse', k:1.25}, croc:{like:'croc', bright:1.8}, kangaroo:{like:'kangaroo', k:1.45}, heron:{like:'heron', k:1.1}, crab:{len:0.32}, hermit:{len:0.42}, seaturtle:{len:1.3}, penguin:{h:0.85}, flamingo:{len:1.3}, owl:{h:0.7}, peacock:{like:'peacock', k:1.15, stride:{walk:0.57}}, mangrove:{h:4.2}, fiddler:{len:0.3}, mudskipper:{len:0.34}, fishboat:{raw:true}, monkey:{len:1.7, stride:{walk:0.6, run:2.6}}, pondturtle:{len:0.75}};   // (raw: built at game size, origin at the keel)
 const REAL_LOADS = Object.fromEntries(Object.keys(REAL_CFG).map(n => [n, new GLTFLoader().setDRACOLoader(draco).loadAsync(`assets/models/real/${n}.glb`)]));
 Object.values(REAL_LOADS).forEach(pr => pr.catch(() => {}));
 let gltf;
@@ -431,7 +431,7 @@ function realClone(n){
   const R = REAL[n]; if (!R) return null;
   const inner = cloneSkinned(R.g.scene); inner.scale.setScalar(R.s); inner.position.set(R.x, R.y, R.z);
   const out = new THREE.Group(); out.add(inner);
-  out.userData.mixer = new THREE.AnimationMixer(inner); out.userData.clips = Object.fromEntries(R.g.animations.map(c => [c.name, c])); out.userData.real = n;
+  out.userData.mixer = new THREE.AnimationMixer(inner); out.userData.clips = Object.fromEntries(R.g.animations.map(c => [c.name, c])); out.userData.real = n; out.userData.stride = R.cfg.stride;
   out.userData.parts = {}; for (const [k, m] of Object.entries(R.cfg.parts || {})) inner.traverse(o => { if (o.isMesh && o.material.name.startsWith(m)) out.userData.parts[k] = o; });
   inner.traverse(o => { if (o.isBone && /head/i.test(o.name) && !/nub|end/i.test(o.name) && !out.userData.head) out.userData.head = o;
     if (o.isBone && /jaw/i.test(o.name) && !/end|lip/i.test(o.name) && !out.userData.jawBone) out.userData.jawBone = o;
