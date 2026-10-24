@@ -244,8 +244,8 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
     a.spd = (a.spd || 0) + (Math.min(mv, 12) - (a.spd || 0))*Math.min(1, dt*6);
     if (pose === true) return;
     if (pose){ clip(a, pose); return; }
-    if (a.spd < 0.12*sc){ clip(a, 'idle'); return; }
     const u = a.g.userData, st = u.stride;   // (stride: the model's own ground speed per gait, for clips made here)
+    if (a.spd < Math.min(0.12, st ? 0.3*st.walk : 1)*sc){ clip(a, 'idle'); return; }   // (a tortoise's plod is slower than most animals' standing still)
     const g_ = st ? (a.spd > st.walk*2*sc && u.clips.run ? 'run' : 'walk') : a.spd > 3.3*sc && (u.clips.run || u.clips.trot) ? 'run' : a.spd > 1.6*sc && u.clips.trot ? 'trot' : 'walk';
     const name = clip(a, g_); clip(a, g_, clamp(a.spd/(((st && st[name]) || STRIDE[name] || 1)*sc), 0.3, 2.6));
   }
@@ -684,15 +684,25 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
           const jaw = pt(a.g, 'hippo_jaw'), head = pt(a.g, 'hippo_head'), el = pt(a.g, 'hippo_earL'), er = pt(a.g, 'hippo_earR');
           if (el){ a.flick = (a.flick || 0) - dt; if (a.flick < -rnd(1.5, 4)) a.flick = 0.5; const f_ = a.flick > 0 ? Math.sin(a.flick*25)*0.6 : 0; el.rotation.set(0, Math.sin(a.t*0.7)*0.4 + f_, f_*0.5); er.rotation.set(0, -Math.sin(a.t*0.7 + 1)*0.4 - f_, -f_*0.5); }   // ears turn and flick
           legSwing(a, a.dest && a.state === 'idle' ? 0.35 : 0, 2.5);
+          const rl = isReal(a), wet = world.isWater(p.x, p.z), lvl = () => wet ? WATER_Y - 0.95*a.g.scale.y : gy(p.x, p.z);
+          // (the realistic one walks out onto the bank at night to graze, as hippos do, and back into the river when day comes)
+          if (rl && (o.night || 0) > 0.6 && a.state === 'idle' && Math.random() < dt*0.02){ a.state = 'graze'; a.dest = bankPt(a); a.timer = rnd(30, 50); }
+          if (a.state === 'graze'){
+            if ((o.night || 0) < 0.4 || a.timer <= 0){ a.state = 'idle'; a.dest = riverPt(a); a.timer = rnd(8, 14); }
+            else if (a.dest){ if (goTo(a, a.dest, 0.45, dt, (x, z) => inZ(a, z), 1)) a.dest = null; }
+            else if (Math.random() < dt*0.06) a.dest = bankPt(a, Math.sign(p.x - world.riverX(p.z)) || 1);
+            a.pose = a.dest ? null : 'eat'; p.y += (lvl() - p.y)*Math.min(1, dt*3); break; }
+          if (rl) a.pose = a.state === 'under' ? 'float' : !wet ? null : a.dest ? 'swim' : 'float';
           if (a.state === 'under'){ p.y += ((WATER_Y - 1.6*a.g.scale.y) - p.y)*Math.min(1, dt*2); if (a.timer <= 0){ a.state = 'idle'; a.timer = rnd(6, 12); } break; }
           if (pet && petD < 3.5 && a.state !== 'yawn' && !(a.cool > 0)){ a.state = 'yawn'; a.timer = 2.4; a.cool = 12; o.onScare && o.onScare('hippo'); sound('hippo', p); }
           a.cool = (a.cool || 0) - dt;
           const open = a.state === 'yawn' ? Math.sin(Math.min(1, (2.4 - a.timer)/2.4)*Math.PI) : 0;
           if (jaw) jaw.rotation.x = open*1.0; if (head) head.rotation.x = -open*0.45;
-          if (a.state === 'yawn'){ if (a.timer <= 0){ a.state = 'idle'; a.timer = rnd(5, 10); } p.y += ((WATER_Y - 0.7*a.g.scale.y) - p.y)*Math.min(1, dt*3); break; }
+          if (rl && a.state === 'yawn'){ clip(a, 'yawn', a.g.userData.clips.yawn.duration/5); a.pose = true; if (a.timer > 5) a.timer = 5; }   // (its own clip: the mouth opening wide, sped up to the yawn's few seconds)
+          if (a.state === 'yawn'){ if (a.timer <= 0){ a.state = 'idle'; a.timer = rnd(5, 10); } p.y += ((wet ? WATER_Y - 0.7*a.g.scale.y : gy(p.x, p.z)) - p.y)*Math.min(1, dt*3); break; }
           if (a.timer <= 0){ const r_ = Math.random(); if (r_ < 0.3){ a.state = 'yawn'; a.timer = 2.4; sound('hippo', p); } else if (r_ < 0.5){ a.state = 'under'; a.timer = rnd(4, 8); } else { a.dest = riverPt(a); a.timer = rnd(8, 14); } }
-          if (a.dest) goTo(a, a.dest, 0.4, dt, (x, z) => world.isWater(x, z) && inZ(a, z), 1);
-          p.y += ((WATER_Y - 0.95*a.g.scale.y + Math.sin(a.t*0.8)*0.03) - p.y)*Math.min(1, dt*2);
+          if (a.dest && goTo(a, a.dest, 0.4, dt, (x, z) => (!wet || world.isWater(x, z)) && inZ(a, z), 1) && rl) a.dest = null;   // (from the bank it may cross land to get back in)
+          p.y += (lvl() + (wet ? Math.sin(a.t*0.8)*0.03 : 0) - p.y)*Math.min(1, dt*2);
           break; }
         case 'capybara': {   // calm: grazes on the bank, has a swim, and doesn't mind the wombat at all
           const wet = world.isWater(p.x, p.z);
@@ -716,7 +726,9 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
           if (a.timer <= 0){ a.timer = rnd(6, 14); if (Math.random() < 0.5){ a.state = 'eat'; } else { a.state = 'walk'; a.dest = p.clone().add(V3(rnd(-3, 3), 0, rnd(-3, 3))); } }
           let moving = false; if (!shy && a.state === 'walk' && a.dest){ moving = !goTo(a, a.dest, 0.12, dt, aOK(a), 0.6); }
           for (const n of ['FL', 'FR', 'BL', 'BR']){ const l = pt(a.g, 'tortoise_leg' + n); if (l) l.rotation.x = moving ? Math.sin(a.t*2.4 + (n === 'FL' || n === 'BR' ? 0 : Math.PI))*0.3 : 0; }
-          if (isReal(a)){ clip(a, moving ? 'walk' : a.state === 'eat' ? 'look' : 'idle', moving ? 0.8 : 1); a.pose = true; }   // its own slow plod and neck stretch
+          if (isReal(a)){ const u = a.g.userData, hd = u.clips.hide;   // walking (paced by gait), grazing, or pulled into the shell until the wombat goes
+            if (hd && (shy || (u.curName === 'hide' && u.act.time < hd.duration - 0.05))){ clip(a, 'hide', 1, true); if (shy && u.act.time > hd.duration*0.4) u.act.timeScale = 0; a.pose = true; }
+            else a.pose = moving ? null : a.state === 'eat' ? 'eat' : 'idle'; }
           p.y = gy(p.x, p.z);
           break; }
         case 'snake': {   // slithers through the grass flicking its tongue; slips away (hidden) when the wombat comes near
@@ -745,7 +757,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
           break; }
         case 'koala': {
           if (isReal(a)){   // the realistic koala hugs the outside of the trunk (its own clinging clip), belly to the bark
-            if (a.perch){ const T = trunkOf ? trunkOf(a.perch) : null, ang = a.perch.ry || 0, h = 1.25*a.perch.s, ax = T ? T.axis(h) : a.perch, r = (T ? T.r(h) : 0.3*a.perch.s) + 0.3*a.g.scale.x;
+            if (a.perch){ const T = trunkOf ? trunkOf(a.perch) : null, ang = a.perch.ry || 0, h = 1.25*a.perch.s, ax = T ? T.axis(h) : a.perch, r = (T ? T.r(h) : 0.3*a.perch.s) + 0.24*a.g.scale.x;
               p.set(ax.x + Math.sin(ang)*r, gy(a.perch.x, a.perch.z) + h, ax.z + Math.cos(ang)*r); a.g.rotation.y = ang + Math.PI; }
             if (a.timer <= 0){ a.timer = rnd(6, 12); if (Math.random() < 0.5) o.onZzz && o.onZzz(p.clone().add(V3(0, 0.9, 0))); }
             a.pose = 'idle'; break; }

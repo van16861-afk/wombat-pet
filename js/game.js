@@ -215,8 +215,9 @@ const REAL_CFG = {tiger:{yaw:Math.PI/2, like:'tiger', k:1.15}, deer:{like:'deer'
   moose:{like:'deer', k:1.9, parts:{antlers:'M_Moose_Antler'}}, horse:{like:'horse', k:1.25}, croc:{like:'croc', bright:1.8}, kangaroo:{like:'kangaroo', k:1.45}, heron:{like:'heron', k:1.1}, crab:{len:0.32}, hermit:{len:0.42}, seaturtle:{len:1.3}, penguin:{h:0.85}, flamingo:{len:1.3}, owl:{h:0.7}, peacock:{like:'peacock', k:1.15, stride:{walk:0.57}}, mangrove:{h:4.2}, fiddler:{len:0.3}, mudskipper:{len:0.34}, fishboat:{raw:true}, monkey:{len:1.7, stride:{walk:0.6, run:2.6}}, pondturtle:{len:0.75}, eagle:{len:1.6}, eagleperch:{h:1.35},
   bug_rhino:{len:0.42}, bug_stag:{len:0.48}, bug_green:{len:0.3}, bug_longhorn:{len:0.5}, bug_grasshopper:{len:0.42}, bug_cricket:{len:0.38}, bug_mantis:{len:0.6}, bug_cicada:{len:0.4},   // insects: CC0 scans, jointed legs
   donkey:{len:1.8, stride:{walk:0.55, run:1.6}}, fox:{len:1.9}, gullfly:{len:0.95}, gullstand:{len:0.95}, waspnest:{raw:true},
-  hippo2:{len:4.4, k:0.6}, capybara2:{len:1.8, k:0.76, stride:{walk:0.33}}, tortoise2:{len:1.25}, koala2:{h:1.1, k:2}, rabbit2:{len:0.75, k:0.25},   // (k: their bones don't span the whole body, measured in game)
-  whale2:{len:16}, trout:{len:0.45}, butterfly2:{len:0.28}};
+  hippo2:{len:4.4, k:0.6, stride:{walk:0.245}}, capybara2:{len:1.8, k:0.76, stride:{walk:0.33}}, tortoise2:{len:1.25, stride:{walk:0.051}}, koala2:{h:1.1, meshBox:true, split:{idle:[25.5, 28.5]}},   // (its one clip is a demo reel: clinging while it climbs, a step on the ground, a climb, a still cling at the top - only that is used)
+  rabbit2:{len:0.75, k:0.25},   // (k: their bones don't span the whole body, measured in game)
+  whale2:{len:16}, trout:{len:0.45}, butterfly2:{len:0.28}, yacht:{raw:true}};
 // realistic replacements for the animals first made in Blender (fauna.js / wildlife.js ask for the old names)
 const REAL_ALIAS = {hippo:'hippo2', capybara:'capybara2', tortoise:'tortoise2', koala:'koala2', rabbit:'rabbit2', whale:'whale2'};   // (raw: built at game size, origin at the keel)
 const REAL_LOADS = Object.fromEntries(Object.keys(REAL_CFG).map(n => [n, new GLTFLoader().setDRACOLoader(draco).loadAsync(`assets/models/real/${n}.glb`)]));
@@ -415,6 +416,8 @@ for (const [n, pr] of Object.entries(REAL_LOADS)){
     // clips start at time 0 (some files key them from frame 227 on: three.js would hold the first pose for nine seconds each loop)
     for (const c of g.animations){ const t0 = Math.min(...c.tracks.map(t => t.times[0])); if (t0 > 0.01){
       for (const T of new Set(c.tracks.map(t => t.times))) for (let i=0;i<T.length;i++) T[i] -= t0; c.resetDuration(); } }   // (tracks share time arrays: each one once)
+    if (cfg.split){ const src = g.animations[0];   // split: {clip: [from, to] seconds} cut out of the file's one long clip, which is then dropped
+      g.animations = Object.entries(cfg.split).map(([n, [a, b]]) => THREE.AnimationUtils.subclip(src, n, Math.round(a*30), Math.round(b*30), 30)); }
     // looping clips stay in place (some walk the body a stride forward and jump back each loop): the game moves the animal itself
     for (const c of g.animations) if (!/^(lieDown|getUp|jump|attack)$/.test(c.name)) for (const t of c.tracks){
       if (!t.name.endsWith('.position')) continue; const v = t.values, T = t.times, n = T.length, d = [v[3*n-3] - v[0], v[3*n-2] - v[1], v[3*n-1] - v[2]], span = T[n-1] - T[0] || 1;
@@ -426,6 +429,7 @@ for (const [n, pr] of Object.entries(REAL_LOADS)){
     if (c0){ mx.clipAction(c0).play(); mx.update(0); }
     tmp.updateMatrixWorld(true);
     const v_ = new THREE.Vector3(); tmp.traverse(o => { if (o.isBone) box.expandByPoint(o.getWorldPosition(v_)); });
+    if (cfg.meshBox){ box.makeEmpty(); tmp.traverse(o => { if (o.isSkinnedMesh) for (let i=0;i<o.geometry.attributes.position.count;i+=3){ o.getVertexPosition(i, v_); box.expandByPoint(v_.applyMatrix4(o.matrixWorld)); } }); }   // (measured on the posed skin: the koala clings far above its root bone)
     mx.stopAllAction(); mx.uncacheRoot(g.scene);
     if (box.isEmpty()) box.setFromObject(tmp);   // a static model (a tree): no bones to measure, its mesh bounds are right
     box.min.z -= (box.max.z - box.min.z)*0.06; box.max.z += (box.max.z - box.min.z)*0.06;   // the skin reaches a little past the end bones
@@ -2224,6 +2228,8 @@ function makeCanoe(){
   scene.add(g); return {g, tip, line, bob, t:0, catchT:rnd(8, 20), lookT:rnd(6, 14)};
 }
 function makeYacht(){
+  const r = realClone('yacht');   // the realistic motor yacht (blender/yacht_build.py: built at game size, origin on the waterline)
+  if (r){ scene.add(r); return {g:r, t:0, honked:0, real:true}; }
   const g = new THREE.Group(), white = mat('#f4f4f0', 0.5), glass = mat('#3d5a73', 0.2), stripe = mat('#2f5f9e', 0.5);
   const hull = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 0.7, 1.2, 4, 1), white); hull.rotation.y = Math.PI/4; hull.scale.set(1.3, 1, 4.2); hull.position.y = 0.3; g.add(hull);
   const bow = new THREE.Mesh(new THREE.ConeGeometry(1.0, 2.6, 4), white); bow.rotation.set(Math.PI/2, Math.PI/4, 0); bow.scale.set(1.25, 1, 0.45); bow.position.set(0, 0.45, 4.6); g.add(bow);
@@ -2278,7 +2284,7 @@ function updateBoats(dt, t){
   // the yacht crosses far out, sounding its horn as it passes
   if (!boats.yacht){ boats.yachtT -= dt; if (boats.yachtT <= 0){ const y = makeYacht(), dir = Math.random() < 0.5 ? 1 : -1; y.dir = dir; y.x = sea(cz) + rnd(24, 30); y.z0 = cz - dir*(PLOT*2.6); boats.yacht = y; } }
   else { const y = boats.yacht; y.t += dt; const z = y.z0 + y.dir*y.t*3.2, p = y.g.position;
-    p.set(y.x, WATER_Y - 0.15 + Math.sin(t*0.8)*0.06, z); y.g.rotation.set(Math.sin(t*0.6)*0.02, y.dir > 0 ? 0 : Math.PI, Math.sin(t*0.7)*0.03);
+    p.set(y.x, WATER_Y - (y.real ? 0 : 0.15) + Math.sin(t*0.8)*0.06, z); y.g.rotation.set(Math.sin(t*0.6)*0.02, y.dir > 0 ? 0 : Math.PI, Math.sin(t*0.7)*0.03);
     if (y.honked < 2 && Math.abs(z - camTarget.z) < (y.honked ? 12 : 26) && y.t > (y.honked ? y.hT + 6 : 0)){ y.honked++; y.hT = y.t; sfx('horn', V3(world.shoreX(z), 0, z)); }
     if (y.t*3.2 > PLOT*5.2){ scene.remove(y.g); boats.yacht = null; boats.yachtT = rnd(240, 600); } }
 }
@@ -4402,7 +4408,9 @@ function pickAt(e){
   list.push(...world.pick, ...beachPick(), ...fauna.pick, ...wild.pick);
   scene.updateMatrixWorld(true);
   const hits = ray.intersectObjects(list, false).filter(h => isShown(['poop','weed'].includes(h.object.userData.kind) ? h.object.parent : h.object));
-  return hits.find(h => ['poop', 'weed'].includes(h.object.userData.kind)) || hits[0] || null;   // a poop under the river's surface can still be tapped (the water would catch the tap first)
+  const ani = hits.find(h => h.object.userData.kind === 'animal');   // an insect sitting on a rock or a trunk: the rock's tap area would catch it first
+  return hits.find(h => ['poop', 'weed'].includes(h.object.userData.kind)) || (ani && hits[0].object.userData.kind !== 'pet' && ani.distance - hits[0].distance < 0.8 ? ani : null)
+    || hits[0] || null;   // (a poop under the river's surface can still be tapped: the water would catch the tap first)
 }
 function updatePointerWorld(e){
   setNdc(e); ray.setFromCamera(ndc, camera); const p = V3(0,0,0);
