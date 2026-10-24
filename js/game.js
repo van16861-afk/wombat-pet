@@ -217,7 +217,7 @@ const REAL_CFG = {tiger:{yaw:Math.PI/2, like:'tiger', k:1.15}, deer:{like:'deer'
   donkey:{len:1.8, stride:{walk:0.55, run:1.6}}, fox:{len:1.9}, gullfly:{len:0.95}, gullstand:{len:0.95}, waspnest:{raw:true},
   hippo2:{len:4.4, k:0.6, stride:{walk:0.245}}, capybara2:{len:1.8, k:0.76, stride:{walk:0.33}}, tortoise2:{len:1.25, stride:{walk:0.051}}, koala2:{h:1.1, meshBox:true, split:{idle:[25.5, 28.5]}},   // (its one clip is a demo reel: clinging while it climbs, a step on the ground, a climb, a still cling at the top - only that is used)
   rabbit2:{len:0.75, k:0.25},   // (k: their bones don't span the whole body, measured in game)
-  whale2:{len:16}, trout:{len:0.45}, butterfly2:{len:0.28}, yacht:{raw:true},
+  whale2:{len:16}, trout:{len:0.45}, butterfly2:{len:0.28}, yacht:{raw:true}, shell_turban:{len:0.3}, shell_clam:{len:0.34}, shell_horn:{len:0.3},
   crane:{h:1.7, stride:{walk:0.24}}, emu:{h:1.85, stride:{walk:0.37, run:2.2}}, quokka:{len:1.1}, beaver2:{len:1.3, stride:{walk:0.31}}, frog2:{len:0.32, yaw:-Math.PI/2, split:{idle:[1.9, 6.9], hop:[7.2, 8.2]}},
   snake2:{len:1.8, yaw:Math.PI/2, meshBox:true, split:{slither:[3.5, 7.75]}}, dfly:{len:0.3}, gecko:{len:0.6, yaw:Math.PI/2}, dolphin2:{len:3.6}, tang:{len:0.35}, bfish:{len:0.35}, koi:{len:0.45}};   // (koi: the pond scales them up 1.5-2.1x)
 // realistic replacements for the animals first made in Blender (fauna.js / wildlife.js ask for the old names)
@@ -413,7 +413,8 @@ for (const [n, pr] of Object.entries(REAL_LOADS)){
   try { const g = await pr, cfg = REAL_CFG[n];
     g.scene.traverse(o => { if (!o.isMesh) return; const s = o.material;   // textures arrive as colour data: keep them as display values like the rest of the scene
       if (s.map){ s.map.colorSpace = THREE.NoColorSpace; s.map.needsUpdate = true; }
-      o.material = new THREE.MeshStandardMaterial({name:s.name, map:s.map, color:(s.map ? new THREE.Color(1, 1, 1) : s.color.clone()).multiplyScalar(cfg.bright || 1), roughness:s.map ? 0.85 : Math.min(0.85, s.roughness), metalness:0, alphaTest:s.alphaTest || (s.transparent ? 0.5 : 0), side:s.side});
+      if (s.emissiveMap){ s.emissiveMap.colorSpace = THREE.NoColorSpace; s.emissiveMap.needsUpdate = true; }
+      o.material = new THREE.MeshStandardMaterial({name:s.name, map:s.map, emissiveMap:s.emissiveMap || null, emissive:s.emissiveMap ? '#ffffff' : '#000000', emissiveIntensity:0, color:(s.map ? new THREE.Color(1, 1, 1) : s.color.clone()).multiplyScalar(cfg.bright || 1), roughness:s.map ? 0.85 : Math.min(0.85, s.roughness), metalness:0, alphaTest:s.alphaTest || (s.transparent ? 0.5 : 0), side:s.side});
       o.frustumCulled = false; });   // skinned: the bind-pose bounds don't follow the animation
     // clips start at time 0 (some files key them from frame 227 on: three.js would hold the first pose for nine seconds each loop)
     for (const c of g.animations){ const t0 = Math.min(...c.tracks.map(t => t.times[0])); if (t0 > 0.01){
@@ -2163,11 +2164,13 @@ function makeCrab(hermit){
 const SHELL_KINDS = [['#f6d7c8', 'fan'], ['#fbeee0', 'conch'], ['#e8b4b8', 'fan'], ['#f3e3b5', 'spiral'], ['#d9e4f0', 'fan']];
 function makeShell(p){
   const [c, kind] = SHELL_KINDS[Math.floor(Math.random()*SHELL_KINDS.length)], g = new THREE.Group(), m = mat(c, 0.5);
-  if (kind === 'fan'){ const s = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 6, 0, Math.PI*2, 0, Math.PI/2), m); s.scale.set(1, 0.35, 0.9); g.add(s);
+  const rs = realClone(['shell_turban', 'shell_clam', 'shell_horn', 'shell_clam'][Math.floor(Math.random()*4)]);   // scanned shells (ffish.asia, CC0): turban, hard clam, horn shell
+  if (rs){ rs.rotation.set(0, Math.random()*6.28, 0); g.add(rs); }
+  else if (kind === 'fan'){ const s = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 6, 0, Math.PI*2, 0, Math.PI/2), m); s.scale.set(1, 0.35, 0.9); g.add(s);
     for (let i=0;i<5;i++){ const r = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.03, 0.13), mat('#ffffff', 0.5)); r.rotation.y = (i - 2)*0.32; r.position.set(Math.sin((i - 2)*0.32)*0.06, 0.03, Math.cos((i - 2)*0.32)*0.06); g.add(r); } }
   else if (kind === 'conch'){ const s = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.24, 9), m); s.rotation.z = Math.PI/2; s.position.y = 0.05; g.add(s); }
   else { const s = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.035, 8, 16), m); s.rotation.x = Math.PI/2; s.position.y = 0.03; g.add(s); }
-  g.position.set(p.x, gy(p.x, p.z) + 0.01, p.z); g.rotation.y = Math.random()*6.28; g.scale.setScalar(1.9); scene.add(g);
+  g.position.set(p.x, gy(p.x, p.z) + 0.01, p.z); g.rotation.y = Math.random()*6.28; g.scale.setScalar(rs ? 1 : 1.9); scene.add(g);
   const hb = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), hbMat); hb.userData.kind = 'shell'; g.add(hb);
   const s = {g, hb}; hb.userData.ref = s; shells.push(s); beachHit.push(hb); return s;
 }
@@ -2221,8 +2224,22 @@ function pokeCrab(c){ c.hide = c.hermit ? 3 : 0; if (!c.hermit){ const a = Math.
 const boats = {canoe:null, canoeT:rnd(60, 180), yacht:null, yachtT:rnd(90, 240)};
 // the fisherman's rowing boat (blender/boat_build.py): a real wooden rowboat, the old fisherman jointed from hips to fingers, two oars
 // on their oarlocks. He rows out bow first with his back to the way he goes, ships the oars and fishes, then rows home.
+// boats at night: the fisherman hangs a lantern at the stern; the yacht shows its navigation lights (red to port, green to
+// starboard, white on the mast and the stern), a searchlight sweeping the water ahead and lit cabin windows
+let NIGHT_ON = 0;   // (0 day .. 1 night, set with the sky)
+const boatGlows = [];   // materials whose emission follows the night
+function navLight(color, size){ const s = new THREE.Sprite(new THREE.SpriteMaterial({map:radialTex(color, 'rgba(0,0,0,0)'), transparent:true, depthWrite:false, blending:THREE.AdditiveBlending}));
+  s.scale.setScalar(size); s.userData.night = true; return s; }
 function makeCanoe(){
   const g = realClone('fishboat'); if (!g) return null;
+  { g.updateMatrixWorld(true); const b = new THREE.Box3().setFromObject(g, true), lp = new THREE.Group();   // the lantern on a short pole at the stern
+    lp.position.set((b.min.x + b.max.x)/2 - g.position.x, b.max.y - g.position.y - 0.15, b.min.z - g.position.z + 0.25);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.5, 5), mat('#4a3a2a', 0.8)); pole.position.y = 0.25; lp.add(pole);
+    const glass = glowMat('#ffd890', '#ffb347'); boatGlows.push(glass); nightGlow.splice(nightGlow.indexOf(glass), 1);
+    const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.12, 8), glass); lamp.position.y = 0.52; lp.add(lamp);
+    const cap = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.06, 8), mat('#2a2a2a', 0.6)); cap.position.y = 0.61; lp.add(cap);
+    const halo = navLight('rgba(255,190,110,0.9)', 1.1); halo.position.y = 0.52; lp.add(halo);
+    const light = new THREE.PointLight('#ffb35c', 0, 7, 1.6); light.position.y = 0.55; lp.add(light); g.userData.lantern = light; g.add(lp); }
   let tip = null; g.traverse(o => { if (o.isBone && o.name === 'rodtip') tip = o;
     if (o.isMesh && o.material.name === 'Cap'){ o.material = new THREE.MeshBasicMaterial({colorWrite:false, transparent:true}); o.renderOrder = -1; } });   // depth only: hides the sea inside the hull
   const lineGeo = new THREE.BufferGeometry().setFromPoints([V3(), V3()]), line = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({color:'#f4f4f0'})); scene.add(line);
@@ -2231,7 +2248,14 @@ function makeCanoe(){
 }
 function makeYacht(){
   const r = realClone('yacht');   // the realistic motor yacht (blender/yacht_build.py: built at game size, origin on the waterline)
-  if (r){ scene.add(r); return {g:r, t:0, honked:0, real:true}; }
+  if (r){ r.traverse(o => { if (o.isMesh && o.material.emissiveMap){ o.material = o.material.clone(); o.material.emissive.set('#ffc88a'); o.material.userData.win = true; boatGlows.push(o.material); } });   // lit windows
+    const L = new THREE.Group(); r.add(L);   // (the yacht's own axes: bow +Z, port side +X, waterline y = 0)
+    for (const [c, at, sz] of [['rgba(255,60,50,1)', [2.4, 5.2, 3.0], 1.4], ['rgba(60,255,110,1)', [-2.4, 5.2, 3.0], 1.4], ['rgba(255,255,240,1)', [0, 9.9, -2.55], 1.6], ['rgba(255,255,240,1)', [0, 3.0, -14.8], 1.2]]){
+      const s = navLight(c, sz); s.position.set(...at); L.add(s); }
+    const spot = new THREE.SpotLight('#fff2d6', 0, 70, 0.32, 0.5, 1.2); spot.position.set(0, 3.0, 14.6); spot.target.position.set(0, -1.5, 40); L.add(spot, spot.target);
+    const beam = new THREE.Mesh(new THREE.ConeGeometry(4.2, 26, 20, 1, true), new THREE.MeshBasicMaterial({color:'#fff1cc', transparent:true, opacity:0, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide}));
+    beam.geometry.translate(0, -13, 0); beam.rotation.x = -Math.PI/2 + 0.17; beam.position.set(0, 3.0, 14.6); beam.userData.beam = true; L.add(beam);
+    r.userData.lights = {L, spot, beam}; scene.add(r); return {g:r, t:0, honked:0, real:true}; }
   const g = new THREE.Group(), white = mat('#f4f4f0', 0.5), glass = mat('#3d5a73', 0.2), stripe = mat('#2f5f9e', 0.5);
   const hull = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 0.7, 1.2, 4, 1), white); hull.rotation.y = Math.PI/4; hull.scale.set(1.3, 1, 4.2); hull.position.y = 0.3; g.add(hull);
   const bow = new THREE.Mesh(new THREE.ConeGeometry(1.0, 2.6, 4), white); bow.rotation.set(Math.PI/2, Math.PI/4, 0); bow.scale.set(1.25, 1, 0.45); bow.position.set(0, 0.45, 4.6); g.add(bow);
@@ -2278,6 +2302,7 @@ function updateBoats(dt, t){
       if (c.lookT < -5) c.lookT = rnd(10, 20);
       if (c.catchT < -1.6){ c.catchT = rnd(10, 25); if (Math.random() < 0.6){ floatSprite(emojiTex('🐟'), c.bob.position.clone().add(V3(0, 0.4, 0)), {size:0.7, vy:2.2, g:4, max:1.4}); sfx('splash', c.bob.position); } } }
     rg.mixer.update(dt);
+    if (c.g.userData.lantern){ c.g.userData.lantern.intensity = NIGHT_ON*2.2*(0.92 + 0.08*Math.sin(t*9)); c.g.traverse(o => { if (o.userData.night) o.material.opacity = NIGHT_ON; }); }
     c.line.visible = c.bob.visible = fishing && !!c.tip;
     if (fishing && c.tip){ c.g.updateMatrixWorld(true); const tip = c.tip.getWorldPosition(V3()), away = tip.clone().sub(p).setY(0).normalize();
       const bob = tip.clone().addScaledVector(away, 1.1).setY(WATER_Y + Math.sin(t*2)*0.03); if (c.catchT < 0) bob.y -= 0.12*Math.abs(Math.sin(t*9));
@@ -2287,6 +2312,8 @@ function updateBoats(dt, t){
   if (!boats.yacht){ boats.yachtT -= dt; if (boats.yachtT <= 0){ const y = makeYacht(), dir = Math.random() < 0.5 ? 1 : -1; y.dir = dir; y.x = sea(cz) + rnd(24, 30); y.z0 = cz - dir*(PLOT*2.6); boats.yacht = y; } }
   else { const y = boats.yacht; y.t += dt; const z = y.z0 + y.dir*y.t*3.2, p = y.g.position;
     p.set(y.x, WATER_Y - (y.real ? 0 : 0.15) + Math.sin(t*0.8)*0.06, z); y.g.rotation.set(Math.sin(t*0.6)*0.02, y.dir > 0 ? 0 : Math.PI, Math.sin(t*0.7)*0.03);
+    const yl = y.g.userData.lights; if (yl){ yl.spot.intensity = NIGHT_ON*60; yl.beam.material.opacity = NIGHT_ON*0.07; yl.L.rotation.y = 0;
+      yl.beam.rotation.z = Math.sin(t*0.4)*0.12; yl.spot.target.position.x = Math.sin(t*0.4)*-5; yl.L.children.forEach(o => { if (o.userData.night) o.material.opacity = NIGHT_ON*(0.85 + 0.15*Math.sin(t*3 + o.position.x)); }); }
     if (y.honked < 2 && Math.abs(z - camTarget.z) < (y.honked ? 12 : 26) && y.t > (y.honked ? y.hT + 6 : 0)){ y.honked++; y.hT = y.t; sfx('horn', V3(world.shoreX(z), 0, z)); }
     if (y.t*3.2 > PLOT*5.2){ scene.remove(y.g); boats.yacht = null; boats.yachtT = rnd(240, 600); } }
 }
@@ -3794,7 +3821,7 @@ function updateWorld(dt, t){
   U.uSky.value.set(mixHex('#fff8ec', '#7584ab', di.n)).multiplyScalar(BR);
   U.uGround.value.set(mixHex('#77806a', '#283040', di.n));
   const on = Math.max(clamp((di.n - 0.3)/0.4, 0, 1), w === 'storm' ? 0.6 : 0);
-  nightGlow.forEach(m => m.emissiveIntensity = on*1.3);
+  nightGlow.forEach(m => m.emissiveIntensity = on*1.3); NIGHT_ON = on; boatGlows.forEach(m => m.emissiveIntensity = on*(m.userData.win ? 0.55 : 1.4));
   if (BG.lamp) BG.lamp.userData.glows.forEach(m => m.opacity = on);
   rain.visible = w === 'rain' || w === 'storm';
   if (rain.visible){

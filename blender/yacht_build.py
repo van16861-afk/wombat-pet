@@ -17,6 +17,33 @@ lo = Vector([min(v[k] for v in vs) for k in range(3)]); hi = Vector([max(v[k] fo
 hull = min((v for v in vs), key=lambda v: v.z).z   # keel
 s = LEN/(hi.y - lo.y); wl = hull + DRAFT*(hi.z - lo.z)
 for o in ms: o.data.transform(Matrix.Scale(s, 4) @ Matrix.Translation(-Vector(((lo.x + hi.x)/2, (lo.y + hi.y)/2, wl))))
+# the lit windows at night: an emission map holding only the dark glass painted on the superstructure (the black boot-top
+# along the waterline stays dark): the surfaces 1-6.5 units up are drawn into a UV mask, and only dark texels inside it glow
+import numpy as np
+for o in ms:
+    me = o.data; mat0 = me.materials[0]; nt = mat0.node_tree
+    img = next(n.image for n in nt.nodes if n.type == 'TEX_IMAGE' and any(l.to_socket.name == 'Base Color' for l in n.outputs[0].links))
+    W_, H_ = img.size; px = np.array(img.pixels[:]).reshape(H_, W_, 4); mask = np.zeros((H_, W_), bool)
+    uv = me.uv_layers.active.data; me.calc_loop_triangles()
+    for tri in me.loop_triangles:
+        c = sum((me.vertices[v].co for v in tri.vertices), Vector())/3
+        if not (1.0 < c.z < 6.5): continue
+        P = np.array([uv[l].uv[:] for l in tri.loops]) % 1.0*np.array([W_ - 1, H_ - 1])
+        x0, y0 = np.floor(P.min(0)).astype(int); x1, y1 = np.ceil(P.max(0)).astype(int)
+        xs, ys = np.meshgrid(np.arange(max(x0, 0), min(x1, W_ - 1) + 1), np.arange(max(y0, 0), min(y1, H_ - 1) + 1))
+        (ax, ay), (bx, by), (cx, cy) = P; den = (by - cy)*(ax - cx) + (cx - bx)*(ay - cy)
+        if abs(den) < 1e-9: continue
+        w1 = ((by - cy)*(xs - cx) + (cx - bx)*(ys - cy))/den; w2 = ((cy - ay)*(xs - cx) + (ax - cx)*(ys - cy))/den
+        m_ = (w1 >= 0) & (w2 >= 0) & (1 - w1 - w2 >= 0); mask[ys[m_], xs[m_]] = True
+    lum = 0.2126*px[..., 0] + 0.7152*px[..., 1] + 0.0722*px[..., 2]
+    sat = px[..., :3].max(-1) - px[..., :3].min(-1)
+    lit = mask & (lum > 0.18) & (lum < 0.46) & (sat < 0.06)   # (the windows are mid-grey glass; pixels here are display values, not linear)
+    em = np.zeros((H_, W_, 4), np.float32); em[..., 3] = 1; em[lit] = (1.0, 0.72, 0.38, 1.0)
+    eim = bpy.data.images.new("yacht_windows", W_, H_); eim.pixels = em.ravel(); eim.pack()
+    bs = next(n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED')
+    for l in list(bs.inputs["Emission Color"].links): nt.links.remove(l)
+    et = nt.nodes.new("ShaderNodeTexImage"); et.image = eim; nt.links.new(et.outputs["Color"], bs.inputs["Emission Color"]); bs.inputs["Emission Strength"].default_value = 1.0
+    print("WINDOW texels", int(lit.sum()), "of", int(mask.sum()))
 for im in bpy.data.images:
     if im.size[0] > 512: im.scale(512, 512)
 for m in bpy.data.materials:   # (no specular links: the game makes its own materials)

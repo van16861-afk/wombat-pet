@@ -657,3 +657,7 @@ def _tancho(f, u, s):
     if u < 0.4: return (0.16, 0.16, 0.17)                                # legs
     return (0.94, 0.94, 0.92)
 SPECS["crane"]["paint"] = lambda ob: paint_zones(ob, "WC_texture", _tancho)
+
+# ---------------------------------------------------------------- beach shells (ffish.asia CC0 scans): static, prep only, copied to assets/models/real
+for _n in ("shell_turban", "shell_clam", "shell_horn"):
+    SPECS[_n] = {"src": _n, "budget": 900, "bones": [], "clips": lambda lp: {}}

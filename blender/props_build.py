@@ -179,21 +179,43 @@ for i, (x, y) in enumerate([(0.1, -D2 - 1.25), (-0.2, -D2 - 1.7), (0.15, -D2 - 2
 import numpy as np, os
 KIT = r"C:\Users\User\Documents\wombat-pet\assets\source\nature_megakit\kit\glTF"
 bur = empty("house")
-def soil_mat(name, base, n=256, seed=3):
+def soil_mat(name, base, n=512, seed=3):
+    """Earth that reads as real soil, not one flat brown: patches of reddish clay, dark humus and pale sandy loam blended by
+    large-scale noise, clods and grain on top, fine roots, small stones and a few flecks of dry grass."""
     rs = np.random.RandomState(seed); im = bpy.data.images.new(name + "_tex", n, n)
-    g = np.zeros((n, n))
-    for k, w in ((4, 0.5), (8, 0.3), (16, 0.15), (48, 0.08)):   # layered noise: clods and grain
-        c = rs.rand(k + 2, k + 2); xs = np.linspace(0, k, n); i = xs.astype(int).clip(0, k - 1); f = xs - i
-        top = c[i][:, i]*(1 - f)[None, :] + c[i][:, i + 1]*f[None, :]; bot = c[i + 1][:, i]*(1 - f)[None, :] + c[i + 1][:, i + 1]*f[None, :]
-        g += w*(top*(1 - f)[:, None] + bot*f[:, None])
-    g = (g - g.min())/(g.max() - g.min())
-    col = np.array(lin(base))[None, None, :]*(0.7 + 0.6*g[:, :, None])
-    peb = rs.rand(n, n) > 0.985; col[peb] = col[peb]*0.5 + 0.35   # little light stones in the soil
-    dark = rs.rand(n, n) > 0.995; col[dark] *= 0.45
+    def noise(octaves):
+        g = np.zeros((n, n))
+        for k, w in octaves:
+            c = rs.rand(k + 2, k + 2); xs = np.linspace(0, k, n); i = xs.astype(int).clip(0, k - 1); f = xs - i
+            f = f*f*(3 - 2*f)   # (smooth steps: no grid lines)
+            top = c[i][:, i]*(1 - f)[None, :] + c[i][:, i + 1]*f[None, :]; bot = c[i + 1][:, i]*(1 - f)[None, :] + c[i + 1][:, i + 1]*f[None, :]
+            g += w*(top*(1 - f)[:, None] + bot*f[:, None])
+        return (g - g.min())/(g.max() - g.min())
+    b0 = np.array(lin(base)); clay = np.array(lin('#8f5b3a')); humus = np.array(lin('#3f2f22')); sand = np.array(lin('#b59a74'))
+    m1 = noise(((3, 0.6), (6, 0.4))); m2 = noise(((4, 0.6), (9, 0.4)))
+    col = b0[None, None, :]*np.ones((n, n, 1))
+    w_clay = np.clip((m1 - 0.55)*3, 0, 1)[:, :, None]; w_hum = np.clip((0.4 - m2)*3, 0, 1)[:, :, None]; w_sand = np.clip((m2 - 0.7)*3, 0, 1)[:, :, None]
+    col = col*(1 - w_clay) + clay*w_clay; col = col*(1 - w_hum) + humus*w_hum; col = col*(1 - w_sand*0.8) + sand*w_sand*0.8
+    grain = noise(((16, 0.4), (48, 0.35), (128, 0.25)))
+    col *= (0.72 + 0.56*grain)[:, :, None]
+    for _ in range(int(n*0.06)):   # fine roots: thin dark wandering lines
+        x, y = rs.randint(0, n, 2).astype(float); a_ = rs.rand()*6.28
+        for _s in range(rs.randint(20, 70)):
+            a_ += rs.randn()*0.35; x = (x + np.cos(a_)) % n; y = (y + np.sin(a_)) % n; col[int(y), int(x)] *= 0.55
+    peb = rs.rand(n, n) > 0.988; col[peb] = col[peb]*0.4 + np.array(lin('#b8ae9e'))*0.6   # small stones
+    dark = rs.rand(n, n) > 0.994; col[dark] *= 0.4
+    straw = rs.rand(n, n) > 0.997; col[straw] = np.array(lin('#c9b27a'))   # flecks of dry grass
     im.pixels[:] = np.concatenate([col.clip(0, 1), np.ones((n, n, 1))], axis=2).ravel()
     m = bpy.data.materials.new(name); m.use_nodes = True; nt = m.node_tree; bs = next(x for x in nt.nodes if x.type == "BSDF_PRINCIPLED")
     tx = nt.nodes.new("ShaderNodeTexImage"); tx.image = im; nt.links.new(tx.outputs["Color"], bs.inputs["Base Color"]); bs.inputs["Roughness"].default_value = 1.0
+    uvn = nt.nodes.new("ShaderNodeUVMap"); uvn.uv_map = "UVMap"; nt.links.new(uvn.outputs["UV"], tx.inputs["Vector"])   # (named, or the exporter can't tell which UVs it uses)
     m.diffuse_color = (*lin(base), 1); return m
+def top_uv(o, scale=0.32):
+    """UVs projected from above (the soil texture lies over the mound like it would over real ground)."""
+    me = o.data; uv = me.uv_layers.get("UVMap") or me.uv_layers.new(name="UVMap")
+    for poly in me.polygons:
+        for li in poly.loop_indices:
+            co = me.vertices[me.loops[li].vertex_index].co; uv.data[li].uv = (co.x*scale + 0.13*co.z, co.y*scale + 0.07*co.z)
 def tex_mat(name, img):
     m = bpy.data.materials.new(name); m.use_nodes = True; nt = m.node_tree; bs = next(x for x in nt.nodes if x.type == "BSDF_PRINCIPLED")
     tx = nt.nodes.new("ShaderNodeTexImage"); tx.image = bpy.data.images.load(os.path.join(KIT, img)); nt.links.new(tx.outputs["Color"], bs.inputs["Base Color"]); bs.inputs["Roughness"].default_value = 0.95
@@ -223,14 +245,14 @@ BARK = tex_mat("RootBark", "Bark_NormalTree.png")
 bm = bmesh.new(); bmesh.ops.create_uvsphere(bm, u_segments=48, v_segments=24, radius=2.3)
 bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.z < -0.02], context='VERTS')
 bmesh.ops.transform(bm, matrix=Matrix.Diagonal((1.1, 1.0, 0.62, 1)), verts=bm.verts)
-mound = obj_from_bm("b_mound", bm, SOIL, bur); lumpy(mound, 0.32, 1.1)
+mound = obj_from_bm("b_mound", bm, SOIL, bur); lumpy(mound, 0.32, 1.1); top_uv(mound)
 DY = -2.05
 # the tunnel: a dark opening sloping down into the mound, with a rim of dug soil
 cyl("b_hole", 0.62, 0.55, 1.2, HOLE, at=(0, DY + 0.45, 0.42), seg=28, rot=R(math.pi/2 - 0.35, 3, 'X'), parent=bur)
-lip = torus("b_lip", 0.74, 0.2, SOIL_D, at=(0, DY + 0.02, 0.36), rot=R(math.pi/2 - 0.3, 3, 'X'), arc=0.55, parent=bur); lip.rotation_euler = (0, -0.18*math.pi, 0); lumpy(lip, 0.08, 0.6)
+lip = torus("b_lip", 0.74, 0.2, SOIL_D, at=(0, DY + 0.02, 0.36), rot=R(math.pi/2 - 0.3, 3, 'X'), arc=0.55, parent=bur); lip.rotation_euler = (0, -0.18*math.pi, 0); lumpy(lip, 0.08, 0.6); top_uv(lip, 0.6)
 # the spoil heap: loose soil kicked out in front, fanning down the slope
 bm = bmesh.new(); bmesh.ops.create_uvsphere(bm, u_segments=32, v_segments=12, radius=1.0); bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.z < -0.02], context='VERTS')
-sp = obj_from_bm("b_spoil", bm, SOIL_D, bur); sp.location = (0.15, DY - 0.95, 0.0); sp.scale = (1.45, 1.15, 0.22); lumpy(sp, 0.1, 0.5)
+sp = obj_from_bm("b_spoil", bm, SOIL_D, bur); sp.location = (0.15, DY - 0.95, 0.0); sp.scale = (1.45, 1.15, 0.22); lumpy(sp, 0.1, 0.5); top_uv(sp, 0.45)
 for i in range(14):   # clods in the loose soil
     a = random.uniform(-1.1, 1.1); r = random.uniform(0.4, 1.6)
     sphere(f"b_clod{i}", random.uniform(0.05, 0.12), SOIL_D, at=(math.sin(a)*r, DY - 0.5 - math.cos(a)*r, 0.06), scale=(1.2, 1, 0.6), seg=8, ring=5, parent=bur)
