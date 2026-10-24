@@ -5,6 +5,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import { cloud } from './cloud.js';
 import { createGhibli } from './ghibli.js';
+import { createEvolution } from './evolution.js';
 import { createFauna, SPECIES } from './fauna.js';
 import { createWildlife, WILD_NAMES } from './wildlife.js';
 import { createWorld, newWorld, HALF, PLOT, WATER_Y, X0, X1, Z0, Z1, BIO, plotKey, PLOT_KEYS, SEE, seeThrough, leafMaterial, swaying, CANOPY_BLOBS, leafyCanopy, canopyTex, vines, fieldStone } from './world.js';
@@ -3334,13 +3335,59 @@ function catchUp(ms){
 
 // ---------- evolution ----------
 const fxo = $('#fxo'), fxSub = $('#fxSub'), fxName = $('#fxName');
+// The evolution sequence (js/evolution.js): its own dream-space scene with glow and motion trails, played with the game's own
+// wombat; the form changes at the white-out. Its music and sounds are made here, timed to its beats.
+const EVO_SOUND = {
+  preload(){ if (audio()) ['string_ensemble_1', 'orchestral_harp', 'music_box', 'trumpet'].forEach(loadInst); },
+  play(n, E){
+    const c = SND.ctx; if (!c || !SND.fx) return;
+    const now = c.currentTime, at = T => now + Math.max(0, T - E.t), out = SND.sfx;
+    const note = (inst, m, T, v, d, wave = 'triangle') => { if (!playI(inst, m, at(T), v, d, out)) tone(wave, mtof(m), at(T), v*0.5, d, out, 0.01); };
+    switch (n){
+      case 'start': [84, 88, 91, 96].forEach((m, i) => note('music_box', m, E.t + i*0.07, 0.5, 0.9, 'sine')); tone('sine', 2093, now + 0.3, 0.05, 1.2, out, 0.4); break;
+      case 'whoosh': { const w = noiseHit(now, 0.75, 0.4, 'bandpass', 300, out, SND.noiseLong, 1.2); w.f.frequency.setValueAtTime(300, now); w.f.frequency.exponentialRampToValueAtTime(4200, now + 0.6); break; }
+      case 'bgm': {
+        // strings swell over a dreamy progression (Am - F - C - G), harp arpeggios quicken toward the flash, a soft pulse beneath
+        [[57, 60, 64], [53, 57, 60], [48, 52, 55, 60], [55, 59, 62]].forEach((ch, i) => ch.forEach(m => note('string_ensemble_1', m, 1.3 + i*0.95, 0.32, 1.1)));
+        const scale = [57, 60, 62, 64, 67, 69, 72, 74, 76, 79, 81, 84, 86, 88];
+        for (let T = 1.4, i = 0; T < 5.0; i++){ note('orchestral_harp', scale[i % scale.length] + (i >= scale.length ? 12 : 0)*0, T, 0.35, 0.4); T += lerp(0.26, 0.055, clamp((T - 1.4)/3.6, 0, 1)); }
+        for (let T = 2.4; T < 5.0; ){ const k = tone('sine', 110, at(T), 0.35, 0.18, out); k.frequency.exponentialRampToValueAtTime(45, at(T) + 0.12); T += lerp(0.5, 0.16, clamp((T - 2.4)/2.6, 0, 1)); }
+        break; }
+      case 'charge': { const o = tone('sawtooth', 180, now, 0.05, 1.45, out, 1.2); o.frequency.exponentialRampToValueAtTime(1500, now + 1.4);
+        const r = noiseHit(now, 1.45, 0.22, 'bandpass', 600, out, SND.noiseLong, 2); r.f.frequency.setValueAtTime(600, now); r.f.frequency.exponentialRampToValueAtTime(7000, now + 1.4);
+        tone('sine', 880, now, 0.06, 1.45, out, 1.3).frequency.exponentialRampToValueAtTime(3520, now + 1.4); break; }
+      case 'flash': { const o = tone('sine', 140, now, 0.9, 1.1, out); o.frequency.exponentialRampToValueAtTime(30, now + 0.8);
+        noiseHit(now, 1.0, 0.6, 'lowpass', 900, out, SND.noiseLong); noiseHit(now, 0.25, 0.4, 'highpass', 3000, out);
+        [96, 100, 103, 108].forEach((m, i) => tone('sine', mtof(m), now + 0.05 + i*0.03, 0.08, 1.4, out)); break; }
+      case 'reveal': [48, 55, 60, 64, 67, 72].forEach(m => { note('string_ensemble_1', m, E.t, 0.4, 2.2); }); [60, 64, 67, 72].forEach(m => note('trumpet', m, E.t + 0.05, 0.42, 1.6, 'sawtooth'));
+        [72, 76, 79, 84, 88, 91, 96].forEach((m, i) => note('orchestral_harp', m, E.t + i*0.05, 0.3, 0.8)); break;
+      case 'card': [79, 84, 88, 91].forEach((m, i) => note('music_box', m, E.t + i*0.12, 0.45, 1.2, 'sine')); tone('sine', 2637, now + 0.5, 0.06, 1.6, out, 0.02); break;
+    }
+  }
+};
+const EVO_FX = createEvolution({renderer, mobile, sound:EVO_SOUND});
 function startEvolution(next){
-  evo = {t:0, next, form:decideForm(next), spin:0, swapped:false, burst:false};
-  B.mode = 'evolve'; closeSheet(); clothesHidden = true; applyClothes();
-  fxo.hidden = false; fxo.classList.remove('reveal'); fxSub.textContent = `${S.name || '牠'}要進化了……`; fxName.textContent = '';
-  duck(true); sfx('evolve'); cry('evolve');
+  evo = {t:0, next, form:decideForm(next), seq:true};
+  B.mode = 'evolve'; closeSheet(); clothesHidden = true; applyClothes(); duck(true); cry('evolve');
+  const nextF = FORMS[evo.form] || FORMS.normal, toName = evo.form === 'normal' ? `${STAGES[next].name}袋熊` : nextF.name;
+  const fromF = form(), fromName = S.form === 'normal' ? `${(STAGES[S.stage] || {}).name || ''}袋熊` : fromF.name;
+  const ICON = {royal:'👑', golden:'👑', forest:'🌿', forestx:'🦌', wind:'🍃', thunder:'⚡', sporty:'🏃', chubby:'🍰', skinny:'🌾', stinky:'💩', sickly:'🩹'};
+  EVO_FX.start({pet:root, fromName, toName, stageName:STAGES[next].name, icon:ICON[evo.form] || '✨',
+    setWhite: v => { U.uWhite.value = v; petMats.forEach(m => m.emissive.setScalar(v*0.95)); },
+    onSwap: () => { S.stage = evo.next; S.form = evo.form; S.care = freshCare(); applyForm(); petS = stageScale(); hudDirty = true; },
+    onDone: () => endEvolution()});
+}
+function endEvolution(){
+  evo = null; B.mode = 'idle'; B.timer = 2; actG.rotation.set(0,0,0); actY = 0;
+  U.uWhite.value = 0; petMats.forEach(m => m.emissive.setScalar(0));
+  pillar.visible = false; rings.forEach(r => r.visible = false);
+  fxo.hidden = true; clothesHidden = false; applyClothes(); duck(false);
+  const F = form();
+  toast(S.form === 'normal' ? `${S.name || '牠'}長大了，現在是${STAGES[S.stage].name}。` : `${F.name}：${F.desc}`);
+  spawnHearts(3); save();
 }
 function updateEvo(dt){
+  if (evo.seq){ EVO_FX.update(dt); return; }   // (the old in-place version below is no longer started)
   const e = evo; e.t += dt; const t = e.t, s = petS;
   const spd = t < 3.2 ? 4 + (t/3.2)*26 : Math.max(0, 30*(1 - (t-3.2)/1.4));
   e.spin += spd*dt;
@@ -4844,7 +4891,7 @@ if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
 if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
-if (new URLSearchParams(location.search).has('debug')) window.W = {flock, boats, startPiece, fences, TREE_KINDS, BEACH_LIFE, wear, art, setArt, inBuild, freeNear, poopNow, spawnWeed, weedSpotOK, overBridge, moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+if (new URLSearchParams(location.search).has('debug')) window.W = {flock, boats, startPiece, fences, TREE_KINDS, startEvolution, EVO_FX, getEvo: () => evo, BEACH_LIFE, wear, art, setArt, inBuild, freeNear, poopNow, spawnWeed, weedSpotOK, overBridge, moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   sim:(secs) => { skipRender = true; try { for (let i=0;i<secs*30;i++) step(true); } finally { skipRender = false; } clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};
@@ -5060,7 +5107,12 @@ function step(manual){
   hudT -= dt; if (hudDirty || hudT <= 0){ hudT = 0.5; renderHUD(); }
   // trees, bushes and rocks between the camera and the wombat get a see-through hole
   { const see = petActive() && root.visible; SEE.b.value.copy(camera.position); SEE.a.value.set(see ? pos.x : camTarget.x, (see ? petGY + pos.y + 0.7*petS : camTarget.y), see ? pos.z : camTarget.z); SEE.r.value = see ? 1.6*Math.max(petS, 0.7) : 0; }
-  if (!skipRender){ if (art.on) art.render(); else renderer.render(scene, camera); }
+  if (!skipRender){
+    if (evo && evo.seq && EVO_FX.inScene) EVO_FX.render();
+    else {
+      if (evo && evo.seq){ const k = EVO_FX.zoomIn(), c = V3(pos.x, petGY + pos.y + 0.7*petS, pos.z), d = camera.position.clone().sub(c).setLength(2.6 + 2.2*petS);   // shot 1: rush in, trembling
+        camera.position.lerp(c.clone().add(d), k*0.9); camera.position.x += (Math.random() - 0.5)*0.05*k; camera.position.y += (Math.random() - 0.5)*0.05*k; camera.lookAt(c); }
+      if (art.on) art.render(); else renderer.render(scene, camera); } }
   if (!manual) requestAnimationFrame(step);
 }
 requestAnimationFrame(step);
