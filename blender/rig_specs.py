@@ -264,3 +264,30 @@ SPECS["mudskipper"] = {"src": "mudskipper", "budget": 40000, "drop": ("Material"
     {"n": "dorsal1", "p": "root", "h": (0.36, 0.58, 0), "t": (0.42, 0.98, 0), "zone": lambda f, u, s: u > 0.56 and 0.27 < f < 0.5},
     {"n": "dorsal2", "p": "tail1", "h": (0.55, 0.55, 0), "t": (0.68, 0.78, 0), "zone": lambda f, u, s: u > 0.52 and 0.5 < f < 0.76},
 ]}
+
+# ---------------------------------------------------------------- bald eagle sitting (Sketchfab "Bald Eagle" by Alauddin_Rabbi, CC BY 4.0): the perched pose,
+# wings folded (the flying eagle.glb has its wings out); game.js swaps between the two as it lands and takes off
+def _eagleperch_clips(lp):
+    # sitting: breathing, the head turning sharply and holding (eagles look round in quick turns), the tail flicking;
+    # look - a long stare one way then the other; call - the head thrown back and up as a bald eagle calls
+    idle = [(t, {"root": (0.012*math.sin(t*2*math.pi*2), 0, 0), "tail": (0.04*max(0, math.sin(t*2*math.pi*3)), 0, 0),
+                 "wingL": (0, 0, 0.015*math.sin(t*2*math.pi*2)), "wingR": (0, 0, -0.015*math.sin(t*2*math.pi*2)),
+                 "head": (0.05*math.sin(t*2*math.pi), [0, 0.5, 0.5, -0.3, -0.3, 0.1, 0.1, 0, 0][int(t*8)], 0)}) for t in [i/16 for i in range(17)]]
+    turn = lambda y, p=0.0: {"neck": (p*0.5, 0.35*y, 0), "head": (p, 0.75*y, 0)}
+    look = [(0, {}), (0.08, turn(1.2)), (0.45, turn(1.25)), (0.53, turn(-1.2)), (0.9, turn(-1.25)), (1.0, {})]
+    call = [(0, {}), (0.25, {"neck": (-0.45, 0, 0), "head": (-0.6, 0, 0), "tail": (0.1, 0, 0)}), (0.4, {"neck": (-0.5, 0, 0), "head": (-0.75, 0, 0)}),
+            (0.55, {"neck": (-0.45, 0, 0), "head": (-0.6, 0, 0)}), (0.7, {"neck": (-0.5, 0, 0), "head": (-0.75, 0, 0)}), (1.0, {})]
+    tear = lambda k: {"neck": (0.7 + 0.25*k, 0, 0), "head": (0.6 + 0.35*k, 0, 0), "root": (0.25, 0, 0), "wingL": (0, 0, 0.12), "wingR": (0, 0, -0.12)}
+    eat = [(t, tear(max(0, math.sin(t*2*math.pi*2)))) for t in [i/16 for i in range(17)]]   # on the ground over its catch, tearing at it
+    return {"idle": (6.0, idle), "look": (4.0, look), "call": (1.8, call), "eat": (1.6, eat)}
+SPECS["eagleperch"] = {"src": "eagleperch", "budget": 24000, "drop": ("lambert2",), "clips": _eagleperch_clips, "bones": [
+    {"n": "root", "h": (0.55, 0.42, 0), "t": (0.3, 0.62, 0)},
+    {"n": "neck", "p": "root", "h": (0.26, 0.68, 0), "t": (0.17, 0.84, 0), "zone": lambda f, u, s: u > 0.62 and f < 0.42},
+    {"n": "head", "p": "neck", "h": (0.17, 0.84, 0), "t": (0.0, 0.93, 0), "zone": lambda f, u, s: u > 0.78 and f < 0.36},
+    {"n": "tail", "p": "root", "h": (0.72, 0.3, 0), "t": (0.98, 0.05, 0), "zone": lambda f, u, s: f > 0.66 and u < 0.42},
+    {"n": "wingL", "p": "root", "h": (0.32, 0.6, 0.75), "t": (0.78, 0.25, 0.75), "zone": lambda f, u, s: s > 0.55 and 0.25 < f < 0.9 and u > 0.18},
+    {"n": "wingR", "p": "root", "h": (0.32, 0.6, -0.75), "t": (0.78, 0.25, -0.75), "zone": lambda f, u, s: s < -0.55 and 0.25 < f < 0.9 and u > 0.18},
+    *[b for k, sg in (("L", 1), ("R", -1)) for b in (
+        {"n": f"leg{k}", "p": "root", "h": (0.28, 0.3, 0.25*sg), "t": (0.2, 0.12, 0.25*sg), "zone": lambda f, u, s, sg=sg: u < 0.3 and f < 0.42 and s*sg > -0.05},
+        {"n": f"foot{k}", "p": f"leg{k}", "h": (0.2, 0.12, 0.25*sg), "t": (0.1, 0.02, 0.25*sg), "zone": lambda f, u, s, sg=sg: u < 0.14 and f < 0.4 and s*sg > -0.05})],
+]}

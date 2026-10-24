@@ -57,8 +57,15 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
     const z = rnd(Z0 + 4, Z1 - 4); g.position.set(shore(z) + rnd(3.5, 7), WATER_Y - 0.25, z); add('seafish', g, {hit:0.4, tail:part(g, 'fish_tail'), cz:z, cx:g.position.x, ang:rnd(0, 6.28), sp:rnd(0.3, 0.6)}); }
   // owls (night) and eagles (day) use the trees game.js passes in; lizards and some beetles use the rocks
   for (let i=0;i<2;i++){ const g = (real && real('owl')) || clone('owl'); if (!g) break; g.scale.setScalar(g.userData.mixer ? 1 : 1.5); g.visible = false; add('owl', g, {hit:0.5, hitY:0.3, perch:null}); }
-  for (let i=0;i<2;i++){ const g = clone('eagle'); if (!g) break; g.scale.setScalar(1.9); g.rotation.order = 'YXZ'; g.position.set(rnd(-20, 10), 12, rnd(-30, 10));
-    add('eagle', g, {hit:1.2, state:'soar', cx:rnd(-20, 10), cz:rnd(-30, 10), rad:rnd(7, 12), h:rnd(10, 14), ang:rnd(0, 6.28), timer:rnd(8, 20)}); }
+  // eagles: the realistic bald eagle is two models of the same bird, wings out (flying) and wings folded (sitting); the one
+  // showing changes as it lands and takes off
+  const eagleModel = () => { const fl = real && real('eagle'), pr = fl && real('eagleperch');
+    if (!fl || !pr) return null; const g = new THREE.Group(); g.add(fl, pr); pr.visible = false;
+    const ia = pr.userData.mixer.clipAction(pr.userData.clips.idle); ia.play(); pr.userData.act = ia; pr.userData.cur = 'idle'; pr.userData.mixer.update(0); pr.updateMatrixWorld(true);
+    const b = new THREE.Box3().setFromObject(pr, true); pr.position.y = -b.min.y;   // talons on whatever it stands on
+    g.userData.fl = fl.userData; g.userData.pr = pr.userData; g.userData.flG = fl; g.userData.prG = pr; return g; };
+  for (let i=0;i<2;i++){ const re = eagleModel(), g = re || clone('eagle'); if (!g) break; if (!re) g.scale.setScalar(1.9); g.rotation.order = 'YXZ'; g.position.set(rnd(-20, 10), 12, rnd(-30, 10));
+    add('eagle', g, {hit:1.2, state:'soar', cx:rnd(-20, 10), cz:rnd(-30, 10), rad:rnd(7, 12), h:rnd(10, 14), ang:rnd(0, 6.28), timer:rnd(8, 20), real:!!re}); }
   for (let i=0;i<4;i++){ const g = clone('lizard'); if (!g) break; g.scale.setScalar(2.2); g.visible = false; add('lizard', g, {hit:0.4, rock:null, tail:part(g, 'lizard_tail')}); }
 
   // wild rabbits: two warrens on open grassland, a few rabbits each
@@ -129,7 +136,7 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
       case 'soar': {
         a.ang += dt*0.22*(a.rdir || 1); const x = a.cx + Math.cos(a.ang)*a.rad, z = a.cz + Math.sin(a.ang)*a.rad, nx = x - p.x, nz = z - p.z;
         p.x += nx*dt*1.5; p.z += nz*dt*1.5; p.y += (a.h - p.y)*dt*0.5; faceDir(a, nx, nz, dt, 2); roll = -0.35*(a.rdir || 1);
-        const glide = Math.sin(a.t*0.3) > -0.3 || p.y > a.h + 0.5; wingPose(a, glide ? 0.06 : Math.sin(a.t*3.2)*0.45, 0, glide ? -0.05 : Math.sin(a.t*3.2 - 0.6)*0.35);
+        const glide = a.glide = Math.sin(a.t*0.3) > -0.3 || p.y > a.h + 0.5; wingPose(a, glide ? 0.06 : Math.sin(a.t*3.2)*0.45, 0, glide ? -0.05 : Math.sin(a.t*3.2 - 0.6)*0.35);
         if (a.carry && a.st > 9){ a.carry.drop = true; a.carry = null; }
         if (a.timer <= 0){
           a.timer = rnd(14, 28); const prey = preyList().filter(b => Math.hypot(b.g.position.x - p.x, b.g.position.z - p.z) < 28), roll_ = Math.random();
@@ -141,8 +148,8 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
         if (Math.random() < dt*0.03) o.onSound && o.onSound('eagle', p);
         break; }
       case 'toTree': case 'stoop': {
-        const tgt = a.state === 'toTree' ? (trees.includes(a.perch) ? V3(a.perch.x, eagleTop(a.perch) + FOOT, a.perch.z) : null)
-          : (a.prey && (a.prey.g.visible || a.prey.kind !== 'rabbit') ? a.prey.g.position.clone().setY(gy(a.prey.g.position.x, a.prey.g.position.z) + FOOT) : null);
+        const ft = a.real ? 0 : FOOT, tgt = a.state === 'toTree' ? (trees.includes(a.perch) ? V3(a.perch.x, eagleTop(a.perch) + ft, a.perch.z) : null)
+          : (a.prey && (a.prey.g.visible || a.prey.kind !== 'rabbit') ? a.prey.g.position.clone().setY((a.surfY = Math.max(gy(a.prey.g.position.x, a.prey.g.position.z), a.prey.g.position.y)) + ft) : null);   // (on top of a rock if the prey is on one, never inside it)
         if (!tgt){ go('soar'); a.timer = rnd(5, 10); break; }
         const d = tgt.clone().sub(p), hd = Math.hypot(d.x, d.z);
         if (d.length() < 3.2){ a.land = tgt; a.landFrom = p.clone(); a.toGround = a.state === 'stoop'; go('land'); break; }
@@ -163,11 +170,11 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
         break; }
       case 'perch': {
         const tr = a.perch; if (!tr || !trees.includes(tr)){ go('takeoff'); break; }
-        p.set(tr.x, eagleTop(tr) + FOOT*0.9, tr.z);
+        p.set(tr.x, eagleTop(tr) + (a.real ? 0 : FOOT*0.9), tr.z);   // (the sitting eagle's talons are at its origin)
         pitch = -0.85; legX = 0.85; headX = 0.8;
         if (a.mantle > 0){ a.mantle -= dt; const k = Math.sin(Math.min(1, a.mantle/1.6)*Math.PI); wingPose(a, 0.25 + Math.sin(a.t*6)*0.1*k, 1 - k, 0.2*k); }
         else wingPose(a, 0, ease(a, 'fold', 1, 3, dt));
-        if (Math.random() < dt*0.08 && !(a.mantle > 0)) a.mantle = 1.6;   // spreads its wings to stretch (and show off)
+        if (Math.random() < dt*0.08 && !(a.mantle > 0)){ if (a.real){ a.calling = 1.8; o.onSound && o.onSound('eagle', p); } else a.mantle = 1.6; }   // spreads its wings to stretch (the realistic one calls instead, head thrown back)
         if (a.timer <= 0 || petD < 4){ go('takeoff'); o.onSound && o.onSound('eagle', p); }
         break; }
       case 'ground': {
@@ -176,7 +183,7 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
         if (peck){ headX = 0.4 + Math.max(0, Math.sin(a.st*7))*0.9; if (a.st > 1.2 && !prey.eaten){ prey.eaten = true; preyGone(prey); } }
         if (a.carry){ const k = Math.min(1, a.st/0.4); wingPose(a, 0.35 + Math.sin(a.t*5)*0.05, 0, 0.3, -0.2*k); }   // mantling over its catch
         else wingPose(a, 0, ease(a, 'fold', 1, 4, dt));
-        p.y = gy(p.x, p.z) + FOOT*0.85;
+        p.y = Math.max(gy(p.x, p.z), a.surfY ?? -99) + (a.real ? 0 : FOOT*0.85);
         if (a.timer <= 0 || petD < 3){ go('takeoff'); o.onSound && o.onSound('eagle', p); }
         break; }
       case 'takeoff': {   // a jump and big strong beats, climbing away
@@ -191,6 +198,15 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
     if (legs) legs.rotation.x = ease(a, 'lx', legX, 6, dt);
     if (tail) tail.scale.x = ease(a, 'ts', tailS, 5, dt);
     if (head){ head.rotation.x = ease(a, 'hx', headX, 6, dt); if (a.state === 'perch' || a.state === 'ground'){ if (Math.random() < dt*0.6) a.look = rnd(-1.2, 1.2); } else a.look = 0; head.rotation.y = ease(a, 'hy', a.look || 0, 4, dt); }
+    if (a.real){   // the realistic bald eagle: wings-out model in the air, wings-folded model sitting; each plays its own clips
+      const u = a.g.userData, sit = a.state === 'perch' || a.state === 'ground';
+      u.flG.visible = !sit; u.prG.visible = sit; a.g.rotation.x = sit || a.state === 'land' ? 0 : a.g.rotation.x;
+      const play = (m, name, ts = 1) => { if (m.cur !== name && m.clips[name]){ const ac = m.mixer.clipAction(m.clips[name]); ac.reset().fadeIn(0.25).play(); if (m.act) m.act.fadeOut(0.25); m.act = ac; m.cur = name; } if (m.act) m.act.timeScale = ts; };
+      if (sit){ a.looking = (a.looking || 0) - dt; a.calling = (a.calling || 0) - dt;
+        if (a.state === 'perch' && a.looking < -rnd(6, 12)) a.looking = 4;
+        play(u.pr, a.state === 'ground' ? 'eat' : a.calling > 0 ? 'call' : a.looking > 0 ? 'look' : 'idle'); u.pr.mixer.update(dt); }
+      else { play(u.fl, a.state === 'stoop' ? 'stoop' : a.state === 'land' ? 'land' : a.state === 'soar' && a.glide ? 'glide' : 'fly', a.state === 'takeoff' ? 1.5 : 1); u.fl.mixer.update(dt); }
+    }
   }
   function grab(a, o){
     const b = a.prey; if (!b) return;
