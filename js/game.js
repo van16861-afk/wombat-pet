@@ -212,7 +212,8 @@ Object.values(LOADS).forEach(pr => pr.catch(() => {}));
 // Realistic rigged animals (Sketchfab, converted by blender/real_build.py; authors in assets/models/CREDITS.md). Each has its own
 // skeleton and clips (walk, run, graze, lie down...). `yaw` turns the model to face +Z; `like` is the old model whose size it takes.
 const REAL_CFG = {tiger:{yaw:Math.PI/2, like:'tiger', k:1.15}, deer:{like:'deer', k:1.45, parts:{antlers:'Chifre'}}, wolf:{like:'wolf', k:1.05},
-  moose:{like:'deer', k:1.9, parts:{antlers:'M_Moose_Antler'}}, horse:{like:'horse', k:1.25}, croc:{like:'croc', bright:1.8}, kangaroo:{like:'kangaroo', k:1.45}, heron:{like:'heron', k:1.1}, crab:{len:0.32}, hermit:{len:0.42}, seaturtle:{len:1.3}, penguin:{h:0.85}, flamingo:{len:1.3}, owl:{h:0.7}, peacock:{like:'peacock', k:1.15, stride:{walk:0.57}}, mangrove:{h:4.2}, fiddler:{len:0.3}, mudskipper:{len:0.34}, fishboat:{raw:true}, monkey:{len:1.7, stride:{walk:0.6, run:2.6}}, pondturtle:{len:0.75}, eagle:{len:1.6}, eagleperch:{h:1.35}};   // (raw: built at game size, origin at the keel)
+  moose:{like:'deer', k:1.9, parts:{antlers:'M_Moose_Antler'}}, horse:{like:'horse', k:1.25}, croc:{like:'croc', bright:1.8}, kangaroo:{like:'kangaroo', k:1.45}, heron:{like:'heron', k:1.1}, crab:{len:0.32}, hermit:{len:0.42}, seaturtle:{len:1.3}, penguin:{h:0.85}, flamingo:{len:1.3}, owl:{h:0.7}, peacock:{like:'peacock', k:1.15, stride:{walk:0.57}}, mangrove:{h:4.2}, fiddler:{len:0.3}, mudskipper:{len:0.34}, fishboat:{raw:true}, monkey:{len:1.7, stride:{walk:0.6, run:2.6}}, pondturtle:{len:0.75}, eagle:{len:1.6}, eagleperch:{h:1.35},
+  bug_rhino:{len:0.42}, bug_stag:{len:0.48}, bug_green:{len:0.3}, bug_longhorn:{len:0.5}, bug_grasshopper:{len:0.42}, bug_cricket:{len:0.38}, bug_mantis:{len:0.6}, bug_cicada:{len:0.4}};   // insects: CC0 scans, jointed legs   // (raw: built at game size, origin at the keel)
 const REAL_LOADS = Object.fromEntries(Object.keys(REAL_CFG).map(n => [n, new GLTFLoader().setDRACOLoader(draco).loadAsync(`assets/models/real/${n}.glb`)]));
 Object.values(REAL_LOADS).forEach(pr => pr.catch(() => {}));
 let gltf;
@@ -4638,6 +4639,7 @@ koalaPerches();
 const wild = createWildlife({scene, world, clone:animalClone, real: n => realClone(n), hbMat, mat, lod:furLOD, fx:{
   splash:(p, k) => { for (let i=0;i<10*k;i++){ const a = Math.random()*Math.PI*2; floatSprite(radialTex('rgba(225,240,248,1)','rgba(225,240,248,0)'), p.clone().setY(WATER_Y + 0.1), {size:0.35*k, vx:Math.cos(a)*rnd(1,2)*k, vz:Math.sin(a)*rnd(1,2)*k, vy:rnd(2,4)*k, g:9, max:0.9, grow:0}); } },
   spout:p => { for (let i=0;i<24;i++) floatSprite(radialTex('rgba(240,248,252,0.95)','rgba(240,248,252,0)'), p.clone(), {size:rnd(0.5,0.9), vx:rnd(-0.5,0.5), vz:rnd(-0.5,0.5), vy:rnd(5,8), g:6, max:1.6, grow:0.8, delay:i*0.02}); } }});
+wild.setTrunk(trunkShape);
 const wildPlaces = () => { wild.setPlaces(trees.filter(tr => !tr.cut).map(tr => tr.d), world.feats.filter(f => f.d.k === 'rock' && f.d.s > 0.5).map(f => ({x:f.d.x, z:f.d.z, y:f.g.position.y + 0.85*f.d.s})),
   [...world.feats.filter(f => f.d.k === 'bush').map(f => ({x:f.d.x, z:f.d.z, y:f.g.position.y + 0.78*f.d.s})), ...world.lockedAll('bushes')], world.lockedAll('trees'));
   fauna.setForestTrees([...trees.filter(tr => !tr.cut && world.inBio('forest', tr.d.x, tr.d.z) && !tr.d.pine).map(tr => tr.d), ...world.lockedTrees(BIO.forest)]); };

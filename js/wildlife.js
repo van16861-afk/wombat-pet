@@ -84,13 +84,13 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
     add('rabbit', g, {hit:0.4, hitY:0.25, home:w, state:'graze', timer:rnd(1, 4), earL:part(g, 'rabbit_earL'), earR:part(g, 'rabbit_earR')}); } });
   // beetles: rhinoceros and stag beetles on tree trunks, green scarabs on rocks
   const BEETLES = ['rhino', 'stag', 'rhino', 'stag', 'green', 'green', 'green'];
-  BEETLES.forEach((k, i) => { const g = clone('beetle_' + k); if (!g) return; g.scale.setScalar(2.4); g.rotation.order = 'YXZ'; g.visible = false;
+  BEETLES.forEach((k, i) => { const r_ = real && real('bug_' + k), g = r_ || clone('beetle_' + k); if (!g) return; if (!r_) g.scale.setScalar(2.4); g.rotation.order = 'YXZ'; g.visible = false;
     add('beetle', g, {hit:0.3, hitY:0.05, sort:k, bug:true, sp:k, hab:i < 4 ? 'tree' : 'rock', onTree:i < 4, spot:null, state:'away', timer:0}); });
   // more insects: cicadas and longhorn beetles on trunks, praying mantises on bushes, grasshoppers and crickets in the grass.
   // A plot never has more than two kinds of insect at once.
   for (const [k, hab, n] of [['cicada', 'tree', 3], ['longhorn', 'tree', 2], ['mantis', 'bush', 4], ['grasshopper', 'ground', 4], ['cricket', 'ground', 3]])
-    for (let i=0;i<n;i++){ const g = clone('bug_' + k); if (!g) break; g.scale.setScalar(2.6); g.rotation.order = 'YXZ'; g.visible = false;
-      if (k === 'mantis') g.scale.setScalar(3.6);   // bigger, so it can be spotted on a green bush
+    for (let i=0;i<n;i++){ const r_ = real && real('bug_' + k), g = r_ || clone('bug_' + k); if (!g) break; if (!r_) g.scale.setScalar(2.6); g.rotation.order = 'YXZ'; g.visible = false;
+      if (k === 'mantis' && !r_) g.scale.setScalar(3.6);   // bigger, so it can be spotted on a green bush
       add(k, g, {hit:0.3, hitY:0.05, bug:true, sp:k, hab, onTree:hab === 'tree', spot:null, state:'away', timer:rnd(0, 3)}); }
   // earthworms come up after rain (built here: a soft tube that wriggles in the vertex shader)
   const wormGeo = new THREE.CylinderGeometry(0.022, 0.022, 0.4, 8, 24, false); wormGeo.rotateZ(Math.PI/2);
@@ -104,6 +104,7 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
     add('worm', g, {hit:0.3, hitY:0.05, mat:m, state:'off', timer:rnd(2, 10)}); }
 
   let trees = [], rocks = [], bushes = [];
+  let trunkOf = null; L.setTrunk = fn => { trunkOf = fn; };   // the bark's real outline (game.js trunkShape): insects stay on its outside
   let wildTrees = [];   // trees on locked plots: insects can live there, owls and eagles keep to the yard's trees
   L.setPlaces = (treeList, rockList, bushList, wildList) => { trees = treeList; rocks = rockList; bushes = bushList || []; wildTrees = wildList || [];
     L.list.forEach(a => { if (a.kind === 'owl' && (!a.perch || !trees.includes(a.perch))) a.perch = trees[Math.floor(Math.random()*trees.length)] || null;
@@ -250,6 +251,21 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
     if (!a.hop) p.y = gy(p.x, p.z);
   }
   // ---------- beetles ----------
+  // the realistic insects (CC0 scans, jointed legs): walking legs while they move, wing cases open in flight, the grasshopper's
+  // kick, the mantis's strike, the cricket's chirp; still and twitching their antennae otherwise
+  function bugAnim(a, dt, o){
+    const u = a.g.userData; if (!u.mixer || !a.g.visible) return;
+    const p = a.g.position, mv = a.lastP ? Math.hypot(p.x - a.lastP.x, p.y - a.lastP.y, p.z - a.lastP.z)/Math.max(dt, 1e-4) : 0; (a.lastP || (a.lastP = p.clone())).copy(p);
+    a.strikeT = (a.strikeT || 0) - dt; a.chirpT = (a.chirpT || 0) - dt;
+    if (a.sp === 'mantis' && a.strikeT < -rnd(6, 14)) a.strikeT = 0.9;
+    if (a.sp === 'cricket' && o.night > 0.6 && a.chirpT < -rnd(2, 6)) a.chirpT = 1.5;
+    const want = a.state === 'fly' ? 'fly' : a.hop ? 'hop' : a.strikeT > 0 ? 'strike' : a.chirpT > 0 ? 'chirp' : mv > 0.01 ? 'walk' : 'idle';
+    const name = u.clips[want] ? want : u.clips.walk && want !== 'idle' ? 'walk' : u.clips.idle ? 'idle' : 'walk';
+    if (u.cur !== name){ const ac = u.mixer.clipAction(u.clips[name]); ac.reset().fadeIn(0.15).play(); if (u.act) u.act.fadeOut(0.15); u.act = ac; u.cur = name; }
+    u.act.timeScale = name === 'walk' ? clamp(mv/0.25, 0.4, 2) : name === 'hop' ? u.clips.hop.duration/0.35 : 1;
+    if (name === 'walk' && !u.clips.idle && mv < 0.01) u.act.timeScale = 0;   // (the cicada's only clip: held still)
+    u.mixer.update(dt);
+  }
   function beetle(a, dt, o){
     const p = a.g.position, s = a.spot;
     if (a.state === 'away'){ a.g.visible = false; if (a.timer <= 0){ placeBeetle(a); } return; }
@@ -272,9 +288,11 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
     if (a.timer <= 0){ a.timer = rnd(1.5, 5); a.dir = Math.random() < 0.35 ? 0 : (Math.random() < 0.5 ? 1 : -1); if (a.sp === 'cicada') a.dir = 0; }
     if (a.onTree){
       a.hgt = clamp(a.hgt + (a.dir || 0)*dt*0.06, 0.4, 1.2); a.ang += Math.sin(a.t*0.7)*dt*0.15;
-      const r = 0.2*s.s*(1 - 0.3*a.hgt/1.6) + 0.015, dx = Math.cos(a.ang), dz = Math.sin(a.ang);
-      p.set(s.x + dx*r, gy(s.x, s.z) + a.hgt*s.s, s.z + dz*r);
-      if ((a.dir || 0) < 0) a.g.rotation.set(Math.PI/2, Math.atan2(dx, dz), 0); else a.g.rotation.set(-Math.PI/2, Math.atan2(-dx, -dz), 0);   // belly on the bark, head up (or down)
+      const T = trunkOf ? trunkOf(s) : null, hh = a.hgt*s.s, upright = a.sp === 'cicada' && a.g.userData.mixer;   // (the scanned cicada's own clip already clings upright)
+      const r = T ? T.r(hh) + (upright ? 0.07 : 0.012) : 0.2*s.s*(1 - 0.3*a.hgt/1.6) + 0.015, dx = Math.cos(a.ang), dz = Math.sin(a.ang), ax = T ? T.axis(hh) : s;   // on the outside of the bark
+      p.set(ax.x + dx*r, gy(s.x, s.z) + hh, ax.z + dz*r);
+      if (upright) a.g.rotation.set(0, Math.atan2(-dz, dx), 0);   // back to the world, belly on the bark
+      else if ((a.dir || 0) < 0) a.g.rotation.set(Math.PI/2, Math.atan2(dx, dz), 0); else a.g.rotation.set(-Math.PI/2, Math.atan2(-dx, -dz), 0);   // belly on the bark, head up (or down)
     } else {
       a.ang += (a.dir || 0)*dt*0.4; const r = 0.25*(s.r || 1);
       p.set(s.x + Math.cos(a.ang)*r, s.y + 0.02, s.z + Math.sin(a.ang)*r); a.g.rotation.set(0, -a.ang + ((a.dir || 1) > 0 ? 0 : Math.PI), 0);
@@ -368,7 +386,7 @@ export function createWildlife({scene, world, clone, real, hbMat, fx, lod, mat})
           break; }
         case 'eagle': a.g.visible = !night || a.state === 'perch'; if (!night || a.state !== 'soar') eagle(a, dt, o); break;
         case 'rabbit': rabbit(a, dt, o); break;
-        case 'beetle': case 'cicada': case 'mantis': case 'longhorn': case 'grasshopper': case 'cricket': beetle(a, dt, o); break;
+        case 'beetle': case 'cicada': case 'mantis': case 'longhorn': case 'grasshopper': case 'cricket': beetle(a, dt, o); bugAnim(a, dt, o); break;
         case 'worm': worm(a, dt, o); break;
         case 'lizard': {
           const r = a.rock; a.g.visible = !night && !!r && a.state !== 'hidden';

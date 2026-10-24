@@ -291,3 +291,90 @@ SPECS["eagleperch"] = {"src": "eagleperch", "budget": 24000, "drop": ("lambert2"
         {"n": f"leg{k}", "p": "root", "h": (0.28, 0.3, 0.25*sg), "t": (0.2, 0.12, 0.25*sg), "zone": lambda f, u, s, sg=sg: u < 0.3 and f < 0.42 and s*sg > -0.05},
         {"n": f"foot{k}", "p": f"leg{k}", "h": (0.2, 0.12, 0.25*sg), "t": (0.1, 0.02, 0.25*sg), "zone": lambda f, u, s, sg=sg: u < 0.14 and f < 0.4 and s*sg > -0.05})],
 ]}
+
+# ---------------------------------------------------------------- insects: CC0 scans by ffish.asia / floraZia (Sketchfab), each rigged with a head, antennae,
+# six legs of two joints (femur, tibia + foot), and wing cases / wings where it flies
+SPECS["bug_longhorn"] = {"src": "bug_longhorn", "budget": 6000, "drop": ("Material",), "turn": 15, "bones": [], "clips": lambda lp: {}}   # (its long antennae pull the body axis askew)
+for _n in ("cicada", "mantis", "longhorn", "grasshopper", "cricket", "rhino", "stag", "green"):
+    SPECS.setdefault("bug_" + _n, {"src": "bug_" + _n, "budget": 6000, "drop": () if _n == "mantis" else ("Material",), "bones": [], "clips": lambda lp: {}})   # ("Material": the colour chart scanned with it; the mantis's own skin has that name)
+
+def _insect(head, legs, antenna=None, wings=None, knee_u=0.5, coxa_u=0.35, extra=(), mand=None):
+    """An insect skeleton from its measured points (f along the body, s out to the side; mirrored for the right side).
+    legs: [(coxa (f, s), knee (f, s), tip (f, s)) for the front, middle and hind pair] -> femur (coxa-knee) + tibia (knee-tip) each
+    head: (f of the neck, f of the face); antenna: (base (f, s), bend (f, s), tip (f, s)); wings: (front f, back f, s) for wing cases"""
+    hf, ff = head
+    bones = [{"n": "root", "h": (0.6, 0.45, 0), "t": (hf, 0.5, 0)},
+             {"n": "head", "p": "root", "h": (hf, 0.5, 0), "t": (ff, 0.5, 0), "zone": lambda f, u, s, hf=hf: f < hf + 0.03 and abs(s) < 0.4}]
+    for k, sg in (("L", 1), ("R", -1)):
+        sd = (lambda s, sg=sg: s*sg > 0.05)
+        for i, (c, kn, tp) in enumerate(legs, 1):
+            ku = knee_u[i - 1] if isinstance(knee_u, tuple) else knee_u
+            lo, hi = min(c[0], kn[0], tp[0]) - 0.06, max(c[0], kn[0], tp[0]) + 0.06
+            z = lambda f, u, s, lo=lo, hi=hi, sd=sd, c=c: lo < f < hi and sd(s) and abs(s) > c[1]*0.8 and u < 0.75
+            bones += [{"n": f"femur{k}{i}", "p": "root", "h": (c[0], coxa_u, c[1]*sg), "t": (kn[0], ku, kn[1]*sg), "zone": z},
+                      {"n": f"tibia{k}{i}", "p": f"femur{k}{i}", "h": (kn[0], ku, kn[1]*sg), "t": (tp[0], 0.02, tp[1]*sg),
+                       "zone": lambda f, u, s, z=z, kn=kn: z(f, u, s) and abs(s) > kn[1]*0.75}]
+        if antenna:
+            (b, m, t) = antenna
+            az = lambda f, u, s, sd=sd, hf=hf, b=b: sd(s) and (f < hf - 0.02 or abs(s) > 0.45) and u > 0.3 and abs(s) > b[1]*0.5
+            bones += [{"n": f"ant{k}", "p": "head", "h": (b[0], 0.55, b[1]*sg), "t": (m[0], 0.6, m[1]*sg), "zone": az},
+                      {"n": f"ant{k}2", "p": f"ant{k}", "h": (m[0], 0.6, m[1]*sg), "t": (t[0], 0.6, t[1]*sg), "zone": lambda f, u, s, az=az, m=m: az(f, u, s) and abs(s) > m[1]*0.6}]
+        if wings:
+            wf, wb, ws = wings
+            bones += [{"n": f"elytron{k}", "p": "root", "h": (wf, 0.8, 0.06*sg), "t": (wb, 0.7, ws*sg), "zone": lambda f, u, s, wf=wf, wb=wb, sd=sd: wf - 0.02 < f < wb + 0.03 and u > 0.55 and sd(s)}]
+        if mand:
+            mb, mt = mand
+            bones += [{"n": f"mand{k}", "p": "head", "h": (mb[0], 0.4, mb[1]*sg), "t": (mt[0], 0.4, mt[1]*sg), "zone": lambda f, u, s, mb=mb, sd=sd: f < mb[0] + 0.02 and sd(s)}]
+    return bones + list(extra)
+
+def _insect_clips(lp, kind):
+    LEGS = [("L", 1, 0), ("R", 2, 0), ("L", 3, 0), ("R", 1, 1), ("L", 2, 1), ("R", 3, 1)]   # two tripods
+    def legs(t, amp, hind=1.0):
+        out = {}
+        for k, i, grp in LEGS:
+            ph = t*2*math.pi + grp*math.pi; up = amp*max(0, math.sin(ph)); sw = 0.45*amp*math.cos(ph)*(hind if i == 3 else 1); sg = 1 if k == "L" else -1
+            out[f"femur{k}{i}"] = (0, sg*sw, sg*up)     # swing fore and aft about the up axis, lift about the body's length
+            out[f"tibia{k}{i}"] = (0, 0, -sg*0.55*up)   # the knee bends as the foot comes up
+        return out
+    ants = lambda t, a=0.25: {"antL": (0.1*math.sin(t*2*math.pi*2), a*math.sin(t*2*math.pi), 0), "antR": (0.1*math.sin(t*2*math.pi*2 + 1), -a*math.sin(t*2*math.pi + 0.8), 0),
+                              "antL2": (0, 0.2*math.sin(t*2*math.pi + 0.5), 0), "antR2": (0, -0.2*math.sin(t*2*math.pi + 1.3), 0)}
+    walk = [(t, {**legs(t, 0.5), **ants(t, 0.12), "root": (0, 0, 0.03*math.sin(t*4*math.pi))}) for t in [i/12 for i in range(13)]]
+    idle = [(t, {**ants(t), "head": (0.03*math.sin(t*2*math.pi), 0.08*math.sin(t*2*math.pi), 0)}) for t in [i/8 for i in range(9)]]
+    clips = {"walk": (0.6, walk), "idle": (3.0, idle)}
+    if kind in ("rhino", "stag", "green", "longhorn"):   # take-off: the wing cases swing up and out, legs fold up
+        op = {"elytronL": (-0.5, 0, -1.0), "elytronR": (-0.5, 0, 1.0), **{f"femur{k}{i}": (0, 0, -0.4*(1 if k == "L" else -1)) for k in "LR" for i in (1, 2, 3)}}
+        clips["fly"] = (0.4, [(0, op), (0.5, {**op, "root": (-0.06, 0, 0)}), (1, op)])
+    if kind == "stag":   # the mandibles open and close (a threat display)
+        th = {"mandL": (0, -0.5, 0), "mandR": (0, 0.5, 0), "head": (-0.25, 0, 0), **{f"femur{k}3": (0, 0, -0.25*(1 if k == "L" else -1)) for k in "LR"}}
+        clips["display"] = (1.6, [(0, {}), (0.3, th), (0.7, th), (1.0, {})])
+    if kind == "grasshopper":   # hop: crouch, the big hind tibiae snap straight back, legs trail in the air, fold again
+        crouch = {"root": (0.08, 0, 0), **{f"femur{k}3": (-0.15, 0, 0) for k in "LR"}}
+        kick = {"root": (-0.15, 0, 0), **{f"tibia{k}3": (1.9, 0, 0) for k in "LR"}, **{f"femur{k}3": (0.25, 0, 0) for k in "LR"},
+                **{f"femur{k}{i}": (0.5, 0, 0) for k in "LR" for i in (1, 2)}}
+        clips["hop"] = (0.5, [(0, {}), (0.2, crouch), (0.35, kick), (0.75, kick), (1.0, {})])
+        clips["walk"] = (0.8, [(t, {**legs(t, 0.4, hind=0.4), **ants(t, 0.1)}) for t in [i/12 for i in range(13)]])
+    if kind == "cricket":   # chirp: the wings rise a little and buzz against each other
+        clips["chirp"] = (1.0, [(t, {"elytronL": (-0.25 - 0.06*math.sin(t*2*math.pi*12), 0, 0), "elytronR": (-0.25 - 0.06*math.sin(t*2*math.pi*12 + 1), 0, 0), **ants(t, 0.15)}) for t in [i/48 for i in range(49)]])
+    if kind == "mantis":   # waits with its raptorial legs folded up in front (praying), turns its head, and strikes
+        pray = {"femurL1": (-0.9, 0, 0), "femurR1": (-0.9, 0, 0), "tibiaL1": (2.2, 0, 0), "tibiaR1": (2.2, 0, 0)}
+        clips["idle"] = (4.0, [(t, {**pray, "head": (0, 0.55*math.sin(t*2*math.pi), 0), **ants(t, 0.15)}) for t in [i/8 for i in range(9)]])
+        reach = {"femurL1": (-0.3, 0, 0), "femurR1": (-0.3, 0, 0), "tibiaL1": (0.2, 0, 0), "tibiaR1": (0.2, 0, 0), "root": (-0.05, 0, 0)}
+        clips["strike"] = (0.9, [(0, pray), (0.15, reach), (0.3, pray), (1.0, pray)])
+        clips["walk"] = (0.9, [(t, {**legs(t, 0.4), **pray}) for t in [i/12 for i in range(13)]])
+    return clips
+
+B_ = {}
+B_["rhino"] = _insect((0.2, 0.06), [((0.3, 0.27), (0.24, 0.57), (0.03, 0.5)), ((0.42, 0.4), (0.5, 0.72), (0.6, 0.97)), ((0.44, 0.25), (0.62, 0.6), (0.94, 0.79))], wings=(0.38, 0.95, 0.42))
+B_["stag"] = _insect((0.3, 0.24), [((0.46, 0.38), (0.37, 0.82), (0.24, 0.98)), ((0.57, 0.38), (0.66, 0.61), (0.77, 0.7)), ((0.7, 0.35), (0.88, 0.41), (0.98, 0.44))],
+                     wings=(0.55, 0.97, 0.4), mand=((0.27, 0.2), (0.03, 0.35)), knee_u=0.45)
+B_["green"] = _insect((0.2, 0.08), [((0.3, 0.22), (0.24, 0.44), (0.08, 0.63)), ((0.38, 0.32), (0.39, 0.63), (0.39, 0.98)), ((0.56, 0.32), (0.69, 0.48), (0.97, 0.6))], wings=(0.33, 0.97, 0.42))
+B_["longhorn"] = _insect((0.2, 0.08), [((0.24, 0.08), (0.17, 0.22), (0.05, 0.3)), ((0.35, 0.11), (0.5, 0.24), (0.61, 0.3)), ((0.42, 0.09), (0.69, 0.22), (0.99, 0.35))],
+                         antenna=((0.17, 0.06), (0.35, 0.45), (0.6, 0.99)), wings=(0.3, 0.8, 0.1))
+B_["grasshopper"] = _insect((0.36, 0.28), [((0.4, 0.25), (0.31, 0.55), (0.23, 0.7)), ((0.51, 0.25), (0.56, 0.55), (0.64, 0.7)), ((0.63, 0.25), (0.81, 0.55), (0.8, 0.6))],
+                            antenna=((0.3, 0.06), (0.15, 0.1), (0.01, 0.12)), knee_u=(0.34, 0.26, 0.96))
+B_["cricket"] = _insect((0.3, 0.24), [((0.38, 0.15), (0.37, 0.4), (0.4, 0.56)), ((0.44, 0.15), (0.44, 0.35), (0.49, 0.56)), ((0.5, 0.15), (0.69, 0.45), (0.88, 0.66))],
+                        antenna=((0.26, 0.05), (0.12, 0.4), (0.01, 0.9)), wings=(0.36, 0.7, 0.15), knee_u=(0.45, 0.4, 0.7))
+B_["mantis"] = _insect((0.29, 0.21), [((0.3, 0.12), (0.1, 0.15), (0.02, 0.15)), ((0.49, 0.3), (0.45, 0.45), (0.41, 0.6)), ((0.62, 0.3), (0.79, 0.45), (0.985, 0.6))],
+                       antenna=((0.23, 0.04), (0.16, 0.1), (0.1, 0.15)), knee_u=(0.62, 0.34, 0.36), coxa_u=0.5)
+for _n, _fl in (("rhino", False), ("stag", False), ("green", True), ("longhorn", False), ("grasshopper", True), ("cricket", True), ("mantis", False)):
+    SPECS["bug_" + _n] = {**SPECS["bug_" + _n], "flip": _fl, "budget": 6000, "bones": B_[_n], "clips": (lambda lp, n=_n: _insect_clips(lp, n))}

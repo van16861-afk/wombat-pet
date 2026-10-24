@@ -27,6 +27,9 @@ def prep(name, src, budget, flip=False, turn=0, drop=()):
     bpy.context.view_layer.objects.active = meshes[0]
     if len(meshes) > 1: bpy.ops.object.join()
     ob = bpy.context.view_layer.objects.active; ob.name = name; me = ob.data
+    # scans come split into 65k-vertex pieces (and some with every triangle loose): weld them back into one surface first,
+    # or the reduction below tears them apart
+    bm = bmesh.new(); bm.from_mesh(me); dmax = max(ob.dimensions); bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=dmax*2e-5); bm.to_mesh(me); bm.free()
     # main horizontal axis (PCA on the ground plane) -> Y
     vs = [v.co for v in me.vertices]; n = len(vs)
     mx = sum(v.x for v in vs)/n; my = sum(v.y for v in vs)/n

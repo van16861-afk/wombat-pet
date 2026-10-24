@@ -4,7 +4,7 @@
 # - drops parts the game doesn't want (saddles, helper spheres), decimates to a phone-friendly triangle budget
 # - textures shrunk to 512 px WebP; spec/gloss materials come out as standard metal/rough (three.js reads those)
 # - only the clips the game uses are kept, renamed to short names (idle, walk, run, eat, lie, ...)
-import bpy, os
+import bpy, bmesh, os
 SRC = r"C:\Users\User\Documents\wombat-pet\assets\source\sketchfab"
 OUT = r"C:\Users\User\Documents\wombat-pet\assets\models\real"
 # name: (source file, triangle budget, {game clip: source clip}, material names to drop)
@@ -21,6 +21,7 @@ MODELS = {
     "seaturtle": ("seaturtle", 6000, {"swim": "Swim Cycle"}, []),
     "fiddler": ("fiddler", 3000, {"dance": "Dance"}, ["AOFLoor"]),
     "penguin": ("penguin", 3500, {"idle": "Iddle", "walk": "Walk", "slide": "Slide", "peck": "Bite", "fall": "Fall"}, []),
+    "bug_cicada": ("bug_cicada", 7000, {"walk": "Animation"}, []),   # (CC0 scan with its own rig: five-joint legs, wings; its clip is a slow walk)
     "pondturtle": ("pondturtle", 24000, {"walk": "Animation"}, ["Object_8"]),   # (CC0 scan with its own rig: neck + head, three bones a limb, five in the tail; one diagonal crawl clip)
 }
 # these keep the file's own rest pose (Blender's bind-pose guess tips them on their side)
@@ -88,6 +89,7 @@ def build(name, src, budget, clips, drop):
     total = sum(len(o.data.polygons) for o in meshes)   # (quads count once; close enough for a budget)
     ratio = min(1.0, budget/max(1, sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in meshes)))
     for o in meshes:
+        bm = bmesh.new(); bm.from_mesh(o.data); bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=max(o.dimensions)*2e-5); bm.to_mesh(o.data); bm.free()   # (scans come in loose 65k pieces)
         if ratio < 0.98:
             d = o.modifiers.new("Dec", 'DECIMATE'); d.ratio = ratio; d.use_collapse_triangulate = True
             bpy.context.view_layer.objects.active = o
