@@ -21,5 +21,6 @@ Short clips (trimmed, volume-levelled, converted to mp3) from recordings on Wiki
 | penguin1, penguin2 | [Humboldt Penguins](https://freesound.org/people/GirlWithSoundRecorder/sounds/700949/) (Freesound) | GirlWithSoundRecorder | CC0 |
 | flamingo1, flamingo2 | [Flamingos](https://freesound.org/people/Breviceps/sounds/535778/) (Freesound) | Breviceps | CC0 |
 | donkey1, donkey2 | [A donkey is braying in his enclosure in south of France](https://commons.wikimedia.org/wiki/File:157763_felix-blume_a-donkey-is-braying-in-his-enclosure-in-south-of-france.wav) | Felix Blume | CC0 |
+| fox1, fox2 | [Red Fox (Vulpes vulpes) (W1CDR0001529 BD12).ogg](https://commons.wikimedia.org/wiki/File:Red_Fox_(Vulpes_vulpes)_(W1CDR0001529_BD12).ogg) | British Library (Wildlife Sounds) | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) |
 
 The CC BY-SA clips are shared under the same licence as their sources.

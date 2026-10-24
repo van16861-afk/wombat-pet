@@ -11,7 +11,7 @@ const rnd = (a, b) => a + Math.random()*(b - a);
 const wrapA = a => { while (a > Math.PI) a -= 2*Math.PI; while (a < -Math.PI) a += 2*Math.PI; return a; };
 const plotC = k => k.split(',').map(Number).map(v => v*PLOT);
 
-export const SPECIES = {donkey:'驢子', crane:'丹頂鶴', monkey:'台灣獼猴', horse:'馬', tiger:'老虎', hippo:'河馬', capybara:'水豚', tortoise:'陸龜', snake:'蛇', peacock:'孔雀', deer:'梅花鹿', wolf:'狼', moose:'駝鹿', frog:'青蛙', dragonfly:'蜻蜓', turtle:'烏龜', croc:'鱷魚', heron:'蒼鷺', beaver:'河狸', kangaroo:'袋鼠', quokka:'短尾矮袋鼠（微笑袋鼠）', emu:'鴯鶓', koala:'無尾熊'};
+export const SPECIES = {fox:'紅狐狸', donkey:'驢子', crane:'丹頂鶴', monkey:'台灣獼猴', horse:'馬', tiger:'老虎', hippo:'河馬', capybara:'水豚', tortoise:'陸龜', snake:'蛇', peacock:'孔雀', deer:'梅花鹿', wolf:'狼', moose:'駝鹿', frog:'青蛙', dragonfly:'蜻蜓', turtle:'烏龜', croc:'鱷魚', heron:'蒼鷺', beaver:'河狸', kangaroo:'袋鼠', quokka:'短尾矮袋鼠（微笑袋鼠）', emu:'鴯鶓', koala:'無尾熊'};
 
 export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod}){
   const model = (name, fn) => { const m = clone && clone(name); return m ? (fn && fn(m)) || m : null; };   // the Blender model when there is one
@@ -283,6 +283,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
   F.list.forEach((a_, i_) => { a_.idx_ = i_*1.7; });
   put('horse', 3, o => areaLand(o.area), {hit:1.1, hitY:1.2, vary:true, area:BIO.savanna});
   put('donkey', 2, o => areaLand(o.area), {hit:0.9, hitY:0.9, vary:true, area:BIO.savanna});   // (realistic model only)
+  put('fox', 2, o => areaLand(o.area), {hit:0.55, hitY:0.45, area:BIO.meadow});   // red foxes in the flower meadow (realistic model only)
   put('tiger', 2, o => areaLand(o.area, 3), {hit:0.9, hitY:0.6, area:BIO.forest});   // never more than two
   put('peacock', 2, o => areaLand(o.area), {hit:0.5, hitY:0.8, area:'0,1'});
   put('tortoise', 2, o => areaLand(o.area), {hit:0.45, hitY:0.2, area:'-1,-1'});
@@ -554,6 +555,32 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
           else legSwing(a, 0, 1);
           p.y = gy(p.x, p.z);
           break; }
+        case 'fox': {   // red foxes in the flower meadow: wander, stalk something in the grass and pounce on it (the high "mousing" leap), eat,
+          // sit, lie down for a rest; they bark (more at night) and trot off when the wombat comes close
+          const ok = aOK(a), night = o.night || 0;
+          if (Math.random() < dt*(night > 0.5 ? 0.02 : 0.004)) sound('foxcall', p);
+          if (petD < 3.5 && !['flee', 'lie', 'lieDown'].includes(a.state)){ a.state = 'flee'; a.timer = rnd(2.5, 4); sound('foxcall', p); a.dest = p.clone().addScaledVector(V3(p.x - pet.x, 0, p.z - pet.z).normalize(), 7); }
+          if (a.state === 'lie' && petD < 3){ a.state = 'getUp'; a.timer = 9; }
+          if (a.timer <= 0){ const r_ = Math.random(); a.timer = rnd(4, 9);
+            if (a.state === 'lie'){ a.state = 'getUp'; a.timer = 9; }
+            else if (['idle', 'sit', 'walk', 'eat', 'look', 'flee'].includes(a.state)){
+              if (r_ < 0.35){ a.state = 'stalk'; const t_ = areaLand(a.area); a.dest = p.clone().lerp(t_, Math.min(1, 3/Math.max(0.1, p.distanceTo(t_)))); a.timer = 12; }
+              else if (r_ < 0.6){ a.state = 'walk'; a.dest = areaLand(a.area); }
+              else if (r_ < 0.75){ a.state = 'sit'; }
+              else if (r_ < 0.88){ a.state = 'lieDown'; a.timer = rnd(12, 25); }
+              else a.state = 'look'; } }
+          if (a.state === 'lieDown' || a.state === 'lie'){ if (clipThen(a, 'lieDown', 'lie')) a.state = 'lie'; a.pose = true; p.y = gy(p.x, p.z); break; }
+          if (a.state === 'getUp'){ if (clipThen(a, 'getUp', 'idle')){ a.state = 'idle'; a.timer = rnd(3, 6); } a.pose = true; p.y = gy(p.x, p.z); break; }
+          if (a.state === 'stalk' && a.dest){   // creeping low towards the rustle, then the leap
+            if (goTo(a, a.dest, 0.35, dt, ok, 2)){ a.state = 'pounce'; a.st = 0; a.from = p.clone(); a.dir = V3(Math.sin(a.g.rotation.y), 0, Math.cos(a.g.rotation.y)); }
+            a.pose = 'sneak'; p.y = gy(p.x, p.z); break; }
+          if (a.state === 'pounce'){ a.st += dt; const pc = a.g.userData.clips.pounce, dur = pc ? pc.duration : 0.9, u = Math.min(1, a.st/dur);
+            clip(a, 'pounce', 1, true); a.pose = true; const nx = a.from.x + a.dir.x*0.8*u, nz = a.from.z + a.dir.z*0.8*u; if (ok(nx, nz)){ p.x = nx; p.z = nz; } p.y = gy(p.x, p.z);
+            if (u >= 1){ a.state = 'eat'; a.timer = rnd(2.5, 4); } break; }
+          if ((a.state === 'walk' || a.state === 'flee') && a.dest){ if (goTo(a, a.dest, a.state === 'flee' ? 3.2 : 0.9, dt, ok, 3)){ a.state = 'idle'; a.timer = rnd(2, 5); } a.pose = null; p.y = gy(p.x, p.z); break; }
+          a.pose = a.state === 'eat' ? 'eat' : a.state === 'sit' ? 'sit' : a.state === 'look' ? 'look' : 'idle';
+          if (pet && petD < 8) lookAt(a, pet.x, pet.z);
+          p.y = gy(p.x, p.z); break; }
         case 'donkey': {   // grazes and ambles near the horses; doesn't bolt like a horse when the wombat comes, it stands, stares and brays
           if (petD < 4 && !(a.cool > 0)){ a.state = 'bray'; a.timer = 2.6; a.cool = 15; a.dest = null; sound('bray', p); }
           a.cool = (a.cool || 0) - dt;

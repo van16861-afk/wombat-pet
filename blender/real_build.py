@@ -21,11 +21,13 @@ MODELS = {
     "seaturtle": ("seaturtle", 6000, {"swim": "Swim Cycle"}, []),
     "fiddler": ("fiddler", 3000, {"dance": "Dance"}, ["AOFLoor"]),
     "penguin": ("penguin", 3500, {"idle": "Iddle", "walk": "Walk", "slide": "Slide", "peck": "Bite", "fall": "Fall"}, []),
+    "fox": ("fox", 9000, {"idle": "A1_Stand_Idle_02", "eat": "A2_Stand_Eating_01", "walk": "Loco_Walk", "trot": "Trot", "run": "Run", "sneak": "Sneak", "pounce": "CanonBall",
+                         "lie": "Lying_Idle_01", "lieDown": "Trans_Stand_to_Lying", "getUp": "Trans_Lying_to_Stand", "sit": "Sitting_Idle_01", "look": "A3_Stand_Idle_01"}, []),
     "bug_cicada": ("bug_cicada", 7000, {"walk": "Animation"}, []),   # (CC0 scan with its own rig: five-joint legs, wings; its clip is a slow walk)
     "pondturtle": ("pondturtle", 24000, {"walk": "Animation"}, ["Object_8"]),   # (CC0 scan with its own rig: neck + head, three bones a limb, five in the tail; one diagonal crawl clip)
 }
 # these keep the file's own rest pose (Blender's bind-pose guess tips them on their side)
-RAW_BIND = {"wolf", "croc", "moose", "horse", "penguin"}
+RAW_BIND = {"wolf", "croc", "moose", "horse", "penguin", "fox"}
 os.makedirs(OUT, exist_ok=True)
 only = [s for s in os.environ.get("ONLY", "").split(",") if s]
 
