@@ -11,7 +11,7 @@ const rnd = (a, b) => a + Math.random()*(b - a);
 const wrapA = a => { while (a > Math.PI) a -= 2*Math.PI; while (a < -Math.PI) a += 2*Math.PI; return a; };
 const plotC = k => k.split(',').map(Number).map(v => v*PLOT);
 
-export const SPECIES = {crane:'丹頂鶴', monkey:'台灣獼猴', horse:'馬', tiger:'老虎', hippo:'河馬', capybara:'水豚', tortoise:'陸龜', snake:'蛇', peacock:'孔雀', deer:'梅花鹿', wolf:'狼', moose:'駝鹿', frog:'青蛙', dragonfly:'蜻蜓', turtle:'烏龜', croc:'鱷魚', heron:'蒼鷺', beaver:'河狸', kangaroo:'袋鼠', quokka:'短尾矮袋鼠（微笑袋鼠）', emu:'鴯鶓', koala:'無尾熊'};
+export const SPECIES = {donkey:'驢子', crane:'丹頂鶴', monkey:'台灣獼猴', horse:'馬', tiger:'老虎', hippo:'河馬', capybara:'水豚', tortoise:'陸龜', snake:'蛇', peacock:'孔雀', deer:'梅花鹿', wolf:'狼', moose:'駝鹿', frog:'青蛙', dragonfly:'蜻蜓', turtle:'烏龜', croc:'鱷魚', heron:'蒼鷺', beaver:'河狸', kangaroo:'袋鼠', quokka:'短尾矮袋鼠（微笑袋鼠）', emu:'鴯鶓', koala:'無尾熊'};
 
 export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod}){
   const model = (name, fn) => { const m = clone && clone(name); return m ? (fn && fn(m)) || m : null; };   // the Blender model when there is one
@@ -282,6 +282,7 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
       mine.push(q); g.position.set(q.x, gy(q.x, q.z), q.z); g.rotation.y = rnd(0, 6.28); add(kind, g, {...oo, per:undefined, home:q.clone()}); } };
   F.list.forEach((a_, i_) => { a_.idx_ = i_*1.7; });
   put('horse', 3, o => areaLand(o.area), {hit:1.1, hitY:1.2, vary:true, area:BIO.savanna});
+  put('donkey', 2, o => areaLand(o.area), {hit:0.9, hitY:0.9, vary:true, area:BIO.savanna});   // (realistic model only)
   put('tiger', 2, o => areaLand(o.area, 3), {hit:0.9, hitY:0.6, area:BIO.forest});   // never more than two
   put('peacock', 2, o => areaLand(o.area), {hit:0.5, hitY:0.8, area:'0,1'});
   put('tortoise', 2, o => areaLand(o.area), {hit:0.45, hitY:0.2, area:'-1,-1'});
@@ -553,6 +554,16 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
           else legSwing(a, 0, 1);
           p.y = gy(p.x, p.z);
           break; }
+        case 'donkey': {   // grazes and ambles near the horses; doesn't bolt like a horse when the wombat comes, it stands, stares and brays
+          if (petD < 4 && !(a.cool > 0)){ a.state = 'bray'; a.timer = 2.6; a.cool = 15; a.dest = null; sound('bray', p); }
+          a.cool = (a.cool || 0) - dt;
+          if (a.state === 'bray'){ if (pet) face(a, pet.x - p.x, pet.z - p.z, dt, 3); a.pose = 'bray'; if (a.timer <= 0){ a.state = 'graze'; a.timer = rnd(4, 8); } p.y = gy(p.x, p.z); break; }
+          if (Math.random() < dt*0.006){ a.state = 'bray'; a.timer = 2.6; sound('bray', p); }
+          if (a.timer <= 0){ const r_ = Math.random(); if (r_ < 0.45){ a.state = 'walk'; a.timer = rnd(5, 9); a.dest = areaLand(a.area); } else { a.state = r_ < 0.8 ? 'graze' : 'idle'; a.timer = rnd(5, 12); } }
+          if (a.state === 'walk' && a.dest){ if (goTo(a, a.dest, 0.9, dt, aOK(a), 2.5)){ a.state = 'graze'; a.timer = rnd(4, 9); } }
+          else a.pose = a.state === 'graze' ? 'eat' : 'idle';
+          if (pet && petD < 8 && a.state !== 'walk') lookAt(a, pet.x, pet.z);
+          p.y = gy(p.x, p.z); break; }
         case 'horse': {   // graze in a loose herd, wander, and gallop off when the wombat comes close
           const neck = pt(a.g, 'horse_neck'), tail = pt(a.g, 'horse_tail');
           if (Math.random() < dt*0.012) sound('neigh', p);

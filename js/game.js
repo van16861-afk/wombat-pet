@@ -213,7 +213,8 @@ Object.values(LOADS).forEach(pr => pr.catch(() => {}));
 // skeleton and clips (walk, run, graze, lie down...). `yaw` turns the model to face +Z; `like` is the old model whose size it takes.
 const REAL_CFG = {tiger:{yaw:Math.PI/2, like:'tiger', k:1.15}, deer:{like:'deer', k:1.45, parts:{antlers:'Chifre'}}, wolf:{like:'wolf', k:1.05},
   moose:{like:'deer', k:1.9, parts:{antlers:'M_Moose_Antler'}}, horse:{like:'horse', k:1.25}, croc:{like:'croc', bright:1.8}, kangaroo:{like:'kangaroo', k:1.45}, heron:{like:'heron', k:1.1}, crab:{len:0.32}, hermit:{len:0.42}, seaturtle:{len:1.3}, penguin:{h:0.85}, flamingo:{len:1.3}, owl:{h:0.7}, peacock:{like:'peacock', k:1.15, stride:{walk:0.57}}, mangrove:{h:4.2}, fiddler:{len:0.3}, mudskipper:{len:0.34}, fishboat:{raw:true}, monkey:{len:1.7, stride:{walk:0.6, run:2.6}}, pondturtle:{len:0.75}, eagle:{len:1.6}, eagleperch:{h:1.35},
-  bug_rhino:{len:0.42}, bug_stag:{len:0.48}, bug_green:{len:0.3}, bug_longhorn:{len:0.5}, bug_grasshopper:{len:0.42}, bug_cricket:{len:0.38}, bug_mantis:{len:0.6}, bug_cicada:{len:0.4}};   // insects: CC0 scans, jointed legs   // (raw: built at game size, origin at the keel)
+  bug_rhino:{len:0.42}, bug_stag:{len:0.48}, bug_green:{len:0.3}, bug_longhorn:{len:0.5}, bug_grasshopper:{len:0.42}, bug_cricket:{len:0.38}, bug_mantis:{len:0.6}, bug_cicada:{len:0.4},   // insects: CC0 scans, jointed legs
+  donkey:{len:1.8, stride:{walk:0.55, run:1.6}}};   // (raw: built at game size, origin at the keel)
 const REAL_LOADS = Object.fromEntries(Object.keys(REAL_CFG).map(n => [n, new GLTFLoader().setDRACOLoader(draco).loadAsync(`assets/models/real/${n}.glb`)]));
 Object.values(REAL_LOADS).forEach(pr => pr.catch(() => {}));
 let gltf;
@@ -1475,7 +1476,7 @@ function updateAmbience(dt, t, night){
 }
 // Real animal recordings (assets/sounds, credits in assets/sounds/CREDITS.md): each sound name has one or two short clips.
 // Until they have loaded (or if they fail) the synthesised versions below are used.
-const ANIMAL_CLIPS = {howl:['wolf1', 'wolf2'], croak:['frog1', 'frog2'], bellow:['croc1', 'croc2'], neigh:['horse1'], roar:['tiger1', 'tiger2'], peacock:['peacock1', 'peacock2'],
+const ANIMAL_CLIPS = {bray:['donkey1', 'donkey2'], howl:['wolf1', 'wolf2'], croak:['frog1', 'frog2'], bellow:['croc1', 'croc2'], neigh:['horse1'], roar:['tiger1', 'tiger2'], peacock:['peacock1', 'peacock2'],
   hoot:['owl1', 'owl2'], eagle:['eagle1'], gull:['gull1', 'gull2'], heron:['heron1'], deer:['deer1', 'deer2'], whale:['whale1'], emu:['emu1'], moose:['moose1', 'moose2'], penguin:['penguin1', 'penguin2'], flamingo:['flamingo1', 'flamingo2']};
 const ACLIP = {}, clipBusy = {}; let aclipLoading = false;
 function loadAnimalClips(){
@@ -2184,7 +2185,7 @@ function pickShell(s){
   if (S.shells === 1 || S.shells % 10 === 0) toast(`撿到貝殼了！目前一共撿了 ${S.shells} 個。`);
 }
 let wetUntil = 0;
-const ANIMAL_ICON = {crane:'🦩', monkey:'🐒', cicada:'🪰', mantis:'🦗', longhorn:'🪲', grasshopper:'🦗', cricket:'🦗', horse:'🐎', tiger:'🐅', hippo:'🦛', capybara:'🐹', tortoise:'🐢', snake:'🐍', peacock:'🦚', rabbit:'🐇', beetle:'🪲', worm:'🪱', fish:'🐟', deer:'🦌', moose:'🫎', wolf:'🐺', gull:'🐦', dolphin:'🐬', whale:'🐋', owl:'🦉', eagle:'🦅', lizard:'🦎', seafish:'🐠', frog:'🐸', dragonfly:'🪰', turtle:'🐢', croc:'🐊', heron:'🪿', beaver:'🦫', kangaroo:'🦘', quokka:'😊', emu:'🦤', koala:'🐨', crab:'🦀'};
+const ANIMAL_ICON = {donkey:'🫏', crane:'🦩', monkey:'🐒', cicada:'🪰', mantis:'🦗', longhorn:'🪲', grasshopper:'🦗', cricket:'🦗', horse:'🐎', tiger:'🐅', hippo:'🦛', capybara:'🐹', tortoise:'🐢', snake:'🐍', peacock:'🦚', rabbit:'🐇', beetle:'🪲', worm:'🪱', fish:'🐟', deer:'🦌', moose:'🫎', wolf:'🐺', gull:'🐦', dolphin:'🐬', whale:'🐋', owl:'🦉', eagle:'🦅', lizard:'🦎', seafish:'🐠', frog:'🐸', dragonfly:'🪰', turtle:'🐢', croc:'🐊', heron:'🪿', beaver:'🦫', kangaroo:'🦘', quokka:'😊', emu:'🦤', koala:'🐨', crab:'🦀'};
 function pokeAnimal(a){
   const k = (a.kind in WILD_NAMES ? wild : fauna).poke(a), first = !stat('meet:' + k);
   track('meet:' + k); if (!a.tappedOnce){ a.tappedOnce = true; track('meetU:' + k); learnSkills(k); }   // different animals of a kind (for skills) floatSprite(emojiTex(ANIMAL_ICON[k] || '❗'), a.g.position.clone().add(V3(0, 1.4, 0)), {size:0.55, vy:0.6, max:1.4});

@@ -20,5 +20,6 @@ Short clips (trimmed, volume-levelled, converted to mp3) from recordings on Wiki
 | moose1, moose2 | [Moose_Elk.mp3](https://freesound.org/people/gleith/sounds/486554/) (Freesound) | gleith | CC0 |
 | penguin1, penguin2 | [Humboldt Penguins](https://freesound.org/people/GirlWithSoundRecorder/sounds/700949/) (Freesound) | GirlWithSoundRecorder | CC0 |
 | flamingo1, flamingo2 | [Flamingos](https://freesound.org/people/Breviceps/sounds/535778/) (Freesound) | Breviceps | CC0 |
+| donkey1, donkey2 | [A donkey is braying in his enclosure in south of France](https://commons.wikimedia.org/wiki/File:157763_felix-blume_a-donkey-is-braying-in-his-enclosure-in-south-of-france.wav) | Felix Blume | CC0 |
 
 The CC BY-SA clips are shared under the same licence as their sources.

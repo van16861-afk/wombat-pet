@@ -378,3 +378,65 @@ B_["mantis"] = _insect((0.29, 0.21), [((0.3, 0.12), (0.1, 0.15), (0.02, 0.15)), 
                        antenna=((0.23, 0.04), (0.16, 0.1), (0.1, 0.15)), knee_u=(0.62, 0.34, 0.36), coxa_u=0.5)
 for _n, _fl in (("rhino", False), ("stag", False), ("green", True), ("longhorn", False), ("grasshopper", True), ("cricket", True), ("mantis", False)):
     SPECS["bug_" + _n] = {**SPECS["bug_" + _n], "flip": _fl, "budget": 6000, "bones": B_[_n], "clips": (lambda lp, n=_n: _insect_clips(lp, n))}
+
+# ---------------------------------------------------------------- donkey (Sketchfab "Donkey & foal 3D model free", CC BY 4.0)
+SPECS.setdefault("donkey", {"src": "donkey", "budget": 12000, "bones": [], "clips": lambda lp: {}})
+
+def _donkey_bones():
+    b = [{"n": "root", "h": (0.84, 0.6, 0), "t": (0.45, 0.63, 0)},
+         {"n": "neck", "p": "root", "h": (0.45, 0.63, 0), "t": (0.25, 0.8, 0), "zone": lambda f, u, s: f < 0.47 and u > 0.52},
+         {"n": "head", "p": "neck", "h": (0.25, 0.8, 0), "t": (0.01, 0.63, 0), "zone": lambda f, u, s: f < 0.32 and u > 0.55},
+         {"n": "tail", "p": "root", "h": (0.97, 0.58, 0), "t": (0.99, 0.32, 0), "zone": lambda f, u, s: f > 0.94 and u > 0.25}]
+    for k, sg in (("L", 1), ("R", -1)):
+        sd = lambda s, sg=sg: s*sg > 0.0
+        b += [{"n": f"ear{k}", "p": "head", "h": (0.22, 0.84, 0.25*sg), "t": (0.21, 0.99, 0.3*sg), "zone": lambda f, u, s, sd=sd: u > 0.84 and f < 0.3 and sd(s)}]
+        fz = lambda f, u, s, sd=sd: 0.3 < f < 0.55 and u < 0.5 and sd(s)
+        hz = lambda f, u, s, sd=sd: f > 0.68 and u < 0.55 and sd(s)
+        b += [{"n": f"upperF{k}", "p": "root", "h": (0.4, 0.56, 0.45*sg), "t": (0.42, 0.38, 0.45*sg), "zone": fz},
+              {"n": f"foreF{k}", "p": f"upperF{k}", "h": (0.42, 0.38, 0.45*sg), "t": (0.43, 0.21, 0.45*sg), "zone": lambda f, u, s, fz=fz: fz(f, u, s) and u < 0.4},
+              {"n": f"cannonF{k}", "p": f"foreF{k}", "h": (0.43, 0.21, 0.45*sg), "t": (0.42, 0.05, 0.45*sg), "zone": lambda f, u, s, fz=fz: fz(f, u, s) and u < 0.23},
+              {"n": f"hoofF{k}", "p": f"cannonF{k}", "h": (0.42, 0.05, 0.45*sg), "t": (0.39, 0.0, 0.45*sg), "zone": lambda f, u, s, fz=fz: fz(f, u, s) and u < 0.07},
+              {"n": f"thighH{k}", "p": "root", "h": (0.84, 0.6, 0.45*sg), "t": (0.78, 0.38, 0.45*sg), "zone": hz},
+              {"n": f"shinH{k}", "p": f"thighH{k}", "h": (0.78, 0.38, 0.45*sg), "t": (0.88, 0.22, 0.45*sg), "zone": lambda f, u, s, hz=hz: hz(f, u, s) and u < 0.42},
+              {"n": f"cannonH{k}", "p": f"shinH{k}", "h": (0.88, 0.22, 0.45*sg), "t": (0.85, 0.05, 0.45*sg), "zone": lambda f, u, s, hz=hz: hz(f, u, s) and u < 0.24},
+              {"n": f"hoofH{k}", "p": f"cannonH{k}", "h": (0.85, 0.05, 0.45*sg), "t": (0.82, 0.0, 0.45*sg), "zone": lambda f, u, s, hz=hz: hz(f, u, s) and u < 0.07}]
+    return b
+
+def _donkey_clips(lp):
+    # ears and tail are always alive: the long ears turn and flick, the tail swishes at flies
+    idle = [(t, {"earL": (0.15*math.sin(t*2*math.pi*2), 0.35*math.sin(t*2*math.pi), 0), "earR": (0.15*math.sin(t*2*math.pi*2 + 1), -0.3*math.sin(t*2*math.pi + 1.2), 0),
+                 "tail": (0.05, 0.45*math.sin(t*2*math.pi*3)*max(0, math.sin(t*2*math.pi)), 0), "neck": (0.04*math.sin(t*2*math.pi), 0.12*math.sin(t*2*math.pi + 0.5), 0),
+                 "head": (0.06*math.sin(t*2*math.pi*2), 0.15*math.sin(t*2*math.pi + 1), 0)}) for t in [i/16 for i in range(17)]]
+    graze = [(t, {"neck": (0.95, 0, 0), "head": (0.35 + 0.06*math.sin(t*2*math.pi*4), 0.1*math.sin(t*2*math.pi), 0),
+                  "earL": (0.1, 0.4, 0), "earR": (0.1, -0.4, 0), "tail": (0.05, 0.3*math.sin(t*2*math.pi*2), 0)}) for t in [i/16 for i in range(17)]]
+    hee = {"neck": (-0.45, 0, 0), "head": (-0.55, 0, 0), "earL": (0.7, 0.2, 0), "earR": (0.7, -0.2, 0), "tail": (-0.3, 0, 0)}   # head stretched up, ears laid back
+    bray = [(0, {}), (0.15, hee), (0.3, {**hee, "head": (-0.45, 0, 0)}), (0.45, hee), (0.6, {**hee, "head": (-0.45, 0, 0)}), (0.75, hee), (1.0, {})]
+    return {"idle": (6.0, idle), "eat": (3.0, graze), "bray": (2.6, bray)}
+
+def _donkey_walk(R, P):
+    # four-beat walk (left hind, left fore, right hind, right fore): every hoof planted on the ground through its stance, the knee
+    # and hock folding as it comes forward; the head nods with the stride
+    from mathutils import Vector
+    G = P(0, 0).z
+    def leg(t, off, duty, stride, lift):
+        p = (t - off) % 1.0
+        if p < duty: return stride/2 - stride*(p/duty), 0.0
+        q = (p - duty)/(1 - duty); return -stride/2 + stride*(0.5 - 0.5*math.cos(math.pi*q)), lift*math.sin(math.pi*q)
+    def pose(t, offs=(0.0, 0.25, 0.5, 0.75), duty=0.66, stride=0.3, lift=0.09, name="walk"):
+        ph = t*2*math.pi
+        R.move("root", (0, 0, 0.006*math.cos(2*ph)))
+        R.turn("neck", (1, 0, 0), 0.06*math.sin(2*ph)); R.turn("head", (1, 0, 0), -0.04*math.sin(2*ph))
+        R.turn("tail", (0, 0, 1), 0.1*math.sin(ph))
+        for (k, sg), oh, of in ((("L", 1), offs[0], offs[1]), (("R", -1), offs[2], offs[3])):
+            for front, off in ((True, of), (False, oh)):
+                a, l = leg(t, off, duty, stride, lift)
+                up, lo, can, hoof = (f"upperF{k}", f"foreF{k}", f"cannonF{k}", f"hoofF{k}") if front else (f"thighH{k}", f"shinH{k}", f"cannonH{k}", f"hoofH{k}")
+                base = P(0.42 if front else 0.85, 0.0, 0.45*sg); fet = Vector((base.x, base.y - a, G + 0.05*P(0, 1).z + l))
+                cl = (R.tail(can) - R.head(can)).length
+                fold = l/max(lift, 1e-6)   # 0 planted .. 1 top of the swing
+                joint = fet + Vector((0, (0.45 if front else 0.2)*cl*fold, cl*(1 - 0.25*fold)))   # carpus / hock above the fetlock, swung back as it folds
+                R.reach(up, lo, joint, (0, 1, 0) if front else (0, -1, 0))   # elbow points back, stifle forward
+                R.aim(can, fet); R.aim(hoof, R.head(hoof) + Vector((0, -0.6 + 0.9*fold, -1)))
+    R.clip("walk", 1.2, 24, pose)
+    R.clip("trot", 0.7, 16, lambda t: pose(t, offs=(0.0, 0.5, 0.5, 0.0), duty=0.45, stride=0.42, lift=0.14))   # diagonal pairs together
+SPECS["donkey"] = {"src": "donkey", "budget": 12000, "bones": _donkey_bones(), "clips": _donkey_clips, "rig_clips": _donkey_walk}
