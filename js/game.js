@@ -7,6 +7,8 @@ import { cloud } from './cloud.js';
 import { createGhibli } from './ghibli.js';
 import { createEvolution } from './evolution.js';
 import { createHoliday } from './holiday.js';
+import * as EV from './evo27.js';
+import { createGrassField } from './grassfield.js';
 import { createFauna, SPECIES } from './fauna.js';
 import { createWildlife, WILD_NAMES } from './wildlife.js';
 import { createWorld, newWorld, HALF, PLOT, WATER_Y, X0, X1, Z0, Z1, BIO, plotKey, PLOT_KEYS, SEE, seeThrough, leafMaterial, swaying, CANOPY_BLOBS, leafyCanopy, canopyTex, vines, fieldStone } from './world.js';
@@ -467,20 +469,39 @@ const fishModel = (i, koi) => { const rt = realClone(koi ? 'koi' : 'trout'); if 
 const swapMat = (obj, name, m) => obj.traverse(o => { if (!o.isMesh) return; if (Array.isArray(o.material)) o.material = o.material.map(x => x.name === name ? m : x); else if (o.material.name === name) o.material = m; });
 
 // ---------- evolution forms ----------
+// The 27 forms of the evolution web (rules, skills: js/evo27.js). Each one is the game's own 3D wombat with its own build, coat tint,
+// accessories and glow, until real models exist; 'normal' is the egg and the baby stages.
 const FORMS = {
-  normal: {name:'袋熊',     desc:'照顧得剛剛好。'},
-  skinny: {name:'瘦瘦熊',   body:[0.66,0.84,1.04], head:0.92, fur:0.55, tint:['#b59c80',0.18], speed:1.05, desc:'進化時太餓，或這個階段常常餓肚子。'},
-  sickly: {name:'病懨懨熊', body:[0.9,0.88,1], tint:['#8f9c76',0.42], acc:['bandage','thermo'], droopy:true, speed:0.7, desc:'進化的時候正在生病。'},
-  stinky: {name:'臭臭熊',   tint:['#7b7150',0.2], acc:'poop', desc:'進化的時候，場上有 3 坨以上的便便沒清。'},
-  chubby: {name:'胖胖熊',   body:[1.26,1.14,1.05], head:1.06, fur:1.25, speed:0.75, desc:'這個階段常常在牠不餓的時候還一直餵。'},
-  sporty: {name:'活力熊',   body:[0.98,1.03,1.05], acc:'headband', speed:1.25, desc:'這個階段陪牠玩了很多次（8 次以上）。'},
-  royal:  {name:'皇家袋熊', acc:['crown','cape'], desc:'完全體時照顧得幾乎沒有失誤，心情又很好。'},
-  forest: {name:'森靈袋熊', acc:['leafcape','sprout'], desc:'完全體時照顧得很好，而且成熟期拔了很多雜草（12 株以上），或家裡同時有小水池和花圃。'},
-  wind:   {name:'疾風袋熊', body:[0.98,1.03,1.05], acc:['windband','windscarf'], speed:1.4, desc:'活力熊在完全體時照顧得很好，成熟期也常常陪牠玩。'},
-  golden: {name:'黃金袋熊', tint:['#d9a933',0.55], acc:['crown','cape'], glow:'#ffd76a', speed:1.1, desc:'皇家袋熊在究極體依然被完美照顧。'},
-  forestx:{name:'森羅袋熊', tint:['#7d6a3e',0.12], acc:['leafcape','antler'], glow:'#a6f08a', desc:'森靈袋熊在究極體依然被完美照顧。'},
-  thunder:{name:'雷光袋熊', body:[0.98,1.03,1.05], acc:['boltband','boltcape'], glow:'#ffe45c', speed:1.5, desc:'疾風袋熊在究極體依然被完美照顧。'}
+  normal:     {name:'袋熊', desc:'照顧得剛剛好。'},
+  g_skinny:   {body:[0.66,0.84,1.04], head:0.92, fur:0.55, tint:['#b59c80',0.18], speed:1.05},
+  g_sick:     {body:[0.9,0.88,1], tint:['#8f9c76',0.42], acc:['bandage','thermo'], droopy:true, speed:0.7},
+  g_glutton:  {body:[1.14,1.06,1.02], head:1.05, fur:1.1, tint:['#c49a6c',0.14]},
+  g_naughty:  {body:[0.96,1.0,1.02], tint:['#8a6a4a',0.16], acc:'sprout', speed:1.15},
+  g_good:     {tint:['#a88a6c',0.08]},
+  m_stinky:   {tint:['#7b7150',0.2], acc:'poop'},
+  m_chubby:   {body:[1.26,1.14,1.05], head:1.06, fur:1.25, speed:0.75},
+  m_energetic:{body:[0.98,1.03,1.05], acc:'headband', speed:1.25},
+  m_rock:     {body:[1.08,1.0,1.05], tint:['#8d8a80',0.38], fur:0.8},
+  m_flower:   {tint:['#c9a0a8',0.14], acc:'sprout'},
+  m_warm:     {tint:['#c8a27a',0.2]},
+  m_night:    {tint:['#4a4f6e',0.38], glow:'#9fb0ff'},
+  m_ember:    {tint:['#b0603a',0.26], acc:'headband', speed:1.1},
+  p_royal:    {acc:['crown','cape']},
+  p_forest:   {acc:['leafcape','sprout']},
+  p_wind:     {body:[0.98,1.03,1.05], acc:['windband','windscarf'], speed:1.4},
+  p_flame:    {tint:['#b84a2a',0.32], acc:['headband'], glow:'#ff8a3a', speed:1.2},
+  p_frost:    {tint:['#c8d8e8',0.36], acc:['windscarf'], glow:'#bfe3ff'},
+  p_stone:    {body:[1.1,1.02,1.06], tint:['#6e6a62',0.46], fur:0.75, speed:0.85},
+  p_astral:   {tint:['#6a6ab8',0.32], glow:'#cfc8ff'},
+  p_shadow:   {tint:['#3a3450',0.5], acc:['windscarf'], glow:'#8a6ad8'},
+  u_gold:     {tint:['#d9a933',0.55], acc:['crown','cape'], glow:'#ffd76a', speed:1.1},
+  u_worldtree:{tint:['#7d6a3e',0.12], acc:['leafcape','antler'], glow:'#a6f08a'},
+  u_lightning:{body:[0.98,1.03,1.05], acc:['boltband','boltcape'], glow:'#ffe45c', speed:1.5},
+  u_sky:      {tint:['#8ab8e8',0.36], acc:['windscarf'], glow:'#bfe6ff', speed:1.2},
+  u_abyss:    {tint:['#2a2440',0.6], acc:['boltcape'], glow:'#7a4ad8'},
+  u_holy:     {tint:['#f2ead8',0.46], acc:['crown','cape'], glow:'#fff6c8'}
 };
+for (const id of EV.FORM_IDS){ const f = EV.FORM27[id]; Object.assign(FORMS[id], {name:f.name, desc:f.design, stage:f.stage}); }
 const formAcc = F => [].concat(F.acc || []);
 const ACC = {};
 (function buildAcc(){
@@ -1090,7 +1111,7 @@ function useStep(dt){   // called from think() while B.mode is 'use'
     if (U_.hold || U_.leave){ const out = g.localToWorld(V3(0, 0, (BUILDS.find(b => b.id === U_.id).size[1])/2 + 1.2)); pos.set(out.x, 0, out.z); snapToLand(pos); }
     B.mode = 'idle'; B.timer = 2; B.use = null;
     S.st.happy = clamp(S.st.happy + (U_.id === 'bench' ? 6 : 14), 0, 100); if (U_.id === 'bench') S.st.energy = clamp(S.st.energy + 8, 0, 100);
-    S.aff = clamp(S.aff + 2, 0, 100); spawnHearts(2); cry('happy'); track('use'); track('use:' + U_.id);
+    S.aff = clamp(S.aff + 2, 0, 100); spawnHearts(2); cry('happy'); track('use'); track('use:' + U_.id); playDone(U_.id === 'flowers' ? 'flowerview' : 'use');
     if (stat('use:' + U_.id) === 1) toast(PLAY_DONE[U_.id]); hudDirty = true;
   }
 }
@@ -1616,14 +1637,25 @@ const freshCare = () => ({hungry:0, thirsty:0, dirty:0, sick:0, meals:0, overfed
 function freshSave(){
   return {v:2, stage:'egg', form:'normal', warm:0, name:'', ageMs:0, growth:0, st:{hunger:80, thirst:80, happy:75, energy:85, health:100}, care:freshCare(),
     coins:30, owned:{}, worn:{}, colors:{}, fur:0, builds:{}, poops:[], weeds:[], snowmen:[], poopQ:[], weedTimer:4, speed:1,
-    hud:true, uiHidden:false, dayMode:'hourly', weather:{type:'sunny', until:Date.now()+5*60000, forced:null}, dead:null, gen:1, lastSeen:Date.now(), petPos:null, seenGuide:false, aff:50};
+    hud:true, uiHidden:false, dayMode:'hourly', weather:{type:'sunny', until:Date.now()+5*60000, forced:null}, dead:null, gen:1, lastSeen:Date.now(), petPos:null, seenGuide:false, aff:50, evo:EV.newEvo(0)};
 }
 function fromObj(o){
   if (!o || !(o.v === 1 || o.v === 2)) return null;
   const s = Object.assign(freshSave(), o);
   if (o.v === 1){ if (s.stage === 'elder') s.stage = 'perfect'; s.form = 'normal'; s.care = freshCare(); s.dayMode = 'hourly'; s.v = 2; s.seenGuide = false; }
   s.care = Object.assign(freshCare(), s.care || {});
+  if (!o.evo){ s.evo = null; migrateOld(s); }
   return s;
+}
+// A save from before the 27-form web: the form maps onto the new forms by stage, time already spent in the stage is kept, the
+// forms seen (and their achievements) carry over; a copy of the old save is kept in case anything needs restoring.
+function migrateOld(s){
+  try { if (!lsGet(KEY + '-before27')) lsSet(KEY + '-before27', JSON.stringify(s)); } catch(e){}
+  EV.migrateSave(s, (s.ageMs || 0)/60000);
+  const seen = {}; for (const [o, v] of Object.entries(s.formsSeen || {})) if (v && EV.OLD_SEEN[o]) seen[EV.OLD_SEEN[o]] = true;
+  if (FORMS[s.form] && s.form !== 'normal') seen[s.form] = true; s.formsSeen = seen;
+  const ach = s.ach || {}; for (const [o, n] of Object.entries(EV.OLD_SEEN)) if (ach['form_' + o] && !ach['form_' + n]) ach['form_' + n] = ach['form_' + o];
+  s.ach = ach;
 }
 const lsGet = k => { try { return localStorage.getItem(k); } catch(e){ return null; } };
 const lsSet = (k, v) => { try { v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch(e){} };
@@ -1632,7 +1664,7 @@ const readLocal = () => { try { return fromObj(JSON.parse(lsGet(KEY))); } catch(
 // PREFER_REMOTE: set when another device took over, so this device reloads the cloud copy.
 // SYNC_UID: the account this device's local save was last synced with.
 const FORCE_LOCAL = 'wombat-force-local', PREFER_REMOTE = 'wombat-prefer-remote', SYNC_UID = 'wombat-sync-uid';
-const STAGE_NAME = {egg:'蛋', baby:'幼兒期', child:'成長期', adult:'成熟期', perfect:'完全體', ultimate:'究極體'};
+const STAGE_NAME = {egg:'蛋', baby:'幼年期', child:'成長期', adult:'成熟期', perfect:'完全體', ultimate:'究極體'};
 const when = ms => { const d = new Date(ms || 0), m = Math.round((Date.now() - d)/60000);
   return m < 1 ? '剛剛' : m < 60 ? `${m} 分鐘前` : m < 1440 ? `${Math.floor(m/60)} 小時前` : `${d.getMonth()+1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 const describe = s => `${s.name || (s.stage === 'egg' ? '一顆蛋' : '還沒取名')}・${STAGE_NAME[s.stage] || ''}・代幣 ${s.coins}・上次玩：${when(s.lastSeen)}`;
@@ -1662,9 +1694,11 @@ if (S.aff == null) S.aff = 60;   // saves from before affection existed
 if (S.camV !== 2){ S.camMode = 'iso'; S.camV = 2; }   // the fixed 45° view is the new default
 // ?preview=<form> shows that evolution form straight away; nothing is saved locally or to the cloud.
 const PREVIEW = FORMS[new URLSearchParams(location.search).get('preview')] ? new URLSearchParams(location.search).get('preview') : null;
+const EVOTEST = !!PREVIEW && new URLSearchParams(location.search).has('evotest');   // the developer test panel (only in preview: never saved)
 if (PREVIEW) S = Object.assign(freshSave(), {name:'預覽', form:PREVIEW, seenGuide:true, dayMode:'preview', coins:0, ageMs:3*86400000, growth:400,
-  stage: ['golden','forestx','thunder'].includes(PREVIEW) ? 'ultimate' : ['royal','forest','wind'].includes(PREVIEW) ? 'perfect' : 'adult',
-  st:{hunger:90, thirst:90, happy:95, energy:90, health: PREVIEW === 'sickly' ? 60 : 100}});
+  stage: (FORMS[PREVIEW].stage && EV.SPEC_TO_GAME[FORMS[PREVIEW].stage]) || 'adult',
+  st:{hunger:90, thirst:90, happy:95, energy:90, health: PREVIEW === 'g_sick' ? 60 : 100}});
+if (PREVIEW) S.evo = EV.newEvo(S.ageMs/60000);
 // ?preview=…&wear=straw,glasses tries clothes on; ?debug exposes internals for tuning in the console.
 if (PREVIEW){ const q = new URLSearchParams(location.search), w = (q.get('wear') || '').split(',').filter(Boolean); w.forEach(id => { S.owned[id] = true; S.worn[id] = true; }); if (q.get('stage')) S.stage = q.get('stage'); }
 
@@ -1743,7 +1777,7 @@ function cleanPoop(c){
     if (s > 0.35){ c.m.position.copy(at).addScaledVector(right, lerp(0, 0.4, (s-0.35)/0.65)); c.m.position.y = 0.1*c.sc; c.sh.g.visible = false; c.stink.visible = false; }
     if (t > 1.0){ pan.position.y = at.y + (t-1.0)*1.2; c.m.position.y = pan.position.y + 0.1*c.sc; }
     if (t > 0.6 && !this.swish){ this.swish = true; sfx('whoosh'); }
-  }, done(){ scene.remove(pan, broom); removePoop(c); addCoins(3, at.add(V3(0,0.5,0))); sfx('pop'); track('poop'); }});
+  }, done(){ scene.remove(pan, broom); removePoop(c); addCoins(3, at.add(V3(0,0.5,0))); sfx('pop'); track('poop'); if (careAct('clean')) skillOn('clean'); }});
 }
 
 const weeds = [], fxPull = [];
@@ -1822,7 +1856,7 @@ function spawnWeed(){
 }
 function pullWeed(w){
   if (!weeds.includes(w)) return;
-  weeds.splice(weeds.indexOf(w),1); S.care.nature = (S.care.nature || 0) + 1; w.hb.userData.kind = null; track('weed');
+  weeds.splice(weeds.indexOf(w),1); S.care.nature = (S.care.nature || 0) + 1; w.hb.userData.kind = null; track('weed'); if (careAct('clean')) skillOn('clean');
   const hand = makeHand(), at = w.g.position.clone(), top = 0.5*(w.vs || w.s);
   hand.rotation.y = Math.atan2(camera.position.x - at.x, camera.position.z - at.z) + Math.PI; const base = at.y; hand.position.set(at.x, base + 1.8, at.z); scene.add(hand);
   tools.push({t:0, dur:1.25, update(t){
@@ -2940,6 +2974,8 @@ const ACTS = {
   snowman:  {name:'堆雪人',   dur:7.5, price:60, special:true, need:() => weatherNow() === 'snow' || snowCover > 0.3, why:'下雪天才能堆雪人。', desc:'滾兩顆雪球堆成雪人，代幣 +5'},
   puddle:   {name:'踩水窪',   dur:4.6, price:50, special:true, need:() => weatherNow() === 'rain', why:'下雨天（不打雷）才有水窪可以踩。', desc:'跳進水窪濺水花，心情 +15'},
   fireflies:{name:'看螢火蟲', dur:6.5, price:60, special:true, need:() => nightF > 0.6 && ['sunny','cloudy'].includes(weatherNow()), why:'晴朗或多雲的晚上才有螢火蟲。', desc:'安靜地看螢火蟲，心情和體力都會回復'},
+  flowerview:{name:'賞花', dur:6.5, price:0, special:true, need:() => nightF < 0.4 && !badWeather(), why:'白天、沒下雨的時候才能賞花。', desc:'湊近花朵聞聞花香，心情 +10（花語、森靈路線會看這個）'},
+  nightwalk:{name:'夜間探秘', dur:8, price:0, special:true, need:() => nightF > 0.6 && weatherNow() !== 'storm', why:'晚上（不打雷）才能去夜間探秘。', desc:'趁夜在附近探險，有時會撿到東西（夜行、幽影、星輝路線會看這個）'},
   moonview:{name:'賞月', dur:9, price:60, special:true, need:() => nightF > 0.6 && ['sunny','cloudy'].includes(weatherNow()) && isFullMoon() && moonDirNow.y > 0.05, why:'晴朗的晚上、月亮升起來，而且是滿月（或中秋節）才能賞月。', desc:'坐下來安靜地欣賞滿月，心情大幅回復'}
 };
 // Tricks: 坐下, 抖抖毛 and 跳躍轉圈 are free; the others are bought in the shop.
@@ -3016,13 +3052,92 @@ function startAct(k){
   if (k === 'fireflies'){ act.wasVis = true; }
   B.mode = 'idle'; B.timer = 2; B.food = null; B.water = null;
 }
+// ---------- the evolution web's counted actions, and the 27 forms' skills ----------
+// A counted care action (5 real seconds between two of a kind, so tapping fast doesn't farm them); 黃金袋熊 earns a coin for each.
+function careAct(type){
+  const E = S.evo; if (!E || S.stage === 'egg' || S.dead) return false;
+  if (!EV.event(E, type, Date.now())) return false;
+  (E.life.care || (E.life.care = [])).push([Math.round(ageMin()), type]); E.life.care = E.life.care.filter(c => ageMin() - c[0] < 1440).slice(-60);
+  const fx = (EV.skillOf(S.form) || {}).effects || {};
+  if (fx.on_valid_care_extra_coin && EV.dailyTake(E, 'care_coin', fx.coin_daily_cap || 5, ageMin())) addCoins(fx.on_valid_care_extra_coin, headTop());
+  return true;
+}
+const CHASE = ['zoomies', 'hop'], HEAT = ['flip', 'roll', 'dance', 'ballroll', 'zoomies', 'puddle', 'swim'], NIGHTLY = ['nightwalk', 'fireflies', 'moonview'];
+// A play just ended: counted (with what kind it was), and the skill factors for its mood gain and hunger cost
+function playDone(k){
+  const E = S.evo; if (!E) return {mood:1, hunger:1};
+  const heat = HEAT.includes(k), night = nightF > 0.6, am = ageMin();
+  if (careAct('play')){ const ev = E.phase.ev;
+    if (k === 'dig') ev.dig++; if (k === 'flowerview') ev.flower++; if (CHASE.includes(k)) ev.chase++; if (heat) ev.heat++;
+    if (NIGHTLY.includes(k) && night){ ev.night++; E.life.care.push([Math.round(am), 'night']); }
+    const fx = (EV.skillOf(S.form) || {}).effects || {};
+    if (fx.first_valid_play_daily_extra_coins && EV.dailyTake(E, 'royal', 1, am)){ addCoins(fx.first_valid_play_daily_extra_coins, headTop()); showEmote('👑', 1.2); }
+    if (k === 'dig'){
+      if (fx.on_dig_extra_coin_chance && Math.random() < fx.on_dig_extra_coin_chance && EV.dailyTake(E, 'dig_coin', fx.coin_daily_cap || 6, am)) addCoins(1, headTop());
+      if (Math.random() < 0.08*(fx.dig_rare_loot_chance_multiplier || 1)){ addCoins(5, headTop()); toast(`${S.name || '牠'}挖到一顆亮晶晶的小石頭！代幣 +5`); } }
+    if (k === 'nightwalk'){
+      if (Math.random() < 0.3*(fx.night_explore_loot_chance_multiplier || 1)){ const n = 2 + Math.floor(Math.random()*3); addCoins(n, headTop()); toast(`${S.name || '牠'}在草叢裡撿到了 ${n} 枚代幣。`); }
+      if (Math.random() < 0.1*(fx.night_explore_special_event_chance_multiplier || 1)){ addCoins(8, headTop()); S.st.happy = clamp(S.st.happy + 5, 0, 100); sparkles(headTop(), 18, 1.2); toast(`${S.name || '牠'}發現了一圈會發光的蘑菇！代幣 +8`); } }
+  }
+  return EV.playFactors(E, S.form, {heat, night}, am);
+}
+// passive skills that answer a care action
+function skillOn(kind){
+  const E = S.evo, fx = (EV.skillOf(S.form) || {}).effects || {}, am = ageMin(), st = S.st;
+  if (kind === 'feed' && fx.on_valid_feed_mood && EV.trigOK(E, 'feed_mood', fx.trigger_cooldown_game_minutes || 60, am)){ st.happy = clamp(st.happy + fx.on_valid_feed_mood, 0, 100); showEmote('😋', 1.2); }
+  if (kind === 'clean' && fx.on_effective_clean_mood && EV.trigOK(E, 'clean_mood', fx.trigger_cooldown_game_minutes || 60, am)){ st.happy = clamp(st.happy + fx.on_effective_clean_mood, 0, 100); showEmote('🌸', 1.2); }
+  hudDirty = true;
+}
+// a full night's sleep (it woke up by itself): 暖心熊 and 霜月袋熊 wake happier, once a game day
+function sleepDone(){
+  const E = S.evo; if (!E || S.stage === 'egg') return;
+  (E.life.care || (E.life.care = [])).push([Math.round(ageMin()), 'sleep']);
+  const fx = (EV.skillOf(S.form) || {}).effects || {}, am = ageMin();
+  if (fx.on_complete_sleep_mood && EV.dailyTake(E, 'warm', fx.daily_trigger_cap || 1, am)) S.st.happy = clamp(S.st.happy + fx.on_complete_sleep_mood, 0, 100);
+  if (fx.first_wake_daily_mood && EV.dailyTake(E, 'frost', 1, am)) S.st.happy = clamp(S.st.happy + fx.first_wake_daily_mood, 0, 100);
+}
+const VFX_COL = {stink_cloud:'#9a8a50', speed_trail:'#ffe08a', forest_breath:'#8ee07a', ember_mane:'#ff8a3a', star_shield:'#cfc8ff', worldtree_bloom:'#a6f08a', electric_burst:'#ffe45c', star_wish:'#bfe6ff', holy_purify:'#fff6c8'};
+function skillFx(vfx){
+  const c = VFX_COL[vfx] || '#ffffff', tex = radialTex(c, 'rgba(255,255,255,0)'), at = root.position.clone().add(V3(0, 0.8*petS, 0));
+  if (vfx === 'stink_cloud'){ for (let i=0;i<6;i++) floatSprite(stinkTex, at.clone().add(V3(rnd(-0.6,0.6), rnd(0,0.6), rnd(-0.6,0.6))), {size:0.45, vy:0.4, max:1.8, grow:0.5}); return; }
+  for (let i=0;i<26;i++){ const a = Math.random()*6.28, sp = rnd(1, 2.4); floatSprite(tex, at, {size:0.3, vx:Math.cos(a)*sp, vz:Math.sin(a)*sp, vy:rnd(0.8, 2.4), g:1.5, add:true, max:1.3, grow:0}); }
+}
+// using the form's active skill (a button on the skill page)
+function useFormSkill(){
+  const E = S.evo, sk = EV.skillOf(S.form); if (!E || !sk || sk.type !== 'active' || !petActive()) return;
+  const ef = EV.useSkill(E, S.form, ageMin()); if (!ef){ toast('技能還在冷卻中。'); return; }
+  const st = S.st;
+  if (ef.mood_delta) st.happy = clamp(st.happy + ef.mood_delta, 0, 100);
+  if (ef.thirst_delta) st.thirst = clamp(st.thirst + ef.thirst_delta, 0, 100);
+  if (ef.health_delta) st.health = clamp(st.health + ef.health_delta, 0, 100);
+  if (ef.cure_current_sickness && st.health < 35) st.health = 35;
+  if (ef.hygiene_delta < 0){ const q = freeNear(pos.clone().add(V3(rnd(-1,1), 0, rnd(-1,1)))); makePoop(V3(q.x, gy(q.x, q.z) + 0.1, q.z), null, 0.6); }   // (清潔 -10: one more mess in the yard)
+  if (ef.hygiene_delta > 0){ const c = cubes.find(c => !c.cleaning); if (c) removePoop(c); else if (weeds.length) pullWeed(weeds[0]); }   // (清潔 +: tidies one up)
+  skillFx(ef.vfx); sfx('grow'); cry('happy');
+  toast(`${form().name}使出「${sk.name}」！`); hudDirty = true; save(); if (sheetKind === 'skill') renderSheet();
+}
+// The bond ceremony (from 成熟期): very close (90+), no care mistakes in the last game day and three kinds of care in it. Offered
+// once; finishing the little ceremony counts once in its whole life (it opens the hidden 聖耀 path).
+function bondReady(){
+  const E = S.evo; if (!E || E.life.bond >= 1 || !['adult', 'perfect', 'ultimate'].includes(S.stage)) return false;
+  const kinds = new Set((E.life.care || []).filter(c => ageMin() - c[0] < 1440).map(c => c[1] === 'drink' || c[1] === 'med' ? null : c[1]).filter(Boolean));
+  return S.aff >= 90 && !(E.life.recent || []).length && kinds.size >= 3;
+}
+function bondCeremony(){
+  const E = S.evo; if (!bondReady() || E.bondBusy) return; E.bondBusy = true; closeSheet();
+  showEmote('💞', 3); cry('purr'); let n = 0;
+  const iv = setInterval(() => { spawnHearts(3); sparkles(headTop(), 10, 1); if (++n >= 6){ clearInterval(iv);
+    if (E.life.bond < 1){ E.life.bond = 1; EV.logEvo(E, `bond@${Math.round(ageMin())}`); }
+    E.bondBusy = false; S.aff = clamp(S.aff + 5, 0, 100); toast(`${S.name || '牠'}和你完成了羈絆儀式。你們的心靠得更近了。`); save(); } }, 500);
+}
 function endAct(){
   if (!act) return;
   const k = act.key, st = S.st;
   if (act.ball) scene.remove(act.ball); if (act.ball2) scene.remove(act.ball2);
   act = null; actG.rotation.set(0,0,0); actY = 0;
-  const gain = {sit:[-2,6], ballroll:[6,12], dance:[8,14], snowman:[10,20], puddle:[6,15], fireflies:[-6,15], moonview:[-5,22]}[k] || [6,10];
-  st.energy = clamp(st.energy - gain[0], 0, 100); st.happy = clamp(st.happy + gain[1], 0, 100); st.thirst = clamp(st.thirst - 3, 0, 100);
+  const gain = {sit:[-2,6], ballroll:[6,12], dance:[8,14], snowman:[10,20], puddle:[6,15], fireflies:[-6,15], moonview:[-5,22], flowerview:[-2,10], nightwalk:[4,10]}[k] || [6,10];
+  const pf = playDone(k);   // (counted for the evolution web; the form's skill changes how much mood it gives and how hungry it makes)
+  st.energy = clamp(st.energy - gain[0], 0, 100); st.happy = clamp(st.happy + gain[1]*pf.mood, 0, 100); st.thirst = clamp(st.thirst - 3, 0, 100); st.hunger = clamp(st.hunger - 2*pf.hunger, 0, 100);
   S.care.plays++; if (growthOK()) S.growth += 1; S.aff = clamp(S.aff + 4, 0, 100); track('play'); track('trick:' + k); if (k === 'dig') track('dig');
   if (k === 'flip' || k === 'spin'){ sqv += 2.6; sfx('thud'); }
   if (k === 'puddle'){ puddles.forEach(m => fxPull.push({g:m, t:0, flat:true})); puddles.length = 0; addCoins(2); }
@@ -3032,7 +3147,7 @@ function updateAct(dt){
   const inBelly = act && act.key === 'belly' && act.t/ACTS.belly.dur > 0.2 && act.t/ACTS.belly.dur < 0.8;
   wiggleW += ((inBelly?1:0) - wiggleW) * Math.min(1, dt*8);
   danceW += ((act && act.key === 'dance' ? 1 : 0) - danceW) * Math.min(1, dt*8);
-  sitW += ((act && (act.key === 'fireflies' || act.key === 'sit' || act.key === 'moonview' || act.key === 'wave')) || (B.mode === 'beg' && B.begSit) || B.mode === 'scratch' ? 1 - sitW : -sitW) * Math.min(1, dt*3);
+  sitW += ((act && (act.key === 'fireflies' || act.key === 'sit' || act.key === 'moonview' || act.key === 'wave' || act.key === 'flowerview')) || (B.mode === 'beg' && B.begSit) || B.mode === 'scratch' ? 1 - sitW : -sitW) * Math.min(1, dt*3);
   if (!act){ return {shake:0, walk:false}; }
   act.t += dt;
   const A = ACTS[act.key], p = Math.min(act.t/A.dur, 1), s = petS; let shakeF = 0, walk = false;
@@ -3109,6 +3224,15 @@ function updateAct(dt){
         for (let k=0;k<14;k++){ const a = Math.random()*Math.PI*2; floatSprite(radialTex('rgba(210,232,245,1)','rgba(210,232,245,0)'), V3(to.x, gy(to.x, to.z) + 0.15, to.z), {size:0.22, vx:Math.cos(a)*rnd(1,2.2), vz:Math.sin(a)*rnd(1,2.2), vy:rnd(2,3.5), g:9, max:0.8, grow:0}); } }
       break; }
     case 'fireflies': { if (act.t > act.noteT){ act.noteT = act.t + 1.6; spawnHearts(1); } break; }
+    case 'flowerview': {   // sits by the flowers, nose to them; petals drift up
+      if (act.t > act.noteT){ act.noteT = act.t + 0.9; floatSprite(emojiTex(['🌸','🌼','🌷'][Math.floor(Math.random()*3)]), headTop().add(V3(rnd(-0.3,0.3), 0, rnd(-0.3,0.3))), {size:0.3, vy:0.5, vx:rnd(-0.2,0.2), max:1.6, grow:0}); }
+      break; }
+    case 'nightwalk': {   // a slow ramble round the yard in the dark, sniffing, turning where the ground ends
+      const sp = 0.55*s, fwd = V3(Math.sin(root.rotation.y), 0, Math.cos(root.rotation.y)), nx = pos.x + fwd.x*sp*dt*4, nz = pos.z + fwd.z*sp*dt*4;
+      if (groundOK(nx, nz) && !inBuild(nx, nz)){ pos.x += fwd.x*sp*dt; pos.z += fwd.z*sp*dt; root.rotation.y += Math.sin(act.t*0.7)*dt*0.9; } else root.rotation.y += dt*2.2;
+      walk = true;
+      if (act.t > act.noteT){ act.noteT = act.t + 1.2; floatSprite(radialTex('rgba(200,220,255,0.9)','rgba(200,220,255,0)'), headTop(), {size:0.25, vy:0.3, add:true, max:1.2, grow:0}); }
+      break; }
     case 'moonview': {   // sit facing the moon and gaze up at it
       root.rotation.y += clamp(wrapA(Math.atan2(moonDirNow.x, moonDirNow.z) - root.rotation.y), -2*dt, 2*dt);
       if (act.t > act.noteT){ act.noteT = act.t + 2.2; if (act.t > 1.5) floatSprite(sparkTex, headTop(), {size:0.3, vy:0.6, add:true, max:1.4}); }
@@ -3160,7 +3284,7 @@ function finishTask(tk){
   const D_ = S.daily; if (!D_.bonus && D_.tasks.every(x => x.done)){ D_.bonus = true; S.stats.dailyAll = stat('dailyAll') + 1; setTimeout(() => { addCoins(30); sfx('grow'); toast('今天的每日任務全部完成！額外 +30 代幣'); }, 1600); }
   taskBadge(); save();
 }
-const ALL_FORMS = Object.keys(FORMS);
+const ALL_FORMS = EV.FORM_IDS;
 const ACH = [
   {id:'poop1', icon:'💩', name:'第一次鏟屎', desc:'清掉第一坨便便', test:() => stat('poop') >= 1, coins:10},
   {id:'poop10', icon:'🧹', name:'鏟屎小幫手', desc:'清掉 10 坨便便', test:() => stat('poop') >= 10, coins:20},
@@ -3187,7 +3311,7 @@ const ACH = [
   {id:'tricks', icon:'🎪', name:'馬戲團', desc:'學會所有招式', test:() => Object.keys(ACTS).every(hasTrick), coins:100},
   {id:'builds5', icon:'🏘️', name:'小鎮規劃', desc:'蓋 5 種建築', test:() => Object.values(S.builds).filter(Boolean).length >= 5, coins:40},
   {id:'daily7', icon:'📅', name:'每天報到', desc:'完成 7 天的全部每日任務', test:() => stat('dailyAll') >= 7, coins:60},
-  ...ALL_FORMS.map(f => ({id:'form_' + f, icon:'🧬', name:`圖鑑：${FORMS[f].name}`, desc:`養出${FORMS[f].name}`, test:() => !!(S.formsSeen && S.formsSeen[f]), coins: ['golden','forestx','thunder'].includes(f) ? 120 : ['royal','forest','wind'].includes(f) ? 60 : 25})),
+  ...ALL_FORMS.map(f => ({id:'form_' + f, icon:'🧬', name:`圖鑑：${FORMS[f].name}`, desc:`養出${FORMS[f].name}`, test:() => !!(S.formsSeen && S.formsSeen[f]), coins: {ultimate:120, perfect:60, mature:35}[FORMS[f].stage] || 25})),
   ...Object.entries({...SPECIES, ...WILD_NAMES}).map(([k, nm]) => ({id:'meet_' + k, icon:ANIMAL_ICON[k] || '🐾', name:`遇見${nm.replace(/（.*/, '')}`, desc:`在野外點一下${nm}`, test:() => stat('meet:' + k) >= 1, coins:15})),
   {id:'feed100', icon:'🍽️', name:'大胃王的主人', desc:'餵牠吃 100 次東西', test:() => stat('feed') >= 100, coins:50},
   {id:'drink50', icon:'💧', name:'多喝水', desc:'讓牠喝 50 次水', test:() => stat('drink') >= 50, coins:30},
@@ -3227,7 +3351,8 @@ let achBusy = false;
 function checkAch(){
   if (PREVIEW || achBusy) return; achBusy = true;
   S.ach = S.ach || {};
-  if (S.stage !== 'egg' && !S.dead){ S.formsSeen = S.formsSeen || {}; if (!S.formsSeen[S.form]){ S.formsSeen[S.form] = true; } }
+  if (S.stage !== 'egg' && !S.dead && FORMS[S.form] && S.form !== 'normal'){ S.formsSeen = S.formsSeen || {}; if (!S.formsSeen[S.form]){ S.formsSeen[S.form] = true; }
+    if (S.evo && !S.evo.unlocked.includes(S.form)) S.evo.unlocked.push(S.form); }
   const fresh = ACH.filter(a => !S.ach[a.id] && a.test());
   fresh.forEach((a, i) => { S.ach[a.id] = Date.now(); setTimeout(() => { addCoins(a.coins); sfx('grow'); toast(`🏆 成就達成：${a.name}！+${a.coins} 代幣`); }, i*1800); });
   if (fresh.length){ taskBadge(); save(); }
@@ -3286,9 +3411,10 @@ function sim(m, offline){
   const fBaby = S.stage === 'baby' ? 1.25 : 1, fOld = S.stage === 'ultimate' ? 1.15 : 1, dirty = cleanVal() < 40;
   // asleep (and while you're away it naps in its burrow most of the time) it gets hungry and thirsty far more slowly
   const kb = offline ? 0.45 : asleep() ? 0.4 : 1;
-  st.hunger -= 0.5*m*k*kb*fBaby*fOld*(S.form === 'chubby' ? 1.15 : 1);
-  st.thirst -= 0.65*m*k*kb*(w==='rain'||w==='storm' ? 0.6 : 1)*fOld;
-  st.happy  -= (0.45 + (dirty?0.3:0) + (badWeather()?0.1:0))*m*k*(BG.flowers ? 0.7 : 1)*(BG.fountain ? 0.85 : 1);
+  const E = S.evo, am = ageMin(), em = key => EV.mult(E, S.form, key, am);
+  st.hunger -= 0.5*m*k*kb*fBaby*fOld*(S.form === 'm_chubby' ? 1.15 : 1)*em('hunger_decay_multiplier');
+  st.thirst -= 0.65*m*k*kb*(w==='rain'||w==='storm' ? 0.6 : 1)*fOld*em('thirst_decay_multiplier');
+  st.happy  -= (0.45 + (dirty?0.3:0) + (badWeather()?0.1:0))*m*k*(BG.flowers ? 0.7 : 1)*(BG.fountain ? 0.85 : 1)*em('mood_decay_multiplier');
   if (BG.fruittree){ S.fruitT = (S.fruitT ?? 120) - m; if (S.fruitT <= 0){ S.fruitT = 120; S.food = S.food || {}; if (!S.food.apple){ S.food.apple = true; if (!offline) toast('果樹結果了！以後蘋果隨時都能免費給牠吃。'); } else { S.coins += 3; if (!offline) toast('果樹結的蘋果賣了 3 代幣。'); } } }
   S.aff = clamp(S.aff - (0.05 + (st.hunger < 25 || dirty ? 0.04 : 0))*m*k, 0, 100);   // affection fades slowly unless you keep caring
   if (S.swollen){ st.happy -= 0.25*m*k; st.health -= 0.08*m*k; }   // bee-sting bumps hurt until treated
@@ -3296,20 +3422,21 @@ function sim(m, offline){
   if (offline) st.energy += 1.2*m;
   else if (asleep()) st.energy += (B.mode === 'inHouse' ? 3.2 : 2.4)*m;
   else if (act && act.key === 'fireflies') st.energy += 1.5*m;
-  else st.energy -= 0.35*m*(w==='snow'?1.3:1)*(st.health<35?1.3:1)*(S.form === 'sporty' ? 0.8 : 1);
+  else st.energy -= 0.35*m*(w==='snow'?1.3:1)*(st.health<35?1.3:1)*(S.form === 'm_energetic' ? 0.8 : 1);
   let dh = 0;
   if (st.hunger < 15) dh -= 1.0;
   if (st.thirst < 15) dh -= 1.0;
   if (dirty) dh -= 0.6;
   if (st.happy < 15) dh -= 0.3;
   if (dh === 0 && st.hunger > 40 && st.thirst > 40) dh = 0.5;
+  if (dh > 0 && (asleep() || offline)) dh *= em('sleep_health_multiplier');   // (病懨懨熊, 霜月袋熊 heal better asleep)
   st.health += dh*m*(offline ? 0.3 : 1);
   for (const key in st) st[key] = clamp(st[key], 0, 100);
   if (offline){ st.health = Math.max(st.health, 40); st.hunger = Math.max(st.hunger, 20); st.thirst = Math.max(st.thirst, 20); st.happy = Math.max(st.happy, 25); }   // away at work or school: it waits for you hungry, never sick
   const c = S.care;
   if (st.hunger < 25) c.hungry += m; if (st.thirst < 25) c.thirsty += m; if (dirty) c.dirty += m; if (st.health < 35) c.sick += m;
   if (growthOK()) S.growth += 0.08*m;
-  S.weedTimer -= m;
+  S.weedTimer -= m*em('hygiene_decay_multiplier');   // (yard mess builds up faster or slower with some forms)
   if (S.weedTimer <= 0){ spawnWeed(); S.weedTimer = rnd(5,9)*(BG.fence ? 1.5 : 1)*(BG.scarecrow ? 1.3 : 1); }
   S.bushT = (S.bushT ?? 10) - m;   // now and then a bush grows back somewhere on your land (never rocks or trees)
   if (S.bushT <= 0 && !offline){ S.bushT = rnd(8, 16); const open = world.data.open;
@@ -3318,42 +3445,63 @@ function sim(m, offline){
         if (Object.entries(S.place || {}).some(([id, p]) => { const bd = bdef(id); return bd && bd.size && S.builds[id] && cellsOf(bd, p).some(([cx, cz]) => Math.hypot(cx - x, cz - z) < 1.5); })) continue;
         world.addBush(x, z, k); NAV.dirty = true; break; } } }
   lastHappy = clamp(st.happy, 0, 100);
+  evoTick(m, offline);
 }
-function decideForm(next){
-  const c = S.care, st = S.st;
-  if (cubes.length >= 3) return 'stinky';
-  if (st.health < 35) return 'sickly';
-  if (st.hunger < 30 || c.hungry >= 40) return 'skinny';
-  if (c.overfed >= 4) return 'chubby';
-  const mistakes = c.hungry + c.thirsty + c.dirty + c.sick, good = mistakes < 30 && st.happy >= 70;
-  // Perfect-stage branches: 疾風 (sporty + lots of play), 森靈 (nature lover), otherwise 皇家.
-  // Each one becomes its own ultimate form if the care stays perfect.
-  if (next === 'perfect' && good){
-    if (S.form === 'sporty' && c.plays >= 8) return 'wind';
-    if (c.nature >= 12 || (BG.pond && BG.flowers)) return 'forest';
-    return 'royal';
-  }
-  if (next === 'ultimate' && good) return {royal:'golden', forest:'forestx', wind:'thunder'}[S.form] || 'royal';
-  if (next !== 'child' && c.plays >= 8) return 'sporty';
-  return 'normal';
+// The phase statistics the evolution rules read, the care calls and lifetime incidents (js/evo27.js). In the 30-second wait before
+// an evolution at high speed the phase clock stops (no sliding into the next stage) but care still counts. An aged wombat (8 game
+// days old) can die of a serious lapse; it is never simply ended on day 8.
+function evoTick(m, offline){
+  const E = S.evo; if (!E || S.stage === 'egg' || S.dead) return;
+  const st = S.st, snap = {hunger:st.hunger, thirst:st.thirst, hygiene:cleanVal(), mood:st.happy, health:st.health, bond:S.aff, energy:st.energy,
+    sick:st.health < 35, asleep:asleep() || offline, night:nightF > 0.6};
+  const fresh = EV.tick(E, m, snap, offline ? (E.lastReal || Date.now()) : Date.now(), ageMin(), !!E.graceUntil);
+  if (!offline) E.lastReal = Date.now();
+  if (!offline && !E.bondTold && bondReady()){ E.bondTold = true; toast('💞 你們的感情好到可以舉行「羈絆儀式」了！到「技能」頁看看。'); }
+  if (fresh && ageMin() >= EV.AGING_MIN && !PREVIEW) setTimeout(() => { if (!S.dead && petActive()) die('old'); }, 0);
 }
+// Which form the wombat becomes: the evolution web's rules over this stage's statistics (snapshot taken now).
+function decideEvo(){
+  const E = S.evo, M = EVOTEST && E.forceM ? E.forceM : EV.metrics(E), from = S.stage === 'baby' ? 'baby2' : S.form;
+  if (EVOTEST) delete E.forceM;
+  return {d:EV.decide(from, M), M};
+}
+const stageLeft = () => { const E = S.evo; return E ? EV.stageEnd(S.stage, E) - ageMin() : Infinity; };
 function readyToEvolve(){
-  const sd = STAGES[S.stage]; if (!sd || !sd.next) return false;
-  return ageMin() >= sd.age && S.growth >= sd.growth;
+  const sd = STAGES[S.stage]; if (!sd || !sd.next || !S.evo) return false;
+  if (S.stage === 'perfect' && S.evo.recheckAt != null) return ageMin() >= S.evo.recheckAt;   // (no ultimate form yet: looked at again every 6 game hours)
+  return stageLeft() <= 0;
 }
 function checkStage(){
-  if (S.dead || S.stage === 'egg' || !petActive() || evo || PREVIEW) return;
-  if (ageMin() >= LIFE){ die('old'); return; }
-  if (S.st.health <= 0){ die('sick'); return; }
-  if (readyToEvolve() && !act && !dragging && pos.y < 0.02 && ['idle','walk','goto'].includes(B.mode)) startEvolution(STAGES[S.stage].next);
+  if (S.dead || S.stage === 'egg' || !petActive() || evo || (PREVIEW && !EVOTEST)) return;
+  if (S.st.health <= 0){ die(ageMin() >= EV.AGING_MIN ? 'old' : 'sick'); return; }
+  const E = S.evo; if (!E) return;
+  if (S.stage === 'baby' && !E.toldBaby2 && ageMin() - E.stageStart >= EV.BABY1_MIN){ E.toldBaby2 = true; toast(`${S.name || '牠'}長成幼兒袋熊了（幼年期Ⅱ）。`); hudDirty = true; }
+  if (!readyToEvolve()) return;
+  // at 10x / 60x: up to 30 real seconds to finish caring before the decision (or evolve right away from the banner)
+  if (S.speed > 1 && !E.graceUntil && !E.graceDone){ E.graceUntil = Date.now() + EV.CFG.anti_abuse.fast_speed_evolution_grace_real_seconds*1000; showEvoReady(true); return; }
+  if (E.graceUntil && Date.now() < E.graceUntil) return;
+  if (act || dragging || pos.y >= 0.02 || !['idle','walk','goto'].includes(B.mode)) return;
+  const {d} = decideEvo();
+  E.graceUntil = null; E.graceDone = false; showEvoReady(false);
+  if (!d.eligible){   // a perfect form that meets no ultimate rule stays as it is (no fallback)
+    E.recheckAt = ageMin() + EV.RECHECK_MIN; EV.logEvo(E, `stay:${S.form}@${Math.round(ageMin())}`);
+    if (!E.toldStay){ E.toldStay = true; toast(`${S.name || '牠'}還沒有達成究極體的條件，會繼續以${form().name}生活，之後每 6 遊戲小時再看看。`); }
+    save(); return; }
+  startEvolution(STAGES[S.stage].next, d.to);
+}
+function showEvoReady(on){
+  let b = $('#evoReady');
+  if (!b){ b = document.createElement('button'); b.id = 'evoReady'; b.className = 'btn'; b.type = 'button'; document.body.appendChild(b);
+    b.onclick = () => { const E = S.evo; if (E && E.graceUntil){ E.graceUntil = Date.now(); E.graceDone = true; } }; }
+  b.hidden = !on; if (on) b.textContent = '✨ 快要進化了！還可以再照顧一下（30 秒），或點這裡立刻進化';
 }
 // the wombat is drawn at 80% of its old size so that tigers, horses and hippos can be properly bigger than it
 const WOMBAT_SIZE = 0.8;
 function stageScale(){ return WOMBAT_SIZE*stageScale0(); }
 function stageScale0(){
   const sd = STAGES[S.stage]; if (!sd) return 0.45;
-  if (S.stage === 'baby') return lerp(sd.scale[0], sd.scale[1], clamp(S.growth/25, 0, 1));
-  if (S.stage === 'child') return lerp(sd.scale[0], sd.scale[1], clamp((S.growth-25)/95, 0, 1));
+  const k = S.evo && EV.STAGE_MIN[S.stage] ? clamp((ageMin() - S.evo.stageStart)/EV.STAGE_MIN[S.stage], 0, 1) : 1;   // (grows through the stage)
+  if (S.stage === 'baby' || S.stage === 'child') return lerp(sd.scale[0], sd.scale[1], k);
   return sd.scale[0];
 }
 function catchUp(ms){
@@ -3402,24 +3550,55 @@ const EVO_SOUND = {
   }
 };
 const EVO_FX = createEvolution({renderer, mobile, sound:EVO_SOUND});
-function startEvolution(next){
-  evo = {t:0, next, form:decideForm(next), seq:true};
+function startEvolution(next, to){
+  if (!to){ const r = decideEvo(); if (!r.d.eligible) return; to = r.d.to; }
+  evo = {t:0, next, form:to, seq:true, committed:false};
   B.mode = 'evolve'; closeSheet(); clothesHidden = true; applyClothes(); duck(true); cry('evolve');
-  const nextF = FORMS[evo.form] || FORMS.normal, toName = evo.form === 'normal' ? `${STAGES[next].name}袋熊` : nextF.name;
-  const fromF = form(), fromName = S.form === 'normal' ? `${(STAGES[S.stage] || {}).name || ''}袋熊` : fromF.name;
-  const ICON = {royal:'👑', golden:'👑', forest:'🌿', forestx:'🦌', wind:'🍃', thunder:'⚡', sporty:'🏃', chubby:'🍰', skinny:'🌾', stinky:'💩', sickly:'🩹'};
-  EVO_FX.start({pet:root, fromName, toName, stageName:STAGES[next].name, icon:ICON[evo.form] || '✨',
+  const nextF = FORMS[to] || FORMS.normal, fromName = S.stage === 'baby' ? '幼兒袋熊' : form().name;
+  const ICON = {growth:'🌱', mature:'🌿', perfect:'👑', ultimate:'🌟'}, stage27 = nextF.stage;
+  EVO_FX.start({pet:root, fromName, toName:nextF.name, stageName:EV.STAGE27[stage27] || STAGES[next].name, icon:ICON[stage27] || '✨', reduced:reducedMotion(),
+    sound:{get on(){ return SND.fx !== false; }, toggle:() => $('#btnSfx').click()},
     setWhite: v => { U.uWhite.value = v; petMats.forEach(m => m.emissive.setScalar(v*0.95)); },
-    onSwap: () => { S.stage = evo.next; S.form = evo.form; S.care = freshCare(); applyForm(); petS = stageScale(); hudDirty = true; },
+    onSwap: () => commitEvolution(),
     onDone: () => endEvolution()});
 }
+// the one place an evolution is applied (the skip button and the full show both end here, once)
+function commitEvolution(){
+  if (!evo || evo.committed) return; evo.committed = true;
+  const E = S.evo, from = S.stage === 'baby' ? 'baby2' : S.form, M = EV.closePhase(E, ageMin());
+  E.history.push({from, to:evo.form, at:Math.round(ageMin()), care:Math.round(M.care_score)}); if (E.history.length > 40) E.history.shift();
+  if (!E.unlocked.includes(evo.form)) E.unlocked.push(evo.form);
+  E.toldStay = false; EV.logEvo(E, `evolve:${from}>${evo.form}@${Math.round(ageMin())}`);
+  S.stage = evo.next; S.form = evo.form; S.care = freshCare(); applyForm(); petS = stageScale(); hudDirty = true;
+}
+// ---------- the trial meadow on the home plot (js/grassfield.js) ----------
+const GF = createGrassField({scene, mobile});
+let gfSig = '';
+const gfOK = (x, z) => world.walkable(x, z) && !world.isWater(x, z) && !inBuild(x, z) && !fenceAt(x, z) && !(BG.pond && Math.hypot(x - BG.pond.position.x, z - BG.pond.position.z) < 1.9);
+function setGrassTrial(on){
+  S.grassTrial = !!on; GF.visible = S.grassTrial; world.hideTuftsIn(-PLOT/2, PLOT/2, -PLOT/2, PLOT/2, S.grassTrial);
+  if (S.grassTrial){ gfSig = ''; gfRebuild(); }
+}
+function gfRebuild(){   // (again whenever something is built, moved or fenced on the plot)
+  const sig = JSON.stringify([S.place || {}, Object.keys(S.builds || {}).length, (S.fences || []).length, world.data.bridges.length]);
+  if (sig === gfSig) return; gfSig = sig; GF.build(-PLOT/2, PLOT/2, -PLOT/2, PLOT/2, gfOK, world.H);
+}
+let gfT = 0;
+function updateGrassTrial(dt, t){
+  if (!GF.visible) return;
+  gfT -= dt; if (gfT <= 0 && !placing){ gfT = 2; gfRebuild(); }
+  const w = weatherNow(), wind = w === 'storm' ? 2 : w === 'rain' ? 1.4 : 1;
+  GF.update(t, {cam:camera.position, pet: petActive() && root.visible ? pos : null, petR:0.5 + 0.6*petS, wind, night:nightF, fog:scene.fog,
+    sun:sun.color.clone().multiplyScalar(sun.intensity*1.25), amb:hemi.color.clone().multiplyScalar(hemi.intensity*0.6)});
+}
+const reducedMotion = () => S.reduceMotion === true || (S.reduceMotion == null && reduced);
 function endEvolution(){
   evo = null; B.mode = 'idle'; B.timer = 2; actG.rotation.set(0,0,0); actY = 0;
   U.uWhite.value = 0; petMats.forEach(m => m.emissive.setScalar(0));
   pillar.visible = false; rings.forEach(r => r.visible = false);
   fxo.hidden = true; clothesHidden = false; applyClothes(); duck(false);
-  const F = form();
-  toast(S.form === 'normal' ? `${S.name || '牠'}長大了，現在是${STAGES[S.stage].name}。` : `${F.name}：${F.desc}`);
+  const F = form(), sk = EV.skillOf(S.form);
+  toast(`${S.name || '牠'}進化成${F.name}了！${sk ? `學會技能「${sk.name}」。` : ''}`);
   spawnHearts(3); save();
 }
 function updateEvo(dt){
@@ -3464,6 +3643,7 @@ function updateHatch(dt){
   if (!hatching.cracked){
     hatching.cracked = true; eggWob.rotation.z = 0; eggMesh.visible = false;
     eggHalves = [0, Math.PI].map(start => { const m = new THREE.Mesh(new THREE.LatheGeometry(eggPts, 16, start, Math.PI), eggMat); m.position.y = 0.74; eggG.add(m); return {m, v:V3(start ? -1.6 : 1.6, 3, rnd(-0.5,0.5)), r:start ? 4 : -4}; });
+    S.evo = Object.assign(EV.newEvo(0), {unlocked:(S.evo && S.evo.unlocked) || []});
     S.stage = 'baby'; S.form = 'normal'; S.fur = rollFur(); S.dye = null; S.likes = rollLikes(); S.aff = 50; S.ageMs = 0; S.growth = 0; S.st = {hunger:70, thirst:70, happy:80, energy:90, health:100}; S.poopQ = []; S.care = freshCare();
     B.mode = 'idle'; B.timer = 3; pos.set(0,0,0); vel.set(0,0,0); root.rotation.y = Math.atan2(camera.position.x, camera.position.z); reveal = 0;
     root.visible = true; shadow.g.visible = true; eggShadow.g.visible = false; nest.visible = false; applyForm();
@@ -3525,6 +3705,7 @@ function clearPetWorld(){
 }
 function newEgg(){
   clearPetWorld();
+  S.evo = Object.assign(EV.newEvo(0), {unlocked:(S.evo && S.evo.unlocked) || []});
   S.stage = 'egg'; S.form = 'normal'; S.warm = 0; S.name = ''; S.ageMs = 0; S.growth = 0; S.dead = null; S.gen += 1; S.poopQ = []; S.care = freshCare();
   S.st = {hunger:80, thirst:80, happy:75, energy:85, health:100};
   applyForm(); save(); hudDirty = true; toast('一顆新的蛋出現了。點一點牠，幫牠保暖。');
@@ -3670,6 +3851,7 @@ function walkTowards(tx_, tz_, dt, speed, stopDist){
 function startSleep(){ B.mode = 'sleep'; B.zzzT = 0; cry('sleepy'); }
 function wake(grumpy){
   if (B.mode === 'inHouse') B.sleeping = false; else { B.mode = 'idle'; B.timer = 2; }
+  if (!grumpy) sleepDone();
   if (grumpy){ S.st.happy = clamp(S.st.happy - 6, 0, 100); showEmote('😠', 1.6); cry('angry'); }
 }
 function goHouse(sleep){ B.mode = 'goHouse'; B.sleepAfter = sleep; }
@@ -3683,7 +3865,7 @@ function think(dt){
   const wakeOK = () => st.energy >= 98 || (nightF < 0.5 && st.energy >= 80);
   if (B.mode === 'sleep'){ if (wakeOK()) wake(false); return false; }
   if (B.mode === 'inHouse'){
-    if (B.sleeping && wakeOK()) B.sleeping = false;
+    if (B.sleeping && wakeOK()){ B.sleeping = false; sleepDone(); }
     if (!B.sleeping && (st.energy < 20 || (nightF > 0.6 && st.energy < 85))) B.sleeping = true;
     if (!B.sleeping && !badWeather()) exitHouse();
     return false;
@@ -3782,11 +3964,12 @@ function think(dt){
       if (!f || !foods.includes(f)){ B.mode = 'idle'; B.timer = 1.5; break; }
       const fi = foodInfo(f.kind || 'grass');
       f.eat -= dt/2.6; f.g.scale.setScalar(Math.max(0.05, f.eat));
-      st.hunger = clamp(st.hunger + fi.hunger*FILL*dt/2.6, 0, 100);
+      st.hunger = clamp(st.hunger + fi.hunger*FILL*dt/2.6*EV.mult(S.evo, S.form, 'feed_hunger_multiplier', ageMin()), 0, 100);
       B.nomT -= dt; if (B.nomT <= 0){ B.nomT = 0.38; sfx('nom'); }
       if (f.eat <= 0){
         scene.remove(f.g, f.sh.g); foods.splice(foods.indexOf(f),1); B.food = null;
         S.care.meals++; if (B.before > 80) S.care.overfed++; track('feed');
+        if (careAct('feed')){ if (B.before >= 80) S.evo.phase.ev.overfeed++; skillOn('feed'); }
         if (B.before < 90) addCoins(2, headTop());
         S.growth += growthOK() ? 4 : 0.5; st.happy = clamp(st.happy+3, 0, 100);
         foodBonus(fi);
@@ -3815,7 +3998,7 @@ function think(dt){
         if (B.before < 90) addCoins(2, headTop());
         if (growthOK()) S.growth += 1.5;
         if (bowl && (bowl.kind !== 'water' || !BG.pond || pondBad())){ scene.remove(bowl.g); bowl = null; }
-        B.water = null; B.mode = 'idle'; B.timer = 2; spawnHearts(1); track('drink');
+        B.water = null; B.mode = 'idle'; B.timer = 2; spawnHearts(1); track('drink'); careAct('drink');
       }
       break; }
     case 'skillGo': {   // a ninja dash: a puff of smoke and leaves, gone, a streak — and it pops up right beside the target
@@ -3853,7 +4036,7 @@ function think(dt){
       if (w_.to){ const r = walkTo(w_.to.x, w_.to.z, dt, sp*0.8, 0.3); moving = r.moving; }
       if (w_.t <= 0){   // climb out at the nearest dry bank
         let land = null; for (let r = 0.5; r < 14 && !land; r += 0.5) for (let a = 0; a < 24; a++){ const x = pos.x + Math.sin(a/24*6.283)*r, z = pos.z + Math.cos(a/24*6.283)*r; if (world.walkable(x, z) && !world.isWater(x, z)){ land = V3(x, 0, z); break; } }
-        B.mode = 'goto'; B.target.copy(land || V3(0, 0, 0)); B.timer = 25; B.path = null; B.swim = null; spawnHearts(2); track('swimPlay'); }
+        B.mode = 'goto'; B.target.copy(land || V3(0, 0, 0)); B.timer = 25; B.path = null; B.swim = null; spawnHearts(2); track('swimPlay'); playDone('swim'); }
       break; }
     case 'goHouse': {
       if (!BG.house){ B.mode = 'idle'; break; }
@@ -4074,7 +4257,9 @@ statsEl.innerHTML = STAT_DEFS.map(([k,l]) => `<div class="stat"><span>${l}</span
   + `<div class="stat"><span id="l_grow">成長</span><div class="track"><div class="fill" id="f_grow"></div></div><span class="num" id="n_grow"></span></div><p class="env" id="env"></p>`;
 function fmtAge(){ const m = ageMin(); if (m < 60) return `${Math.floor(m)} 分鐘大`; if (m < 1440) return `${Math.floor(m/60)} 小時大`; return `${Math.floor(m/1440)} 天 ${Math.floor(m%1440/60)} 小時大`; }
 function setBar(k, v, txt){ const f = $('#f_'+k); f.style.width = clamp(v,0,100).toFixed(0)+'%'; f.classList.toggle('low', v < 25); $('#n_'+k).textContent = txt ?? Math.round(v); }
-function stageLabel(){ const sd = STAGES[S.stage]; return S.stage === 'baby' || S.form === 'normal' ? sd.name : `${sd.name}　${form().name}`; }
+function stageLabel(){ const sd = STAGES[S.stage];
+  if (S.stage === 'baby') return S.evo && EV.babySub(S.evo, ageMin()) === 'baby1' ? '幼年期Ⅰ　初生袋熊' : '幼年期Ⅱ　幼兒袋熊';
+  return S.form === 'normal' ? sd.name : `${sd.name}　${form().name}`; }
 function renderHUD(){
   $('#coins').textContent = S.coins;
   const egg = S.stage === 'egg';
@@ -4089,9 +4274,8 @@ function renderHUD(){
   else {
     STAT_DEFS.forEach(([k]) => setBar(k, k === 'clean' ? cleanVal() : k === 'aff' ? S.aff : st[k]));
     const sd = STAGES[S.stage];
-    if (sd.next){ const prevG = {baby:0, child:25, adult:120, perfect:300}[S.stage], pct = clamp((S.growth-prevG)/(sd.growth-prevG)*100, 0, 100);
-      const ageOK = ageMin() >= sd.age;
-      setBar('grow', pct, !growthOK() ? '停滯' : pct >= 100 && !ageOK ? '等待' : Math.floor(pct)+'%'); $('#f_grow').classList.toggle('low', !growthOK()); }
+    if (sd.next && S.evo){ const pct = clamp((ageMin() - S.evo.stageStart)/EV.STAGE_MIN[S.stage]*100, 0, 100), wait = S.stage === 'perfect' && S.evo.recheckAt != null;
+      setBar('grow', wait ? 100 : pct, wait ? '等待條件' : Math.floor(pct)+'%'); $('#f_grow').classList.remove('low'); }
     else setBar('grow', 100, '最終');
   }
   const di = dayInfo(), hh = pad(di.d.getHours()), mm = pad(di.d.getMinutes()), hol = activeHoliday();
@@ -4112,6 +4296,69 @@ function renderHUD(){
 // ---------- toast / modal / sheet ----------
 const toastEl = $('#toast'); let toastTimer;
 function toast(t){ toastEl.textContent = t; toastEl.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(()=>toastEl.classList.remove('show'), 4200); }
+// ---------- the form's skill page, and the evolution encyclopedia (圖鑑) ----------
+const gmText = m => { m = Math.max(0, Math.round(m)); return m >= 1440 ? `${Math.floor(m/1440)} 天 ${Math.floor(m%1440/60)} 小時` : m >= 60 ? `${Math.floor(m/60)} 小時 ${m%60} 分` : `${m} 分`; };
+const realText = gm => { const s_ = gm*60/Math.max(1, S.speed); return s_ < 90 ? `${Math.ceil(s_)} 秒` : s_ < 5400 ? `${Math.ceil(s_/60)} 分鐘` : `${(s_/3600).toFixed(1)} 小時`; };
+const SKILL_TYPE = {active:'主動技能', passive:'被動技能'};
+const AFF_NAME = {earth:'大地', nature:'自然', wind:'風雷', fire:'火焰', star:'星月', abyss:'深淵'};
+function skillHTML(){
+  const E = S.evo, sk = EV.skillOf(S.form), am = ageMin();
+  let h = '';
+  if (!sk) h += `<div class="card"><h3>${S.stage === 'egg' ? '還是一顆蛋' : stageLabel()}</h3><p>還沒有技能。進化成「成長期」以後，每一種型態都會有自己的技能。</p></div>`;
+  else { const cd = EV.cooldownLeft(E, S.form, am);
+    h += `<div class="card"><h3>${form().name}：${sk.name}</h3><p style="margin:0;color:var(--soft)">${SKILL_TYPE[sk.type]}${sk.cooldown_game_minutes ? `・冷卻 ${gmText(sk.cooldown_game_minutes)}（遊戲時間）` : ''}</p><p style="margin:4px 0">${sk.description}</p>`
+      + (sk.type === 'active' ? (cd > 0 ? `<p style="margin:0;color:var(--soft)">冷卻中：還要 ${gmText(cd)}（現實約 ${realText(cd)}）</p>` : `<button class="btn" data-useskill>使用技能</button>`) : `<p style="margin:0;color:var(--soft)">被動技能會自動生效。</p>`) + `</div>`;
+    if (E.fx.play) h += `<p class="sec">接下來 ${E.fx.play.n} 次玩耍：心情收益 ×${E.fx.play.mood}${E.fx.play.hunger !== 1 ? `，飽足消耗 ×${E.fx.play.hunger}` : ''}</p>`;
+    if (E.fx.shield && E.fx.shield.until > am) h += `<p class="sec">星光守護中：各項數值下降減半，還有 ${gmText(E.fx.shield.until - am)}</p>`; }
+  if (bondReady()) h += `<div class="card" style="margin-top:10px"><h3>💞 袋熊羈絆儀式</h3><p style="margin:4px 0">你們的感情非常好，可以舉行一次羈絆儀式（每隻袋熊一生只有一次）。</p><button class="btn" data-bond>開始儀式</button></div>`;
+  else if (E && E.life.bond >= 1) h += `<p class="sec">💞 已經完成羈絆儀式。</p>`;
+  if (E && S.stage !== 'egg' && !S.dead){ const M = EV.metrics(E), left = stageLeft(), top = Object.keys(AFF_NAME).sort((a, b) => M['aff_' + b] - M['aff_' + a])[0];
+    h += `<p class="sec">這個階段的照顧紀錄</p><div class="dexrow">照顧分 <b>${Math.round(M.care_score)}</b>・照顧失誤 <b>${M.care_mistakes}</b> 次・玩耍 <b>${M.play_sessions}</b> 次（挖洞 ${M.dig_sessions}、賞花 ${M.flower_sessions}、高強度 ${M.heat_play_sessions}、夜間探秘 ${M.night_explore_sessions}）</div>`
+      + (M['aff_' + top] > 5 ? `<div class="dexrow">最明顯的傾向：<b>${AFF_NAME[top]}</b> ${Math.round(M['aff_' + top])}</div>` : '')
+      + (STAGES[S.stage].next ? `<div class="dexrow">${S.stage === 'perfect' && E.recheckAt != null ? `還沒達成究極體條件，${gmText(E.recheckAt - am)}後再檢查` : `下次進化：還要 ${gmText(left)}（遊戲時間，現實約 ${realText(left)}）`}</div>` : '')
+      + (E.life.major ? `<div class="dexrow">一生中的重大疏忽：${E.life.major} 次</div>` : ''); }
+  return h + `<p class="sec">各型態的技能和進化路線，可以在「📖 圖鑑」裡查看。</p>`;
+}
+let dexTab = 'all';
+const dexImg = (id, thumb) => `assets/四視圖/${thumb ? 'thumb/' : ''}${id}.jpg`;
+const dexKnown = id => S.form === id || !!(S.evo && S.evo.unlocked.includes(id)) || EVOTEST;
+const dexName = id => FORMS[id] ? FORMS[id].name : id === 'baby2' ? '幼兒袋熊' : id;
+function dexHTML(){
+  const U = S.evo ? S.evo.unlocked : [], n = EV.FORM_IDS.filter(dexKnown).length;
+  const tabs = [['all', '全部'], ...Object.entries(EV.STAGE27)];
+  const list = EV.FORM_IDS.filter(id => dexTab === 'all' || FORMS[id].stage === dexTab);
+  return `<p class="sec">已解鎖 <b>${n}</b> / 27 種型態。點卡片看四視圖、技能和進化路線。</p>` + tabsHTML(tabs, dexTab, 'dextab')
+    + `<div class="dexgrid">` + list.map(id => { const k = dexKnown(id), prov = EV.PROVISIONAL.has(id);
+      return `<button class="dexcard${k ? '' : ' lock'}" data-dexf="${id}" aria-label="${k ? FORMS[id].name : '未解鎖'}"><div class="pic${prov ? ' prov' : ''}" style="background-image:url('${dexImg(id, true)}')"></div>`
+        + `<span class="nm">${k ? FORMS[id].name : '？？？'}</span><span class="st">${EV.STAGE27[FORMS[id].stage]}</span>${prov ? '<span class="tag">概念圖</span>' : ''}${S.form === id ? '<span class="now">現在</span>' : ''}</button>`; }).join('') + `</div>`
+    + `<p class="sec">還沒養出的型態只會顯示剪影。條件會在養出前一階段的型態後慢慢揭露。標「概念圖」的 7 張是暫定的設定圖，之後會換成正式高清圖。</p>`;
+}
+function dexDetail(id){
+  const f = EV.FORM27[id], k = dexKnown(id), prov = EV.PROVISIONAL.has(id), sk = f.skill;
+  const from = EV.edgesTo(id), to = EV.edgesFrom(id);
+  const cond = e => { const hidden = /^隱藏/.test(e.human_condition) && !dexKnown(e.to); if (hidden) return '隱藏條件（達成後才會顯示）';
+    return dexKnown(e.from) || e.from === 'baby2' || dexKnown(e.to) ? e.human_condition : `先養出${dexKnown(e.from) ? dexName(e.from) : '前一階段的型態'}才會知道`; };
+  let h = k ? `<img class="dexsheet" src="${dexImg(id)}" alt="${f.name}四視圖" data-dexzoom="${id}" loading="lazy">` : `<img class="dexsheet lock" src="${dexImg(id, true)}" alt="未解鎖的剪影">`;
+  if (prov) h += `<div class="dexprov">暫定概念圖：之後會換成正式高清四視圖。</div>`;
+  h += `<p style="font-size:12px;color:var(--soft);margin:4px 0">${EV.STAGE27[f.stage]}${k ? `・${f.design}` : '・尚未獲得'}${k ? '<br>四視圖是 2D 角色設定圖；遊戲裡的 3D 袋熊目前用基本模型加上配色、配件和特效呈現。' : ''}</p>`;
+  h += `<div class="dexrow"><b>技能：</b>${k ? `${sk.name}（${SKILL_TYPE[sk.type]}${sk.cooldown_game_minutes ? `，冷卻 ${gmText(sk.cooldown_game_minutes)}` : ''}）<br>${sk.description}` : '解鎖後顯示'}</div>`;
+  h += `<p class="sec" style="margin-bottom:2px">從哪裡進化來</p>` + from.map(e => `<div class="dexrow"><b>${dexKnown(e.from) || e.from === 'baby2' ? dexName(e.from) : '？？？'}</b>${e.fallback ? '（保底）' : ''}：${cond(e)}</div>`).join('');
+  if (to.length) h += `<p class="sec" style="margin-bottom:2px">可能的下一階段</p>` + to.map(e => `<div class="dexrow"><b>${dexKnown(e.to) ? dexName(e.to) : '？？？'}</b>${e.fallback ? '（保底）' : ''}：${k ? cond(e) : '先養出這個型態才會知道'}</div>`).join('')
+    + (f.stage === 'perfect' ? `<p class="sec">完全體沒有保底：沒有達成任何究極體條件時，會維持完全體，之後每 6 遊戲小時再檢查一次。</p>` : '');
+  else h += `<p class="sec">究極體是最終型態。</p>`;
+  showModal(k ? f.name : '？？？', h, [{label:'關閉', ghost:true, onClick:()=>{}}, ...(k ? [{label:'放大四視圖', onClick:() => dexZoom(id)}] : [])]);
+}
+function dexZoom(id){
+  let L = $('#dexLight');
+  if (!L){ L = document.createElement('div'); L.id = 'dexLight'; L.innerHTML = `<button class="x" type="button">關閉 ✕</button><img alt=""><div class="cap"></div>`; document.body.appendChild(L);
+    L.querySelector('.x').onclick = e => { e.stopPropagation(); L.hidden = true; L.classList.remove('zoom'); };
+    L.querySelector('img').onclick = e => { e.stopPropagation(); L.classList.toggle('zoom'); }; }
+  const f = EV.FORM27[id]; L.querySelector('img').src = dexImg(id); L.querySelector('img').alt = `${f.name}四視圖`;
+  L.querySelector('.cap').textContent = `${f.name}　正面／左側／背面／右側${EV.PROVISIONAL.has(id) ? '（暫定概念圖）' : ''}　點圖片放大`; L.classList.remove('zoom'); L.hidden = false;
+}
+document.addEventListener('click', e => { const z = e.target.closest && e.target.closest('[data-dexzoom]'); if (z){ closeModal(); dexZoom(z.dataset.dexzoom); } });
+$('#btnSkill').onclick = () => openSheet('skill');
+$('#btnDex').onclick = () => openSheet('dex');
 function showModal(title, bodyHTML, actions){
   $('#modalTitle').textContent = title; $('#modalBody').innerHTML = bodyHTML; const ac = $('#modalActs'); ac.innerHTML = '';
   actions.forEach(a => { const b = document.createElement('button'); b.className = 'btn' + (a.ghost ? ' ghost' : ''); b.textContent = a.label; b.onclick = () => { closeModal(); a.onClick(); }; ac.appendChild(b); });
@@ -4150,7 +4397,7 @@ function closeSheet(){ sheet.hidden = true; sheetKind = null; }
 $('#sheetClose').onclick = closeSheet;
 function md(d){ return `${d.getMonth()+1}/${d.getDate()}`; }
 // ---------- icon-tile catalogues (shop, feeding, tricks) ----------
-const TRICK_ICON = {sit:'🐾', flip:'🤸', roll:'🌀', spin:'⭐', belly:'🙃', shake:'💨', dance:'💃', ballroll:'🎳', snowman:'⛄', puddle:'💦', fireflies:'✨', moonview:'🌕', dig:'⛏️', zoomies:'💨', wave:'👋', bow:'🙇', hop:'🐇', stretch:'🥱'};
+const TRICK_ICON = {flowerview:'🌸', nightwalk:'🔦', sit:'🐾', flip:'🤸', roll:'🌀', spin:'⭐', belly:'🙃', shake:'💨', dance:'💃', ballroll:'🎳', snowman:'⛄', puddle:'💦', fireflies:'✨', moonview:'🌕', dig:'⛏️', zoomies:'💨', wave:'👋', bow:'🙇', hop:'🐇', stretch:'🥱'};
 const TRICK_DESC = {dig:'用前腳拚命挖土，偶爾會挖到代幣！', zoomies:'突然興奮地繞圈暴衝。體力 -6，心情 +10', wave:'坐著舉起前腳跟你揮手。', bow:'低下頭鞠個躬。', hop:'往前跳三下。', stretch:'前腳往前伸，打個大哈欠。', sit:'乖乖坐下，看著你。心情 +6', flip:'原地一個後空翻！體力 -6，心情 +10', roll:'連續側翻滾三圈。體力 -6，心情 +10', spin:'跳起來轉一圈。體力 -6，心情 +10',
   belly:'翻過來露出肚子扭扭。體力 -6，心情 +10', shake:'甩甩全身的毛。體力 -6，心情 +10', dance:'跟著音樂跳舞。體力 -8，心情 +14', ballroll:'縮成一顆球往前滾。體力 -6，心情 +12'};
 const CLOTH_ICON = {party:'🥳', straw:'👒', glasses:'👓', bow:'🎀', scarf:'🧣', sweater:'🧶', nyband:'🎊', caishen:'🧧', heartgl:'😍', propeller:'🚁', sachet:'🎐', bunny:'🐰', witch:'🧙', santa:'🎅'};
@@ -4244,9 +4491,11 @@ function shopEntries(tab){
 const SHOP_TABS = [['food','食物'],['drink','飲料'],['care','保健'],['med','藥品'],['trick','招式'],['dye','染劑'],['item','道具'],['cloth','服裝'],['build','建築'],['garden','園藝']];
 function renderSheet(){
   if (!sheetKind) return;
-  $('#sheetTitle').textContent = {play:'玩耍', shop:'商店', wardrobe:'衣櫥', settings:'設定', feed:'餵食', water:'喝水', tasks:'任務與成就'}[sheetKind];
+  $('#sheetTitle').textContent = {play:'玩耍', shop:'商店', wardrobe:'衣櫥', settings:'設定', feed:'餵食', water:'喝水', tasks:'任務與成就', skill:'型態技能', dex:'進化圖鑑'}[sheetKind];
   let h = '';
   if (sheetKind === 'tasks') h = tabsHTML([['daily','每日任務'],['ach','成就']], taskTab, 'ttab') + tasksHTML();
+  else if (sheetKind === 'skill') h = skillHTML();
+  else if (sheetKind === 'dex') h = dexHTML();
   else if (sheetKind === 'feed' || sheetKind === 'water'){
     const list = feedTab === 'food' ? FOODS : feedTab === 'drink' ? DRINKS : [...CARE, ...MEDS];
     tiles = list.filter(f => !f.price || inv(f.id) || feedTab !== 'care').map(f => consumableEntry(f, 'use'));
@@ -4277,7 +4526,9 @@ function renderSheet(){
     else h += owned.map(c => `<div class="card" style="margin-top:10px"><div class="row"><h3>${c.name}</h3><button class="btn ${S.worn[c.id] ? '' : 'ghost'}" data-wear="${c.id}">${S.worn[c.id] ? '脫下' : '穿上'}</button></div><div class="swrow" role="radiogroup" aria-label="${c.name}顏色">` + PALETTE.map(p => `<button class="sw" role="radio" aria-checked="${(S.colors[c.id]||c.def)===p}" aria-label="${p}" data-col="${c.id}|${p}" style="background:${p}"></button>`).join('') + `</div></div>`).join('');
   } else if (sheetKind === 'settings'){
     const sp = [1,10,60], wx = [['auto','自動'],['sunny','晴'],['cloudy','多雲'],['rain','雨'],['snow','雪'],['storm','雷雨']];
-    h = `<p class="sec">畫風</p><div class="opts"><button class="icon" data-art="ghibli" aria-pressed="${S.art !== 'plain'}">吉卜力水彩（試作）</button><button class="icon" data-art="plain" aria-pressed="${S.art === 'plain'}">原本的畫風</button></div>`
+    h = `<p class="sec">草原畫風試作（家裡那塊地換成又密又會隨風起伏的草原，像你給的參考圖）</p><div class="opts"><button class="icon" data-gt="1" aria-pressed="${!!S.grassTrial}">開啟</button><button class="icon" data-gt="0" aria-pressed="${!S.grassTrial}">關閉</button></div>`
+      + `<p class="sec">減少動態效果（進化演出不晃動、不快轉，閃光較柔和）</p><div class="opts"><button class="icon" data-rm="auto" aria-pressed="${S.reduceMotion == null}">跟系統設定</button><button class="icon" data-rm="on" aria-pressed="${S.reduceMotion === true}">開啟</button><button class="icon" data-rm="off" aria-pressed="${S.reduceMotion === false}">關閉</button></div>`
+      + `<p class="sec">畫風</p><div class="opts"><button class="icon" data-art="ghibli" aria-pressed="${S.art !== 'plain'}">吉卜力水彩（試作）</button><button class="icon" data-art="plain" aria-pressed="${S.art === 'plain'}">原本的畫風</button></div>`
       + musicHTML() + `<p class="sec">晝夜</p><div class="opts"><button class="icon" data-day="hourly" aria-pressed="${S.dayMode==='hourly'}">每小時切換早晚</button><button class="icon" data-day="real" aria-pressed="${S.dayMode==='real'}">跟現實時間同步</button></div>`
       + `<p class="sec">時間流速（只影響成長和數值，10 倍、60 倍適合想快點看牠進化）</p><div class="opts">` + sp.map(v => `<button class="icon" data-speed="${v}" aria-pressed="${S.speed===v}">${v} 倍</button>`).join('') + `</div>`
       + `<p class="sec">天氣</p><div class="opts">` + wx.map(([k,l]) => `<button class="icon" data-wx="${k}" aria-pressed="${(S.weather.forced||'auto')===k}">${l}</button>`).join('') + `</div>`
@@ -4336,6 +4587,12 @@ sheetBody.addEventListener('click', e => {
   if (d.stab){ shopTab = d.stab; renderSheet(); return; }
   if (d.ftab){ feedTab = d.ftab; renderSheet(); return; }
   if (d.ttab){ taskTab = d.ttab; renderSheet(); return; }
+  if (d.dextab){ dexTab = d.dextab; renderSheet(); return; }
+  if (d.dexf){ dexDetail(d.dexf); return; }
+  if (d.useskill !== undefined){ useFormSkill(); return; }
+  if (d.bond !== undefined){ bondCeremony(); return; }
+  if (d.gt){ setGrassTrial(d.gt === '1'); save(); renderSheet(); return; }
+  if (d.rm){ S.reduceMotion = d.rm === 'auto' ? null : d.rm === 'on'; save(); renderSheet(); return; }
   if (d.tile !== undefined){ const e = tiles[+d.tile]; if (e) detail(e); return; }
   if (d.act){ closeSheet(); startAct(d.act); return; }
   if (d.swim){ goSwim(d.swim); return; }
@@ -4389,7 +4646,7 @@ sheetBody.addEventListener('change', e => { if (e.target.id === 'brightIn') save
 function giveMedicine(){
   if (!petActive()){ toast('現在不需要吃藥。'); return; }
   if (S.coins < 10){ toast('代幣不夠。清大便、拔雜草可以賺代幣。'); return; }
-  S.coins -= 10; S.st.health = clamp(S.st.health + 45, 0, 100); sfx('happy'); spawnHearts(2); showEmote('💊', 1.6); toast('吃藥了，好多了。'); hudDirty = true; save();
+  S.coins -= 10; S.st.health = clamp(S.st.health + 45, 0, 100); careAct('med'); sfx('happy'); spawnHearts(2); showEmote('💊', 1.6); toast('吃藥了，好多了。'); hudDirty = true; save();
 }
 $('#btnMed').onclick = giveMedicine;
 
@@ -4483,22 +4740,22 @@ const GUIDE = [
     ${ICON.weed(200,90)}${ICON.weed(230,92)}${T(215,120,'雜草會自己長',12)}${ICON.coin(192,150)}${T(208,155,'+2 / 株',12,'start')}`),
     html:`<p>袋熊吃完東西過一陣子會拉出<b>方塊形的便便</b>（真的袋熊也是這樣）。雜草也會慢慢長出來。</p><ul><li><b>點一下</b>便便或雜草就能清掉；按「清理」一次清光。</li><li>清一顆便便 +3 代幣、拔一株雜草 +2。牠餓或渴時餵食、喝水各 +2，堆雪人 +5。</li><li>場上同時有 3 坨以上便便會發臭，清潔掉很快，容易生病。</li></ul>`},
   {title:'成長與進化', svg:svgWrap(`
-    ${[[30,0.3,'幼兒期'],[88,0.42,'成長期'],[152,0.55,'成熟期'],[222,0.63,'完全體'],[290,0.7,'究極體']].map(([x,s,l],i)=>`${wbSvg(x-8,96,s)}${T(x,140,l,12)}${i<4?`<path d="M${x+22} 96 l12 0" stroke="var(--soft)" stroke-width="2" marker-end="url(#ar2)"/>`:''}`).join('')}
+    ${[[30,0.3,'幼年期'],[88,0.42,'成長期'],[152,0.55,'成熟期'],[222,0.63,'完全體'],[290,0.7,'究極體']].map(([x,s,l],i)=>`${wbSvg(x-8,96,s)}${T(x,140,l,12)}${i<4?`<path d="M${x+22} 96 l12 0" stroke="var(--soft)" stroke-width="2" marker-end="url(#ar2)"/>`:''}`).join('')}
     <defs><marker id="ar2" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8z" fill="var(--soft)"/></marker></defs>
-    ${T(160,24,'進化時會發光旋轉，還有進化音樂',12,'middle','var(--soft)')}<path d="M147 52 v40 M175 52 v40" stroke="#fff1c2" stroke-width="10" opacity=".5"/>`),
-    html:`<p>每個階段的「成長」條滿了、年紀也到了，就會開始<b>進化</b>：牠會浮起來、越轉越快、變成一團白光，最後換成新的樣子。</p><ul><li>幼兒期 → 成長期：大約 20 分鐘</li><li>成長期 → 成熟期：大約 6 小時</li><li>成熟期 → 完全體：大約 2 天</li><li>完全體 → 究極體：大約 4 天</li><li>大約第 8 天走完一生。</li></ul><p class="note">上面是 1 倍速的時間。想快點看，可以到設定調成 10 倍或 60 倍。</p>`},
-  {title:'成熟期的型態', svg:svgWrap(`
-    ${[['normal',55,50,{}],['skinny',160,50,{bx:.72,by:.8,c:'#9c8064'}],['sickly',265,50,{c:'#8c8a6a',acc:['bandage','thermo'],droopy:true}],
-       ['stinky',55,132,{c:'#837152',acc:'poop'}],['chubby',160,132,{bx:1.25,by:1.12}],['sporty',265,132,{acc:'headband'}]]
+    ${T(160,24,'進化時會飛進夢幻空間、越轉越快、白光變身',12,'middle','var(--soft)')}<path d="M147 52 v40 M175 52 v40" stroke="#fff1c2" stroke-width="10" opacity=".5"/>`),
+    html:`<p>每個階段待滿時間就會<b>進化</b>（1 倍速的遊戲時間）：</p><ul><li>蛋 → 幼年期Ⅰ 初生袋熊 → 5 分鐘後變幼年期Ⅱ 幼兒袋熊</li><li>幼兒袋熊 → 成長期：再 15 分鐘</li><li>成長期 → 成熟期：6 小時</li><li>成熟期 → 完全體：2 天</li><li>完全體 → 究極體：4 天（要達成條件）</li></ul><p>大約第 8 天開始變老，但不會因為年紀直接結束；變老以後如果被嚴重疏忽（例如重病放著不管），才可能離開。</p><p class="note">想快點看，可以到設定調成 10 倍或 60 倍。用 10 倍、60 倍時，快進化前會有 30 秒的提示，讓你補照顧，也可以直接按「立刻進化」。</p>`},
+  {title:'27 種型態，網狀進化', svg:svgWrap(`
+    ${[['g_good',55,50,{}],['g_skinny',160,50,{bx:.72,by:.8,c:'#9c8064'}],['g_sick',265,50,{c:'#8c8a6a',acc:['bandage','thermo'],droopy:true}],
+       ['m_stinky',55,132,{c:'#837152',acc:'poop'}],['m_chubby',160,132,{bx:1.25,by:1.12}],['m_energetic',265,132,{acc:'headband'}]]
       .map(([k,x,y,o])=>`${wbSvg(x-6,y,0.46,o)}${T(x,y+32,FORMS[k].name,11)}`).join('')}`),
-    html:`<p>進化成什麼樣子，要看<b>進化那一刻</b>和這個階段你怎麼照顧牠：</p><ul>${['stinky','sickly','skinny','chubby','sporty'].map(k=>`<li><b>${FORMS[k].name}</b>：${FORMS[k].desc}</li>`).join('')}<li><b>袋熊</b>（一般型）：以上都沒有，正常長大。</li></ul><p class="note">判斷順序就是上面列出來的順序。歪掉的型態，下一次進化前照顧好，還有機會變回來。</p>`},
-  {title:'完全體與究極體：三條路線', svg:svgWrap(`
-    ${[['royal','golden',{acc:['crown','cape']},{c:'#c49a3a',acc:['crown','cape'],glow:'#ffd76a'}],
-       ['forest','forestx',{acc:['leafcape','sprout']},{acc:['leafcape','antler'],glow:'#a6f08a'}],
-       ['wind','thunder',{acc:['windband','windscarf']},{acc:['boltband','boltcape'],glow:'#ffe45c'}]]
+    html:`<p>成長期 5 種、成熟期 8 種、完全體 8 種、究極體 6 種，一共 <b>27 種</b>。每次進化都看<b>這個階段</b>你怎麼照顧牠，不同路線到後面還會交會：</p><ul><li>常常餓肚子、生病沒處理、餵太撐、很愛玩……都會走向不同型態。</li><li>挖洞、<b>賞花</b>（白天）、<b>夜間探秘</b>（晚上）、高強度的招式（後空翻、跳舞、暴衝、玩水）、規律地在晚上睡覺，會讓牠有大地、自然、星月、深淵、火焰、風雷等不同傾向。</li><li>照顧失誤：飢餓、口渴、生病、太累的呼叫放著不管超過 10 遊戲分鐘（而且至少 30 秒），每次呼叫最多算一次。</li></ul><p class="note">到右邊的「📖 圖鑑」看每種型態的四視圖、技能和進化路線；養出前一階段的型態後，條件會慢慢揭露。</p>`},
+  {title:'技能、究極體與羈絆儀式', svg:svgWrap(`
+    ${[['p_royal','u_gold',{acc:['crown','cape']},{c:'#c49a3a',acc:['crown','cape'],glow:'#ffd76a'}],
+       ['p_forest','u_worldtree',{acc:['leafcape','sprout']},{acc:['leafcape','antler'],glow:'#a6f08a'}],
+       ['p_wind','u_lightning',{acc:['windband','windscarf']},{acc:['boltband','boltcape'],glow:'#ffe45c'}]]
       .map(([a,b,oa,ob],i)=>{ const y = 34 + i*56; return `${wbSvg(78,y,0.4,oa)}${T(84,y+26,FORMS[a].name,11)}<path d="M128 ${y} h46" stroke="var(--soft)" stroke-width="2" marker-end="url(#ar3)"/>${wbSvg(224,y,0.44,ob)}${T(230,y+27,FORMS[b].name,11)}`; }).join('')}
     <defs><marker id="ar3" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8z" fill="var(--soft)"/></marker></defs>`),
-    html:`<p>成熟期照顧得幾乎沒有失誤、心情又好，進化成完全體時會走上三條路線之一：</p><ul>${['wind','forest','royal'].map(k=>`<li><b>${FORMS[k].name}</b>：${FORMS[k].desc}</li>`).join('')}</ul><p>完全體時繼續完美照顧，就會進化成各自的究極體：<b>黃金袋熊</b>（金光閃閃）、<b>森羅袋熊</b>（樹葉圍繞、腳邊開花）、<b>雷光袋熊</b>（全身劈啪閃電）。</p><p class="note">想先看看長什麼樣子？到「設定 → 進化型態預覽」。</p>`},
+    html:`<ul><li>每種型態都有自己的<b>技能</b>：被動技能自動生效，主動技能到右邊「✨ 技能」按「使用」，用完要等冷卻（遊戲時間）。有金幣的技能每個遊戲日有上限。</li><li>完全體<b>沒有保底</b>：沒達成任何究極體條件，就會維持完全體，之後每 6 遊戲小時再檢查一次。</li><li>從成熟期開始，親暱值 90 以上、一整天沒有照顧失誤、又做了三種不同的照顧，就能在「技能」頁舉行一次<b>羈絆儀式</b>。最稀有的究極體需要它。</li></ul><p class="note">想先看看 3D 的樣子？到「設定 → 進化型態預覽」。</p>`},
   {title:'親暱值、院子和小意外', svg:svgWrap(`
     ${[['🥰',40,'親暱值'],['🐝',120,'蜂窩'],['🦋',200,'蝴蝶'],['🪳',280,'太髒了']].map(([e,x,l]) => `<text x="${x}" y="70" font-size="40" text-anchor="middle">${e}</text>${T(x,105,l,12)}`).join('')}
     ${[['🏠',60,'選位置蓋房子'],['🧹',160,'掃把和小手'],['👻',260,'超渡']].map(([e,x,l]) => `<text x="${x}" y="150" font-size="30" text-anchor="middle">${e}</text>${T(x,172,l,11)}`).join('')}`),
@@ -4922,7 +5179,7 @@ setupBeach();
 (S.snowmen || []).forEach(([x,z,ry,m]) => makeSnowman(x,z,ry,m));
 if (S.petPos){ pos.set(S.petPos[0], 0, S.petPos[1]); root.rotation.y = S.petPos[2]; }
 applyForm();
-setArt(S.art);
+setArt(S.art); if (S.grassTrial) setGrassTrial(true);
 petS = stageScale();
 refreshViewBtn(); if (!PREVIEW){ dailyNow(); taskBadge(); }
 if (camMode() === 'iso'){ yaw = 0.785; pitch = 0.79; } else if (camMode() === 'top'){ yaw = 0; pitch = 1.42; }
@@ -4936,6 +5193,54 @@ if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
 if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
+// ---------- the evolution test panel (index.html?preview=normal&evotest): preview mode, so nothing here is ever saved ----------
+if (EVOTEST) (async () => {
+  const T = await import('./evo27_test.js');
+  const P = document.createElement('div'); P.id = 'evoDev'; document.body.appendChild(P);
+  const out = t => { P.querySelector('pre').textContent = t; };
+  const setForm = id => { const f = FORMS[id]; S.stage = id === 'normal' ? 'baby' : EV.SPEC_TO_GAME[f.stage]; S.form = id;
+    S.evo = Object.assign(EV.newEvo(ageMin()), {unlocked:S.evo.unlocked}); if (id !== 'normal' && !S.evo.unlocked.includes(id)) S.evo.unlocked.push(id);
+    applyForm(); petS = stageScale(); hudDirty = true; renderEdges(); };
+  const nearEnd = () => { const E = S.evo; if (EV.STAGE_MIN[S.stage]) E.stageStart = ageMin() - EV.STAGE_MIN[S.stage] + 0.02; E.recheckAt = S.stage === 'perfect' && E.recheckAt != null ? ageMin() : E.recheckAt; };
+  const from = () => S.stage === 'baby' ? 'baby2' : S.form;
+  function renderEdges(){ const sel = P.querySelector('#edEdge'); if (!sel) return; const es = EV.edgesFrom(from());
+    sel.innerHTML = es.map((e, i) => `<option value="${i}">→ ${FORMS[e.to].name} [${e.priority}${e.fallback ? ' 保底' : ''}]</option>`).join('') || '<option>（究極體：沒有下一階段）</option>'; }
+  P.innerHTML = `<h4>🧪 進化測試面板（預覽模式，不會存檔）</h4>
+    <div><select id="edForm"><option value="normal">幼年期Ⅱ 幼兒袋熊</option>${EV.FORM_IDS.map(id => `<option value="${id}">${EV.STAGE27[FORMS[id].stage]} ${FORMS[id].name}</option>`).join('')}</select><button id="edSet">指定型態</button></div>
+    <div><select id="edEdge"></select><button id="edGo">走這條路線進化</button></div>
+    <div>速度 <button data-sp="1">1x</button><button data-sp="10">10x</button><button data-sp="60">60x</button> <button id="edNear">階段時間快到</button></div>
+    <div>技能 <button id="edSkill">使用</button><button id="edCd">重置冷卻</button> 演出 <button id="edSkip">進化並立刻跳過</button></div>
+    <div><button id="edAll">全部自動測試</button><button id="edWalk">69 條路線逐條實跑</button><button id="edMig">存檔遷移測試</button><button id="edReset">還原</button></div>
+    <pre>選一個型態，或按「全部自動測試」。</pre>`;
+  renderEdges();
+  P.querySelector('#edSet').onclick = () => { setForm(P.querySelector('#edForm').value); out(`已指定：${stageLabel()}`); };
+  P.querySelector('#edGo').onclick = () => { const e = EV.edgesFrom(from())[+P.querySelector('#edEdge').value]; if (!e) return;
+    S.evo.forceM = e.fallback ? T.neutral() : T.satisfy(e); nearEnd(); S.speed = 1; out(`條件：${e.human_condition}\n等牠站好就會進化成 ${FORMS[e.to].name}…`); };
+  P.querySelectorAll('[data-sp]').forEach(b => b.onclick = () => { S.speed = +b.dataset.sp; out(`時間流速 ${S.speed} 倍`); });
+  P.querySelector('#edNear').onclick = () => { nearEnd(); out('這個階段的時間快到了（10x、60x 會先出現 30 秒的準備進化提示）。'); };
+  P.querySelector('#edSkill').onclick = () => { useFormSkill(); out(JSON.stringify({cd:S.evo.cd, fx:S.evo.fx, st:S.st})); };
+  P.querySelector('#edCd').onclick = () => { S.evo.cd = {}; S.evo.trig = {}; S.evo.daily = {day:-1}; out('冷卻和每日上限已重置。'); };
+  // the skip button commits the evolution exactly once
+  const skipTest = () => { if (!STAGES[S.stage].next || !EV.edgesFrom(from()).length) setForm('m_warm'); const n = S.evo.history.length, d = decideEvo().d; if (!d.eligible) return {ok:false, info:'no edge'};
+    startEvolution(STAGES[S.stage].next, d.to); EVO_FX.skip(); EVO_FX.skip(); commitEvolution();
+    return {ok:S.evo.history.length === n + 1 && S.form === d.to && !evo, info:`${d.from} → ${S.form}, history +${S.evo.history.length - n}`}; };
+  P.querySelector('#edSkip').onclick = () => { const r = skipTest(); out(`${r.ok ? '✓' : '✗'} ${r.info}`); renderEdges(); };
+  const migTest = () => { const old = {v:2, stage:'perfect', form:'royal', coins:432, name:'測試', ageMs:3500*60000, st:{hunger:66, thirst:55, happy:77, energy:60, health:88}, formsSeen:{royal:true, sporty:true}, ach:{form_royal:123}, builds:{pond:true}};
+    const s = fromObj(JSON.parse(JSON.stringify(old)));
+    const ok = s.stage === 'perfect' && s.form === 'p_royal' && s.coins === 432 && s.name === '測試' && s.st.health === 88 && s.builds.pond && s.evo.stageStart === 2880 && s.ach.form_p_royal === 123 && s.formsSeen.m_energetic;
+    return {ok, info:`${old.form} → ${s.form}, 代幣 ${s.coins}, 階段起點 ${s.evo.stageStart}, 圖鑑 ${s.evo.unlocked.join(',')}`}; };
+  P.querySelector('#edMig').onclick = () => { const r = migTest(); out(`${r.ok ? '✓' : '✗'} ${r.info}`); };
+  const day8Test = () => { const a = S.ageMs, h = S.st.health, d = S.dead; S.ageMs = 9*1440*60000; S.st.health = 80; checkStage(); const ok = !S.dead; S.ageMs = a; S.st.health = h; S.dead = d; return {ok, info:'9 遊戲天、健康 80：沒有被強制結束'}; };
+  P.querySelector('#edAll').onclick = () => { const R = T.runAll([['skipped_animation_still_commits_once', skipTest], ['save_migration_real_old_save', migTest], ['death_not_forced_on_day8', day8Test]]);
+    out(`${R.filter(r => r.ok).length} / ${R.length} 通過\n` + R.map(r => `${r.ok ? '✓' : '✗'} ${r.name}  ${r.info}`).join('\n')); renderEdges(); };
+  // every branch played through the real game code: put the wombat on the edge's source form, force its statistics, evolve, skip
+  P.querySelector('#edWalk').onclick = () => { const bad = []; let n = 0;
+    for (const e of EV.EDGES){ if (['egg', 'baby1'].includes(e.from)) continue; setForm(e.from === 'baby2' ? 'normal' : e.from);
+      S.evo.forceM = e.fallback ? T.neutral() : T.satisfy(e); const d = decideEvo().d; if (d.to !== e.to){ bad.push(`${e.from}>${e.to} 得到 ${d.to}`); continue; }
+      startEvolution(STAGES[S.stage].next, d.to); EVO_FX.skip(); n++; if (S.form !== e.to) bad.push(`${e.from}>${e.to} 結果 ${S.form}`); }
+    out(`${bad.length ? '✗' : '✓'} 實跑 ${n} 條分支（另 2 條固定：蛋→初生→幼兒）${bad.length ? '\n' + bad.join('\n') : '，全部進化到正確型態'}`); };
+  P.querySelector('#edReset').onclick = () => location.reload();
+})();
 if (new URLSearchParams(location.search).has('debug')) window.W = {renderer, scene, flock, boats, startPiece, fences, TREE_KINDS, startEvolution, EVO_FX, getEvo: () => evo, BEACH_LIFE, wear, art, setArt, inBuild, freeNear, poopNow, spawnWeed, weedSpotOK, overBridge, moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   sim:(secs) => { skipRender = true; try { for (let i=0;i<secs*30;i++) step(true); } finally { skipRender = false; } clock.getDelta(); },
@@ -5046,7 +5351,7 @@ function step(manual){
     bloatW += ((B.mode === 'bloated' ? 1 : 0) - bloatW)*Math.min(1, dt*3);
     if (bloatW > 0.01 && !act && !evo){ actG.rotation.z = Math.PI*bloatW + Math.sin(t*1.6)*0.05*bloatW; actY = 0; }
     else if (!act && !evo && B.mode !== 'dying'){
-      const sick = petActive() && (S.st.health < 35 || S.form === 'sickly') && !asleep();
+      const sick = petActive() && (S.st.health < 35 || S.form === 'g_sick') && !asleep();
       actG.rotation.z = gaitW*Math.sin(walkClock)*0.025 + (sick ? Math.sin(t*38)*(S.st.health < 35 ? 0.02 : 0.008) : 0);
     }
     liftW += ((pos.y > 0.12 ? 1 : 0) - liftW)*Math.min(1, dt*6);
@@ -5088,7 +5393,7 @@ function step(manual){
       const hp = head.getWorldPosition(V3(0,0,0)), n = V3(0,0,0); camera.getWorldDirection(n);
       const pl = new THREE.Plane().setFromNormalAndCoplanarPoint(n, hp); ray.setFromCamera(hoverNdc, camera); const p = V3(0,0,0);
       if (ray.ray.intersectPlane(pl, p)){ const lp = squashG.worldToLocal(p).sub(V3(0, 1.1, 0.4)); lp.z += 1.5; hy = clamp(Math.atan2(lp.x, lp.z), -0.6, 0.6); hx = clamp(-Math.atan2(lp.y, Math.hypot(lp.x, lp.z)), -0.3, 0.3); }
-    } else { hy = B.lookYaw; hx = B.lookPitch + (S.st.happy < 30 || S.form === 'sickly' ? 0.15 : 0); hs = 7; }
+    } else { hy = B.lookYaw; hx = B.lookPitch + (S.st.happy < 30 || S.form === 'g_sick' ? 0.15 : 0); hs = 7; }
     lookY += (hy - lookY)*Math.min(1, dt*hs);
     lookX += (hx - lookX)*Math.min(1, dt*hs);
     turnBone(BONE.head, -lookX, 0, lookY);           // bone +X tilts the head up, +Z turns it toward +x
@@ -5098,7 +5403,7 @@ function step(manual){
     const closed = asleep() || B.mode === 'dying' || (evo && evo.t < 3.9);
     const es = closed || blinkT > 0 ? 0.12 : form().droopy ? 0.5 : 1;
     eyes.forEach(e => e.scale.y += (es - e.scale.y)*Math.min(1, dt*30));
-    const droop = asleep() || S.st.happy < 30 || S.form === 'sickly' ? 0.4 : 0;
+    const droop = asleep() || S.st.happy < 30 || S.form === 'g_sick' ? 0.4 : 0;
     ears.forEach(e => { if (!reduced && Math.random() < dt*0.25 && !asleep()) e.v += rnd(-5,5); e.v += (-e.a*120 - e.v*8)*dt; e.a += e.v*dt;
       turnBone(e.bone, -(e.a*0.3 + droop), 0, e.a*0.15*e.s); });
 
@@ -5111,8 +5416,8 @@ function step(manual){
       B.cryT -= dt;
       if (B.cryT <= 0){ B.cryT = rnd(6,14); const m = moodKey(); if (m === 'sleep') cry('snore'); else if (!act) cry(m === 'happy' ? ['happy','chirp','purr'][Math.floor(Math.random()*3)] : m === 'ok' ? ['grunt','huff','chirp'][Math.floor(Math.random()*3)] : MOOD_CRY[m] || 'grunt'); }
       if (asleep()){ B.zzzT -= dt; if (B.zzzT <= 0){ B.zzzT = 1.1; floatSprite(textTex('Z','#5d6e8f','bold 90px sans-serif','rgba(255,255,255,.85)'), headTop(), {size:0.4, vy:0.6, vx:0.25, max:2, depthTest:false}); } }
-      if (S.form === 'stinky' && root.visible && Math.random() < dt*0.8) floatSprite(stinkTex, head.localToWorld(V3(0,1.1,0.4)), {size:0.35, vy:0.5, max:1.4, grow:0.4});
-      if (S.form === 'golden' && root.visible && Math.random() < dt*3) floatSprite(sparkTex, root.position.clone().add(V3(rnd(-1.2,1.2)*petS, rnd(0.4,1.8)*petS, rnd(-1.6,1.6)*petS)), {size:0.25, vy:0.4, add:true, max:1});
+      if (S.form === 'm_stinky' && root.visible && Math.random() < dt*0.8) floatSprite(stinkTex, head.localToWorld(V3(0,1.1,0.4)), {size:0.35, vy:0.5, max:1.4, grow:0.4});
+      if (['u_gold', 'u_holy'].includes(S.form) && root.visible && Math.random() < dt*3) floatSprite(sparkTex, root.position.clone().add(V3(rnd(-1.2,1.2)*petS, rnd(0.4,1.8)*petS, rnd(-1.6,1.6)*petS)), {size:0.25, vy:0.4, add:true, max:1});
     }
     if (ACC.poop.visible) ACC.poop.userData.flies.children.forEach(f => { const a = t*6 + f.userData.ph; f.position.set(Math.cos(a)*0.35, 0.3 + Math.sin(a*1.7)*0.1, Math.sin(a)*0.35); });
   }
@@ -5144,7 +5449,7 @@ function step(manual){
     if (p.flat){ p.g.material.opacity = Math.max(0, 0.75*(1 - p.t/1.2)); if (p.t > 1.2){ scene.remove(p.g); fxPull.splice(i,1); } continue; }
     p.g.position.y = p.t*3; p.g.rotation.z += dt*8; p.g.scale.multiplyScalar(Math.exp(-3*dt)); if (p.t > 0.6){ scene.remove(p.g); fxPull.splice(i,1); } }
   if (bowl && bowl.kind === 'water' && BG.pond && !pondBad()){ scene.remove(bowl.g); bowl = null; }
-  rollTumbleweeds(dt); updateFormFx(dt, t); updateFx(dt); updateTools(dt); updatePests(dt); updateTrees(dt); updateButterflies(dt); updateGhost(dt);
+  rollTumbleweeds(dt); updateFormFx(dt, t); updateGrassTrial(dt, t); updateFx(dt); updateTools(dt); updatePests(dt); updateTrees(dt); updateButterflies(dt); updateGhost(dt);
 
   if (dragging){
     scene.updateMatrixWorld(true);
@@ -5159,7 +5464,7 @@ function step(manual){
     if (evo && evo.seq && EVO_FX.inScene) EVO_FX.render();
     else {
       if (evo && evo.seq){ const k = EVO_FX.zoomIn(), c = V3(pos.x, petGY + pos.y + 0.7*petS, pos.z), d = camera.position.clone().sub(c).setLength(2.6 + 2.2*petS);   // shot 1: rush in, trembling
-        camera.position.lerp(c.clone().add(d), k*0.9); camera.position.x += (Math.random() - 0.5)*0.05*k; camera.position.y += (Math.random() - 0.5)*0.05*k; camera.lookAt(c); }
+        camera.position.lerp(c.clone().add(d), k*0.9); if (!reducedMotion()){ camera.position.x += (Math.random() - 0.5)*0.05*k; camera.position.y += (Math.random() - 0.5)*0.05*k; } camera.lookAt(c); }
       if (art.on) art.render(); else renderer.render(scene, camera); } }
   if (!manual) requestAnimationFrame(step);
 }

@@ -1,0 +1,218 @@
+[
+  {
+    "formId": "g_skinny",
+    "name": "瘦瘦熊",
+    "stage": "growth",
+    "status": "已有四視圖概念稿",
+    "imageFile": "assets/四視圖/g_skinny.png",
+    "originalFilename": "瘦瘦熊四視圖角色設定表.png"
+  },
+  {
+    "formId": "g_sick",
+    "name": "病懨懨熊",
+    "stage": "growth",
+    "status": "已有四視圖概念稿",
+    "imageFile": "assets/四視圖/g_sick.png",
+    "originalFilename": "病懨懨熊角色四視圖設定稿.png"
+  },
+  {
+    "formId": "g_glutton",
+    "name": "貪吃熊",
+    "stage": "growth",
+    "status": "已有四視圖概念稿",
+    "imageFile": "assets/四視圖/g_glutton.png",
+    "originalFilename": "imagegen.png"
+  },
+  {
+    "formId": "g_naughty",
+    "name": "淘氣熊",
+    "stage": "growth",
+    "status": "已有四視圖概念稿",
+    "imageFile": "assets/四視圖/g_naughty.png",
+    "originalFilename": "淘氣熊角色四視圖設定稿.png"
+  },
+  {
+    "formId": "g_good",
+    "name": "乖乖熊",
+    "stage": "growth",
+    "status": "已補齊獨立生成四視圖設定稿",
+    "imageFile": "assets/四視圖/g_good.png",
+    "originalFilename": "乖乖熊四視圖設定稿.png"
+  },
+  {
+    "formId": "m_stinky",
+    "name": "臭臭熊",
+    "stage": "mature",
+    "status": "已有四視圖概念稿",
+    "imageFile": "assets/四視圖/m_stinky.png",
+    "originalFilename": "臭臭熊四視圖角色設定稿.png"
+  },
+  {
+    "formId": "m_chubby",
+    "name": "胖胖熊",
+    "stage": "mature",
+    "status": "已有四視圖概念稿",
+    "imageFile": "assets/四視圖/m_chubby.png",
+    "originalFilename": "胖胖熊四視圖角色設定表.png"
+  },
+  {
+    "formId": "m_energetic",
+    "name": "活力熊",
+    "stage": "mature",
+    "status": "已有四視圖概念稿",
+    "imageFile": "assets/四視圖/m_energetic.png",
+    "originalFilename": "活力熊四視圖角色設定稿.png"
+  },
+  {
+    "formId": "m_rock",
+    "name": "岩甲袋熊",
+    "stage": "mature",
+    "status": "已有四視圖概念稿",
+    "imageFile": "assets/四視圖/m_rock.png",
+    "originalFilename": "岩甲袋熊進化圖鑑_turnaround.png"
+  },
+  {
+    "formId": "m_flower",
+    "name": "花語袋熊",
+    "stage": "mature",
+    "status": "已有四視圖概念稿",
+    "imageFile": "assets/四視圖/m_flower.png",
+    "originalFilename": "花語袋熊四視圖角色設定圖.png"
+  },
+  {
+    "formId": "m_warm",
+    "name": "暖心熊",
+    "stage": "mature",
+    "status": "已補齊獨立生成四視圖設定稿",
+    "imageFile": "assets/四視圖/m_warm.png",
+    "originalFilename": "暖心熊四視圖設定稿.png"
+  },
+  {
+    "formId": "m_night",
+    "name": "夜行袋熊",
+    "stage": "mature",
+    "status": "已補齊獨立生成四視圖設定稿",
+    "imageFile": "assets/四視圖/m_night.png",
+    "originalFilename": "夜行袋熊四視圖設定稿.png"
+  },
+  {
+    "formId": "m_ember",
+    "name": "焰心袋熊",
+    "stage": "mature",
+    "status": "已補齊獨立生成四視圖設定稿",
+    "imageFile": "assets/四視圖/m_ember.png",
+    "originalFilename": "焰心袋熊四視圖設定稿.png"
+  },
+  {
+    "formId": "p_royal",
+    "name": "皇家袋熊",
+    "stage": "perfect",
+    "status": "已有四視圖概念稿",
+    "imageFile": "assets/四視圖/p_royal.png",
+    "originalFilename": "皇家袋熊角色設定圖.png"
+  },
+  {
+    "formId": "p_forest",
+    "name": "森靈袋熊",
+    "stage": "perfect",
+    "status": "已有四視圖概念稿",
+    "imageFile": "assets/四視圖/p_forest.png",
+    "originalFilename": "森靈袋熊角色四視圖設定稿.png"
+  },
+  {
+    "formId": "p_wind",
+    "name": "疾風袋熊",
+    "stage": "perfect",
+    "status": "已有四視圖概念稿",
+    "imageFile": "assets/四視圖/p_wind.png",
+    "originalFilename": "疾風袋熊四視圖設定稿.png"
+  },
+  {
+    "formId": "p_flame",
+    "name": "炎鬃袋熊",
+    "stage": "perfect",
+    "status": "已有四視圖概念稿",
+    "imageFile": "assets/四視圖/p_flame.png",
+    "originalFilename": "炎鬃袋熊四視圖角色設定稿.png"
+  },
+  {
+    "formId": "p_frost",
+    "name": "霜月袋熊",
+    "stage": "perfect",
+    "status": "已有四視圖概念稿",
+    "imageFile": "assets/四視圖/p_frost.png",
+    "originalFilename": "霜月袋熊角色四視圖展板.png"
+  },
+  {
+    "formId": "p_stone",
+    "name": "玄岩袋熊",
+    "stage": "perfect",
+    "status": "已補齊獨立生成四視圖設定稿",
+    "imageFile": "assets/四視圖/p_stone.png",
+    "originalFilename": "玄岩袋熊四視圖設定稿.png"
+  },
+  {
+    "formId": "p_astral",
+    "name": "星輝袋熊",
+    "stage": "perfect",
+    "status": "已補齊獨立生成四視圖設定稿",
+    "imageFile": "assets/四視圖/p_astral.png",
+    "originalFilename": "星輝袋熊四視圖設定稿.png"
+  },
+  {
+    "formId": "p_shadow",
+    "name": "幽影袋熊",
+    "stage": "perfect",
+    "status": "已補齊獨立生成四視圖設定稿",
+    "imageFile": "assets/四視圖/p_shadow.png",
+    "originalFilename": "幽影袋熊四視圖設定稿.png"
+  },
+  {
+    "formId": "u_gold",
+    "name": "黃金袋熊",
+    "stage": "ultimate",
+    "status": "已有四視圖概念稿",
+    "imageFile": "assets/四視圖/u_gold.png",
+    "originalFilename": "黃金袋熊角色四視圖設定圖.png"
+  },
+  {
+    "formId": "u_worldtree",
+    "name": "森羅袋熊",
+    "stage": "ultimate",
+    "status": "已有四視圖概念稿",
+    "imageFile": "assets/四視圖/u_worldtree.png",
+    "originalFilename": "森羅袋熊_森林守護者角色設定圖.png"
+  },
+  {
+    "formId": "u_lightning",
+    "name": "雷光袋熊",
+    "stage": "ultimate",
+    "status": "已有四視圖概念稿",
+    "imageFile": "assets/四視圖/u_lightning.png",
+    "originalFilename": "雷光袋熊四視圖角色設定稿.png"
+  },
+  {
+    "formId": "u_sky",
+    "name": "蒼穹袋熊",
+    "stage": "ultimate",
+    "status": "已有四視圖概念稿",
+    "imageFile": "assets/四視圖/u_sky.png",
+    "originalFilename": "蒼穹袋熊四視圖設定稿.png"
+  },
+  {
+    "formId": "u_abyss",
+    "name": "深淵袋熊",
+    "stage": "ultimate",
+    "status": "已有四視圖概念稿",
+    "imageFile": "assets/四視圖/u_abyss.png",
+    "originalFilename": "深淵袋熊四視圖角色設定稿.png"
+  },
+  {
+    "formId": "u_holy",
+    "name": "聖耀袋熊",
+    "stage": "ultimate",
+    "status": "已有四視圖概念稿",
+    "imageFile": "assets/四視圖/u_holy.png",
+    "originalFilename": "聖耀袋熊四視圖設定圖.png"
+  }
+]

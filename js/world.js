@@ -903,6 +903,13 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
       if (f.t > 0.6){ group.remove(f.g); fading.splice(i, 1); if (onFeatGone) onFeatGone(); } }
   };
 
+  // the trial meadow (grassfield.js) replaces the old tufts inside a rectangle; this hides (or brings back) those tufts
+  W.hideTuftsIn = (x0, x1, z0, z1, hide) => { if (!tufts) return; const M = new THREE.Matrix4(), Z = new THREE.Matrix4().makeScale(0, 0, 0);
+    for (const t of tufts.chunks){ const A = t.instanceMatrix.array;
+      if (!t.userData.orig) t.userData.orig = A.slice();
+      if (!hide){ A.set(t.userData.orig); t.instanceMatrix.needsUpdate = true; continue; }
+      let hit = false; for (let i=0;i<t.count;i++){ const o = t.userData.orig, x = o[i*16 + 12], z = o[i*16 + 14]; if (x > x0 && x < x1 && z > z0 && z < z1){ t.setMatrixAt(i, Z); hit = true; } }
+      if (hit) t.instanceMatrix.needsUpdate = true; } };
   W.load = (data) => {
     D = upgradeWorld(data); W.data = D;
     const R = rng(D.seed);

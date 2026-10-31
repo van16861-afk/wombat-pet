@@ -168,6 +168,9 @@ export function createEvolution({renderer, mobile, sound}){
     #evoUI .flash{background:#fff}
     #evoUI .skip{position:absolute;right:max(14px,env(safe-area-inset-right));bottom:max(16px,env(safe-area-inset-bottom));padding:9px 16px;border-radius:999px;border:1px solid rgba(255,230,170,.6);
       background:rgba(30,12,60,.55);color:#ffeec8;font:inherit;font-size:15px;letter-spacing:.1em;backdrop-filter:blur(4px);cursor:pointer}
+    #evoUI .snd{position:absolute;left:max(14px,env(safe-area-inset-left));bottom:max(16px,env(safe-area-inset-bottom));padding:9px 14px;border-radius:999px;border:1px solid rgba(255,230,170,.6);
+      background:rgba(30,12,60,.55);color:#ffeec8;font:inherit;font-size:15px;backdrop-filter:blur(4px);cursor:pointer}
+    #evoUI .logo{margin:0 0 6px;font-size:clamp(11px,2.4vw,13px);letter-spacing:.35em;color:#f3cf7a;opacity:.9;text-shadow:0 0 8px rgba(255,200,110,.6)}
     #evoUI .card{position:absolute;left:50%;bottom:11%;transform:translateX(-50%);text-align:center;opacity:0;pointer-events:none;width:min(92vw,620px)}
     #evoUI .frame{position:relative;padding:18px 28px 20px;border-radius:22px;background:linear-gradient(180deg,rgba(60,26,110,.82),rgba(26,10,56,.88));
       border:2px solid #f3cf7a;box-shadow:0 0 0 4px rgba(243,207,122,.25),0 0 40px rgba(255,200,110,.55),inset 0 0 22px rgba(255,214,140,.35);overflow:hidden}
@@ -189,7 +192,7 @@ export function createEvolution({renderer, mobile, sound}){
     @keyframes evoShine{to{left:120%}}`;
   document.head.appendChild(css);
   const ui = document.createElement('div'); ui.id = 'evoUI'; ui.hidden = true;
-  ui.innerHTML = `<div class="wipe"></div><div class="card"><div class="frame"><div class="crown"></div><p class="sub">進化完成</p><h2 class="name"></h2><p class="stage"></p><div class="shine"></div></div></div><div class="flash"></div><button class="skip" type="button">跳過 ▸▸</button>`;
+  ui.innerHTML = `<div class="wipe"></div><div class="card"><div class="frame"><div class="crown"></div><p class="logo">小袋二世 ✦ EVOLUTION</p><p class="sub">進化完成</p><h2 class="name"></h2><p class="stage"></p><div class="shine"></div></div></div><div class="flash"></div><button class="snd" type="button" aria-label="音效開關">🔊</button><button class="skip" type="button">跳過 ▸▸</button>`;
   document.body.appendChild(ui);
   const $u = s => ui.querySelector(s);
 
@@ -198,10 +201,13 @@ export function createEvolution({renderer, mobile, sound}){
     get active(){ return !!E; },
     get t(){ return E ? E.t : 0; },
     get inScene(){ return !!E && E.t >= T_SPACE - 0.2 && E.t < T_END - 0.15; },   // (before that the game scene is shown, being zoomed into)
-    // opts: {pet, petParent, fromName, toName, stageName, icon, setWhite(v), onSwap(), onDone(), glow}
+    // opts: {pet, petParent, fromName, toName, stageName, icon, setWhite(v), onSwap(), onDone(), glow, reduced (gentler: no shaking, no
+    // blur-fast spin, softer flash), sound:{on, toggle()} for the sound button}
     start(opts){
       if (E) return; if (!composer) build();
-      E = {t:0, o:opts, spin:0, swapped:false, done:false, cues:{}, shake:0};
+      E = {t:0, o:opts, spin:0, swapped:false, done:false, cues:{}, shake:0, red:!!opts.reduced};
+      const sb = $u('.snd'), sndTxt = () => { sb.textContent = opts.sound && !opts.sound.on ? '🔇' : '🔊'; };
+      sb.hidden = !opts.sound; sb.onclick = () => { opts.sound && opts.sound.toggle(); sndTxt(); }; sndTxt();
       $u('.name').innerHTML = `<span>${opts.toName}</span>`; $u('.stage').textContent = opts.stageName || ''; $u('.crown').textContent = opts.icon || '👑';
       ui.hidden = false; document.body.classList.add('evo-on'); ui.classList.remove('card-on'); $u('.wipe').style.opacity = 0; $u('.flash').style.opacity = 0;
       $u('.skip').onclick = () => S.skip();
@@ -252,6 +258,7 @@ export function createEvolution({renderer, mobile, sound}){
     else if (t < T_FLASH) w = 1.4 + Math.pow((t - T_FAST)/(T_FLASH - T_FAST), 2.2)*24;
     else if (t < T_REVEAL) w = 26*(1 - ss(T_FLASH, T_REVEAL, t)) + 2;
     else w = 0;
+    if (E.red) w = Math.min(w, 2.2);   // (reduced motion: it turns, but never blurs)
     E.spin += w*dt;
     const heroYaw = -0.08;   // (the camera sits at +0.42: a slight 3/4 turn toward it)
     if (t >= T_REVEAL){ const tgt = Math.round((E.spin - heroYaw)/(Math.PI*2))*Math.PI*2 + heroYaw; E.spin += (tgt - E.spin)*Math.min(1, dt*3.2); }
@@ -271,12 +278,14 @@ export function createEvolution({renderer, mobile, sound}){
     tm.uFade.value = ss(T_SPACE - 0.2, T_SPACE + 0.4, t)*(t > T_REVEAL ? lerp(1, 0.55, ss(T_REVEAL, T_CARD, t)) : 1)*(1 - ss(T_OUT, T_END, t));
     // ---- camera: the rush down the tunnel, a slow orbit, shaking as it builds, then the low hero angle
     let cp, look = new THREE.Vector3(0, 1.0, 0);
-    if (t < T_SPIN){ const k = ss(T_SPACE - 0.2, T_SPIN, t); cp = new THREE.Vector3(0, lerp(1.4, 1.25, k), lerp(46, 6.4, 1 - Math.pow(1 - k, 3))); }
+    if (t < T_SPIN){ const k = ss(T_SPACE - 0.2, T_SPIN, t); cp = new THREE.Vector3(0, lerp(1.4, 1.25, k), lerp(E.red ? 11 : 46, 6.4, 1 - Math.pow(1 - k, 3))); }
     else if (t < T_REVEAL){ const a = Math.sin((t - T_SPIN)*0.5)*0.35, d = lerp(6.4, 5.2, ss(T_SPIN, T_FLASH, t)); cp = new THREE.Vector3(Math.sin(a)*d, 1.25 + Math.sin(t*0.8)*0.1, Math.cos(a)*d); }
     else { const k = ss(T_REVEAL, T_CARD, t), d = lerp(6.4, 7.8, k) - ss(T_CARD, T_OUT, t)*0.3; cp = new THREE.Vector3(Math.sin(0.42)*d, lerp(1.3, 0.8, k), Math.cos(0.42)*d); look.y = lerp(1.0, 0.05, k); }   // (low and a little below it: the wombat stands above the title card)
     const shake = (t > T_FAST && t < T_FLASH ? ss(T_FAST, T_FLASH, t)*0.06 : 0) + (t > T_FLASH && t < T_FLASH + 0.5 ? 0.22*(1 - (t - T_FLASH)/0.5) : 0) + (t < T_IN ? 0 : 0);
-    cp.x += (Math.random() - 0.5)*shake; cp.y += (Math.random() - 0.5)*shake;
-    cam.position.copy(cp); cam.lookAt(look); cam.fov = t < T_FLASH ? lerp(46, 38, ss(T_SPIN, T_FLASH, t)) : lerp(52, 40, ss(T_FLASH, T_CARD, t)); cam.updateProjectionMatrix();
+    if (!E.red){ cp.x += (Math.random() - 0.5)*shake; cp.y += (Math.random() - 0.5)*shake; }
+    cam.position.copy(cp); cam.lookAt(look); cam.fov = t < T_FLASH ? lerp(46, 38, ss(T_SPIN, T_FLASH, t)) : lerp(52, 40, ss(T_FLASH, T_CARD, t));
+    if (cam.aspect < 1.3) cam.fov = Math.min(110, 2*Math.atan(Math.tan(cam.fov*Math.PI/360)*1.3/cam.aspect)*180/Math.PI);   // (a tall phone screen: keep the same width in view)
+    cam.updateProjectionMatrix();
     // ---- pillar, circles, ribbons
     const build_ = ss(T_SPACE, T_SPIN + 0.4, t), outF = 1 - ss(T_OUT, T_END, t);
     pillar.material.uniforms.uTime.value = t; pillar.material.uniforms.uOp.value = (t < T_REVEAL ? build_*(0.7 + 0.6*ss(T_FAST, T_FLASH, t)) : 0.35*(1 - ss(T_REVEAL, T_CARD, t)))*outF;
@@ -305,7 +314,7 @@ export function createEvolution({renderer, mobile, sound}){
     waves.forEach((m, i) => { const t0 = T_FLASH + i*0.12, k = ss(t0, t0 + 0.75, t); m.visible = t > t0; m.scale.setScalar(0.5 + k*(14 + i*5)); m.material.opacity = (1 - k)*0.9; m.lookAt(cam.position); });
     // ---- full-screen flash, glow and trails
     const fl = t < T_FLASH ? 0 : t < T_FLASH + 0.12 ? ss(T_FLASH, T_FLASH + 0.12, t) : 1 - ss(T_FLASH + 0.2, T_REVEAL + 0.15, t);
-    $u('.flash').style.opacity = Math.max(fl*0.95, ss(T_OUT, T_END, t)*0.0);
+    $u('.flash').style.opacity = Math.max(fl*(E.red ? 0.4 : 0.95), 0);
     bloom.strength = (t < T_FLASH ? lerp(0.45, 0.9, ss(T_SPIN, T_FLASH, t)) : t < T_REVEAL ? 2.2 : lerp(1.2, 0.6, ss(T_REVEAL, T_CARD, t)))*(mobile ? 0.85 : 1);
     after.uniforms.damp.value = t < T_SPIN ? 0.6 : t < T_FLASH ? lerp(0.5, 0.74, ss(T_FAST, T_FLASH, t)) : t < T_REVEAL ? 0.5 : 0.15;
     // ---- sound cues on the beats

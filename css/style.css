@@ -72,7 +72,8 @@ button.card:disabled{opacity:.45;cursor:default}
 .sw[aria-checked="true"]{outline:2px solid var(--ring);outline-offset:2px}
 .row{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.38);display:flex;align-items:center;justify-content:center;z-index:20;padding:20px}
-.box{background:var(--panel);border-radius:20px;padding:22px;max-width:360px;width:100%;box-sizing:border-box}
+.box{background:var(--panel);border-radius:20px;padding:22px;max-width:360px;width:100%;box-sizing:border-box;max-height:calc(100dvh - 40px);overflow-y:auto;overscroll-behavior:contain}
+.box:has(.dexsheet){max-width:min(560px,100%)}
 .box h2{margin:0 0 8px;font-size:24px}
 .box p{margin:0 0 14px;line-height:1.65;color:var(--soft)}
 .box input{width:100%;box-sizing:border-box;font:inherit;font-size:18px;padding:10px 12px;border-radius:12px;border:1.5px solid var(--line);background:transparent;color:var(--ink);margin-bottom:14px}
@@ -117,6 +118,32 @@ body.ui-off #hud{display:none}
 .tabs{display:flex;gap:4px;flex-wrap:wrap;margin:0 0 12px;border-bottom:2px solid var(--line);padding-bottom:6px}
 .tab{background:var(--chip);border:1.5px solid var(--line);border-radius:10px 10px 4px 4px;padding:6px 11px;font-size:14px;cursor:pointer;color:var(--soft)}
 .tab[aria-selected="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+/* evolution encyclopedia (圖鑑) */
+.dexgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px}
+.dexcard{position:relative;display:flex;flex-direction:column;align-items:stretch;gap:4px;padding:6px 6px 8px;border:1.5px solid var(--line);border-radius:14px;background:var(--chip);cursor:pointer;text-align:center}
+.dexcard .pic{aspect-ratio:1;border-radius:10px;background:#efe7d8 no-repeat;background-size:400% auto;background-position:0% 64%}
+.dexcard .pic.prov{background-position:0% 57%}
+.dexcard.lock .pic{filter:grayscale(1) brightness(.62) contrast(3.2) blur(2.5px);opacity:.7}
+.dexcard .nm{font-size:13px;font-weight:700;line-height:1.25}
+.dexcard .st{font-size:11px;color:var(--soft)}
+.dexcard .tag{position:absolute;top:4px;left:4px;font-size:10px;background:#7a5ab8;color:#fff;border-radius:999px;padding:0 6px;line-height:16px}
+.dexcard .now{position:absolute;top:4px;right:4px;font-size:10px;background:var(--gold);color:#fff;border-radius:999px;padding:0 6px;line-height:16px}
+.dexsheet{display:block;width:100%;border-radius:12px;cursor:zoom-in;background:#efe7d8}
+.dexsheet.lock{filter:grayscale(1) brightness(.62) contrast(3.2) blur(4px);opacity:.7;cursor:default}
+.dexprov{font-size:12px;color:#fff;background:#7a5ab8;border-radius:8px;padding:4px 8px;margin:6px 0}
+.dexrow{font-size:13px;line-height:1.5;margin:3px 0;padding:6px 8px;border-radius:10px;background:var(--chip)}
+.dexrow b{font-weight:700}
+#dexLight{position:fixed;inset:0;z-index:60;background:rgba(10,8,6,.92);overflow:auto;-webkit-overflow-scrolling:touch;display:flex;align-items:center;justify-content:center}
+#dexLight[hidden]{display:none}
+#dexLight img{max-width:100%;max-height:100%;object-fit:contain;cursor:zoom-in}
+#dexLight.zoom{justify-content:flex-start}
+#dexLight.zoom img{max-width:none;max-height:none;width:220%;flex:none;cursor:zoom-out}
+#dexLight .x{position:fixed;top:max(10px,env(safe-area-inset-top));right:max(10px,env(safe-area-inset-right));z-index:2;background:rgba(255,255,255,.9);color:#222;border:0;border-radius:999px;padding:8px 14px;font-size:15px}
+#dexLight .cap{position:fixed;left:0;right:0;bottom:max(10px,env(safe-area-inset-bottom));text-align:center;color:#fff;font-size:13px;text-shadow:0 1px 3px #000;pointer-events:none}
+#evoReady{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom));z-index:25;max-width:min(92vw,520px);box-shadow:0 4px 18px rgba(0,0,0,.25)}
+#evoDev{position:fixed;left:8px;bottom:8px;z-index:40;width:min(94vw,340px);max-height:70vh;overflow:auto;background:rgba(20,18,30,.92);color:#f2eee4;border-radius:12px;padding:8px 10px;font-size:12px}
+#evoDev h4{margin:2px 0 6px;font-size:13px} #evoDev select,#evoDev button{font-size:12px;margin:2px 2px 2px 0} #evoDev button{background:#3d3858;color:#fff;border:1px solid #6d66a0;border-radius:6px;padding:3px 7px}
+#evoDev pre{white-space:pre-wrap;font-size:11px;max-height:28vh;overflow:auto;background:#000a;padding:6px;border-radius:6px}
 .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:8px}
 .tile{position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 4px 8px;border:1.5px solid var(--line);border-radius:14px;
   background:var(--chip);cursor:pointer;min-height:84px;box-shadow:0 2px 0 var(--line)}
