@@ -48,6 +48,23 @@ const FRAG = `
 // tip colours of the kinds of grass
 const GREEN = [0.4, 0.64, 0.22], GOLD = [0.86, 0.75, 0.42], RED = [0.78, 0.69, 0.4], OLIVE = [0.55, 0.6, 0.3];
 const T = 10;
+const mix = (a, b, t) => a + (b - a)*t;
+// How thick and how tall the grass grows here, the way it does in a real landscape: clumpy, with thin and bare patches; lush and
+// tall along the river; thin on the shady forest floor and under trees; a dense flower meadow; tall golden savanna with bald
+// spots; short and sparse on the windy plateau; reeds in clumps in the swamp; a few dry tufts on the red outback.
+function cover(x, z, {dry, red, sw, fo, mw, hi, bank, shade}){
+  const p = Math.min(1, Math.max(0, 0.5 + 0.32*Math.sin(x*0.13 + Math.sin(z*0.09)*2.3)*Math.sin(z*0.11 - Math.cos(x*0.07)*1.9)
+    + 0.22*Math.sin(x*0.41 + z*0.29)*Math.sin(z*0.37 - x*0.19)));   // patchiness, a few metres across
+  let d = p < 0.16 ? 0.12 : 0.35 + 0.65*p, h = 0.75 + 0.6*p;      // ordinary grassland
+  d = mix(d, 1.0, mw);                   h = mix(h, 1.25, mw);
+  d = mix(d, 0.15 + 0.35*p, fo);         h = mix(h, 0.75, fo);
+  d = mix(d, p < 0.28 ? 0.2 : 0.95, dry); h = mix(h, 1.35 + 0.5*p, dry);
+  d = mix(d, 0.22 + 0.2*p, hi);          h = mix(h, 0.6, hi);
+  d = mix(d, p > 0.45 ? 0.9 : 0.12, sw); h = mix(h, 1.6, sw);
+  d = mix(d, 0.14, red);                 h = mix(h, 0.7, red);
+  d = Math.max(d, bank*0.95);            h = Math.max(h, 1 + 0.4*bank);
+  return [d*(1 - 0.7*shade), h*(1 - 0.25*shade)];
+}
 
 export function createGrassField({scene, mobile}){
   const blade = (() => {   // a tapered strip: 3 segments and a tip
@@ -55,7 +72,7 @@ export function createGrassField({scene, mobile}){
     ys.forEach((y, i) => { const w = 0.045*Math.pow(1 - y, 0.7); if (i < 3){ pos.push(-w, y, 0, w, y, 0); } else pos.push(0, y, 0); });
     for (let i=0;i<2;i++){ const a = i*2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); } idx.push(4, 5, 6);
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); return g; })();
-  const FAR = mobile ? 22 : 38, DENS = mobile ? 45 : 100, PER_FRAME = mobile ? 1 : 2;
+  const FAR = mobile ? 20 : 34, DENS = mobile ? 42 : 90, PER_FRAME = mobile ? 1 : 2;
   const U = {uTime:{value:0}, uFar:{value:FAR}, uCamH:{value:0}, uWind:{value:new THREE.Vector2(0.8, 0.5)}, uPet:{value:new THREE.Vector3(0, 0, 0)}, uCam:{value:new THREE.Vector3()},
     uSun:{value:new THREE.Color('#fff2d8')}, uAmb:{value:new THREE.Color('#6f8a8a')}, uFogC:{value:new THREE.Color('#cfe7ef')}, uFogN:{value:30}, uFogF:{value:90}, uNight:{value:0}};
   const mat = new THREE.ShaderMaterial({vertexShader:VERT, fragmentShader:FRAG, uniforms:U, side:THREE.DoubleSide});
@@ -69,14 +86,17 @@ export function createGrassField({scene, mobile}){
     const G = T + 1, I = []; for (let b=0;b<G;b++) for (let a=0;a<G;a++) I.push(info(x0 + a, z0 + b));
     const at = (x, z) => { const fx = x - x0, fz = z - z0, a = Math.min(T - 1, Math.floor(fx)), b = Math.min(T - 1, Math.floor(fz)), u = fx - a, v = fz - b, o = [];
       const A = I[b*G + a], B = I[b*G + a + 1], C = I[(b + 1)*G + a], D = I[(b + 1)*G + a + 1];
-      for (let k=0;k<5;k++) o.push((A[k]*(1 - u) + B[k]*u)*(1 - v) + (C[k]*(1 - u) + D[k]*u)*v); return o; };
+      for (let k=0;k<A.length;k++) o.push((A[k]*(1 - u) + B[k]*u)*(1 - v) + (C[k]*(1 - u) + D[k]*u)*v); return o; };
     let seed = ((i*73856093) ^ (j*19349663)) >>> 0 || 7; seed = seed % 2147483646 + 1;
     const R = () => (seed = (seed*16807) % 2147483647)/2147483647;
     const N = Math.round(T*T*DENS), L = [];
-    for (let n=0;n<N;n++){ const x = x0 + R()*T, z = z0 + R()*T, [g, dry, red, sw, dim] = at(x, z);
-      const want = Math.max(Math.min(1, (g - 0.35)/0.45)*(1 - 0.55*red), g > 0.05 ? 0.14*red : 0);   // (the outback: thin dry tufts on red dust) if (want <= 0 || R() > want || !ok(x, z)) continue;
-      const tip = GREEN.map((c, k) => { let v = c; v += (GOLD[k] - v)*dry; v += (RED[k] - v)*red; v += (OLIVE[k] - v)*sw*0.8; return v*dim*(0.92 + 0.16*(0.5 + 0.5*Math.sin(x*0.21 + Math.cos(z*0.17)*2.0))); });
-      const h = (0.22 + R()*0.3 + 0.12*Math.sin(x*0.7)*Math.sin(z*0.6))*(1 + 0.6*dry - 0.3*red + 0.3*sw);
+    for (let n=0;n<N;n++){ const x = x0 + R()*T, z = z0 + R()*T, [g, dry, red, sw, dim, fo, mw, hi, bank, shade] = at(x, z);
+      if (g < 0.05) continue;
+      const [dens, tall] = cover(x, z, {dry, red, sw, fo, mw, hi, bank, shade});
+      const want = Math.min(1, (g - 0.3)/0.45)*dens;
+      if (want <= 0 || R() > want || !ok(x, z)) continue;
+      const tip = GREEN.map((c, k) => { let v = c; v += (GOLD[k] - v)*dry; v += (RED[k] - v)*red; v += (OLIVE[k] - v)*sw*0.8; return v*dim*(1 - 0.22*shade)*(0.92 + 0.16*(0.5 + 0.5*Math.sin(x*0.21 + Math.cos(z*0.17)*2.0))); });
+      const h = (0.2 + R()*0.26)*tall;
       L.push([x, H(x, z) - 0.02, z, tip, h, R()*6.283, 0.65 + 0.35*R(), R()]); }
     if (!L.length) return {mesh:null, rs:new Float32Array(0), gen};
     L.sort((a, b) => a[7] - b[7]);   // random values in order: a far tile just draws the first part

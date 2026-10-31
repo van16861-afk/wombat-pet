@@ -938,11 +938,15 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
       if (!hide){ A.set(t.userData.orig); t.instanceMatrix.needsUpdate = true; continue; }
       let hit = false; for (let i=0;i<t.count;i++){ const o = t.userData.orig, x = o[i*16 + 12], z = o[i*16 + 14]; if (x > x0 && x < x1 && z > z0 && z < z1){ t.setMatrixAt(i, Z); hit = true; } }
       if (hit) t.instanceMatrix.needsUpdate = true; } };
-  // what the meadow grass (grassfield.js) is like here: [how grassy 0..1, golden-dry, red outback, swamp, dimmed (locked plot)]
+  // what the meadow grass (grassfield.js) is like here: [how grassy 0..1, golden savanna, red outback, swamp, dimmed (locked plot),
+  // forest floor, flower meadow, plateau, river bank]
   W.meadowAt = (x, z) => {
-    if (W.isWater(x, z)) return [0, 0, 0, 0, 1];
-    const g = surf(x, z)[1], sv = D.bio ? plotW(BIO.savanna, x, z, 6.5, 9.8) : 0, hi = D.bio ? plotW(BIO.high, x, z, 6, 9) : 0;
-    return [g, Math.min(1, sv + hi*0.4), D.bio ? plotW(BIO.aus, x, z, 6.5, 9.8) : 0, D.bio ? swampW(x, z) : 0, !inWorld(x, z) || W.isOpen(x, z) ? 1 : 0.8];
+    if (W.isWater(x, z)) return [0, 0, 0, 0, 1, 0, 0, 0, 0];
+    const g = surf(x, z)[1], b = !!D.bio, rd = riverDist(x, z) - D.river.w/2;
+    let bank = rd > 0.4 && rd < 5 ? 1 - Math.max(0, (rd - 2)/3) : 0;
+    if (b){ const pd = Math.hypot(x - D.bio.pond.x, z - D.bio.pond.z) - D.bio.pond.r; if (pd > 0.5 && pd < 4) bank = Math.max(bank, 1 - pd/4); }
+    return [g, b ? plotW(BIO.savanna, x, z, 6.5, 9.8) : 0, b ? plotW(BIO.aus, x, z, 6.5, 9.8) : 0, b ? swampW(x, z) : 0, !inWorld(x, z) || W.isOpen(x, z) ? 1 : 0.8,
+      b ? plotW(BIO.forest, x, z, 6, 9.5) : 0, b ? plotW(BIO.meadow, x, z, 6.2, 9.4) : 0, b ? plotW(BIO.high, x, z, 6, 9) : 0, bank];
   };
   W.load = (data) => {
     D = upgradeWorld(data); W.data = D;

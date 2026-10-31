@@ -3584,12 +3584,19 @@ const gfOK = (x, z) => !world.isWater(x, z) && world.slope(x, z) < 1.0 && !inBui
 const meadowOn = () => S.grassTrial !== false;
 function setGrassTrial(on){
   S.grassTrial = !!on; GF.visible = on; world.hideTuftsIn(X0 - MARGIN_W - 5, X1 + MARGIN_W + 5, Z0 - MARGIN_W - 5, Z1 + MARGIN_W + 5, on);
-  if (on){ if (!gfSig) GF.setSource({ok:gfOK, H:world.H, info:world.meadowAt, bounds:[X0 - MARGIN_W, X1 + MARGIN_W, Z0 - MARGIN_W, Z1 + MARGIN_W]}); gfRebuild(); }
+  if (on){ if (!gfSig) GF.setSource({ok:gfOK, H:world.H, info:gfInfo, bounds:[X0 - MARGIN_W, X1 + MARGIN_W, Z0 - MARGIN_W, Z1 + MARGIN_W]}); gfRebuild(); }
   else { GF.clear(); gfSig = ''; }
 }
-function gfRebuild(){   // (remade, nearest first, whenever something is built, moved or fenced, or a plot opens)
-  const sig = JSON.stringify([S.place || {}, Object.keys(S.builds || {}).length, (S.fences || []).length, world.data.bridges.length, world.data.open.length, world.data.feats.length]);
-  if (sig === gfSig) return; if (gfSig) GF.invalidate(); gfSig = sig;
+// shade under the trees (grass grows thin there): the trees put in 4 m cells once per rebuild
+let gfShade = new Map();
+function gfTrees(){ gfShade = new Map(); const add = (x, z, s) => { const k = Math.floor(x/4) + ',' + Math.floor(z/4); (gfShade.get(k) || gfShade.set(k, []).get(k)).push([x, z, 1.7*(s || 1)]); };
+  trees.forEach(tr => { if (!tr.cut) add(tr.d.x, tr.d.z, tr.d.s); }); (world.lockedAll('trees') || []).forEach(d => add(d.x, d.z, d.s)); }
+function gfInfo(x, z){ const o = world.meadowAt(x, z); let sh = 0;
+  for (let i=-1;i<=1;i++) for (let j=-1;j<=1;j++){ const L = gfShade.get((Math.floor(x/4) + i) + ',' + (Math.floor(z/4) + j)); if (L) for (const [tx, tz, r] of L){ const d = Math.hypot(x - tx, z - tz); if (d < r*1.3) sh = Math.max(sh, Math.min(1, (r*1.3 - d)/(r*0.7))); } }
+  o.push(sh); return o; }
+function gfRebuild(){   // (remade, nearest first, whenever the world loads, something is built, moved, fenced or planted, or a plot opens)
+  const sig = JSON.stringify([world.data.seed, world.data.v, S.place || {}, Object.keys(S.builds || {}).length, (S.fences || []).length, world.data.bridges.length, world.data.open.length, world.data.feats.length, trees.length, trees.filter(t => t.cut).length]);
+  if (sig === gfSig) return; gfTrees(); if (gfSig) GF.invalidate(); gfSig = sig;
 }
 let gfT = 0;
 function updateGrassTrial(dt, t){
