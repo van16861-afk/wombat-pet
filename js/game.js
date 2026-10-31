@@ -4948,11 +4948,17 @@ document.querySelector('.dock').addEventListener('click', e => {
   hudDirty = true;
 });
 $('#btnStats').onclick = () => { S.hud = !S.hud; hudDirty = true; save(); };
-$('#btnMusic').onclick = () => setSound(!SND.on);
+$('#btnMusic').onclick = () => { setSound(!SND.on); S.bgm = SND.on; save(); };
 // Sound effects and the wombat's calls have their own switch (on by default), separate from the music.
 SND.fx = S.sfx !== false; $('#btnSfx').setAttribute('aria-pressed', SND.fx ? 'true' : 'false');
 function unlockAudio(){ if (SND.fx || SND.on){ const c = audio(); if (c && c.state !== 'running') c.resume(); } }
+// music is on unless it was switched off: browsers only allow sound after the first tap, so it starts then
+// (not when that tap is on the music button itself, which would switch it straight back off)
+function bgmFirstTap(e){ removeEventListener('pointerdown', bgmFirstTap, true); removeEventListener('keydown', bgmFirstTap, true);
+  if (S.bgm !== false && !SND.on && !(e.target && e.target.closest && e.target.closest('#btnMusic'))) setSound(true); }
+addEventListener('pointerdown', bgmFirstTap, true); addEventListener('keydown', bgmFirstTap, true);
 addEventListener('pointerdown', unlockAudio); addEventListener('keydown', unlockAudio);
+if (S.bgm !== false) $('#btnMusic').setAttribute('aria-pressed', 'true');   // (shown as on; it plays from the first tap)
 $('#btnSfx').onclick = () => { S.sfx = !SND.fx; SND.fx = S.sfx; if (SND.fx) unlockAudio(); $('#btnSfx').setAttribute('aria-pressed', SND.fx ? 'true' : 'false'); save(); toast(SND.fx ? '音效和叫聲打開了。' : '音效和叫聲關掉了。'); };
 $('#btnSettings').onclick = () => sheetKind === 'settings' ? closeSheet() : openSheet('settings');
 $('#btnTasks').onclick = () => sheetKind === 'tasks' ? closeSheet() : openSheet('tasks');
