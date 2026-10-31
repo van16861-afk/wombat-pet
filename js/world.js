@@ -938,6 +938,12 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
       if (!hide){ A.set(t.userData.orig); t.instanceMatrix.needsUpdate = true; continue; }
       let hit = false; for (let i=0;i<t.count;i++){ const o = t.userData.orig, x = o[i*16 + 12], z = o[i*16 + 14]; if (x > x0 && x < x1 && z > z0 && z < z1){ t.setMatrixAt(i, Z); hit = true; } }
       if (hit) t.instanceMatrix.needsUpdate = true; } };
+  // flowers, ferns and grass clumps where `gone(x, z)` says so (the paths you lay) are hidden; the rest come back
+  W.hidePlantsWhere = gone => { if (!W.flowers) return; const A = new THREE.Matrix4().makeScale(0, 0, 0).elements;
+    W.flowers.traverse(m => { if (!m.isInstancedMesh) return; const a = m.instanceMatrix.array;
+      if (!m.userData.orig) m.userData.orig = a.slice(); const o = m.userData.orig;
+      for (let i=0;i<m.count;i++){ const k = i*16; if (gone(o[k + 12], o[k + 14])) a.set(A, k); else for (let j=0;j<16;j++) a[k + j] = o[k + j]; }
+      m.instanceMatrix.needsUpdate = true; }); };
   // what the meadow grass (grassfield.js) is like here: [how grassy 0..1, golden savanna, red outback, swamp, dimmed (locked plot),
   // forest floor, flower meadow, plateau, river bank]
   W.meadowAt = (x, z) => {

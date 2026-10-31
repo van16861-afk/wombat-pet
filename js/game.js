@@ -9,6 +9,7 @@ import { createEvolution } from './evolution.js';
 import { createHoliday } from './holiday.js';
 import * as EV from './evo27.js';
 import { createGrassField } from './grassfield.js';
+import { createPaths, PATH_KINDS } from './paths.js';
 import { createFauna, SPECIES } from './fauna.js';
 import { createWildlife, WILD_NAMES } from './wildlife.js';
 import { createWorld, newWorld, HALF, PLOT, WATER_Y, X0, X1, Z0, Z1, BIO, plotKey, PLOT_KEYS, SEE, seeThrough, leafMaterial, swaying, CANOPY_BLOBS, leafyCanopy, canopyTex, vines, fieldStone, paintedCrown, paintedLeafMat } from './world.js';
@@ -1181,6 +1182,7 @@ function updatePlace(){
 }
 function placePointer(e){
   const hitP = groundHit(e); if (!hitP) return;
+  if (placing.paint) return paintPointer(e, hitP);
   if (placing.piece){ const q = placing.kind === 'fence' ? {x:Math.round(hitP.x*2)/2, z:Math.round(hitP.z*2)/2} : {x:+hitP.x.toFixed(2), z:+hitP.z.toFixed(2)};
     if (q.x !== placing.p.x || q.z !== placing.p.z){ placing.p.x = q.x; placing.p.z = q.z; updatePiece(); } return; }
   if (placing.bridge){ if (Math.abs(hitP.z - placing.z) > 0.15){ placing.z = clamp(hitP.z, Z0 + 1, Z1 - 1); updateBridgeGhost(); } return; }
@@ -1188,12 +1190,14 @@ function placePointer(e){
   if (i !== P.p.i || j !== P.p.j){ P.p.i = i; P.p.j = j; updatePlace(); }
 }
 function endPlace(){
-  const P = placing; placing = null; $('#placeRot').hidden = false; foot.rotation.z = 0;
+  const P = placing; placing = null; $('#placeRot').hidden = false; foot.rotation.z = 0; $('#placeRot').textContent = '↻ 旋轉'; $('#placeOk').textContent = '確定';
   gridMesh.visible = foot.visible = doorArrow.visible = false; document.body.classList.remove('placing'); $('#placeBar').hidden = true;
   yaw = P.cam.yaw; pitch = P.cam.pitch; zoom = P.cam.zoom; panTarget.set(P.mesh.position.x, 0, P.mesh.position.z); save(); hudDirty = true;
 }
 function commitPlace(){
-  const P = placing; if (!P || !P.ok) return;
+  const P = placing; if (!P) return;
+  if (P.paint){ const n = Object.keys(S.paths || {}).length; toast(P.spent ? `路鋪好了，花了 ${P.spent} 代幣。` : '結束鋪路。'); if (n) track('path'); endPlace(); return; }
+  if (!P.ok) return;
   if (P.piece) return commitPiece();
   if (P.bridge) return commitBridge();
   if (P.isNew){ if (S.coins < P.b.price){ toast('代幣不夠。'); cancelPlace(); return; }
@@ -1210,6 +1214,7 @@ function commitPlace(){
 }
 function cancelPlace(){
   const P = placing; if (!P) return;
+  if (P.paint){ S.paths = P.start; S.coins += P.spent; pathsRedraw(); if (P.spent) toast(`這次鋪的路都取消了，退回 ${P.spent} 代幣。`); endPlace(); return; }
   if (P.bridge){ scene.remove(P.mesh); if (P.movingFrom !== undefined){ world.addBridge(P.movingFrom); NAV.dirty = true; } endPlace(); return; }   // a cancelled move puts the bridge back
   if (P.piece){ scene.remove(P.mesh); P.mesh = {position:P.p.x !== undefined ? V3(P.p.x, 0, P.p.z) : camTarget.clone()}; endPlace(); return; }
   if (P.isNew){ scene.remove(P.mesh); if (S.place) delete S.place[P.id]; }
@@ -1217,6 +1222,7 @@ function cancelPlace(){
   endPlace();
 }
 $('#placeRot').onclick = () => { const P = placing; if (!P) return;
+  if (P.paint){ P.tool = {paint:'erase', erase:'pan', pan:'paint'}[P.tool]; paintUI(); sfx('pop'); return; }
   if (P.piece){ P.p.r = wrapA(P.p.r + (P.kind === 'fence' ? Math.PI/4 : Math.PI/6)); sfx('pop'); updatePiece(); return; }
   const c = placeCenter(P.b, P.p); P.p.rot = (P.p.rot + 1) % 4;
   const [w, d] = rotSize(P.b, P.p.rot); P.p.i = Math.round(c.x - w/2); P.p.j = Math.round(c.z - d/2); sfx('pop'); updatePlace(); };
@@ -1837,7 +1843,7 @@ function rollTumbleweeds(dt){
 const plotBio = k => Object.keys(BIO).find(b => BIO[b] === k);
 // litter and weeds never grow in water or on a bridge deck; pond/swamp plants wash up on the bank instead
 const overBridge = (x, z, pad = 0.6) => world.bridges.some(b => { const dx = x - b.x, dz = z - b.z; return Math.abs(dx*b.ax + dz*b.az) < b.len/2 + pad && Math.abs(-dx*b.az + dz*b.ax) < world.BRIDGE_W/2 + pad; });
-const weedSpotOK = (x, z) => groundOK(x, z) && !world.isWater(x, z) && !overBridge(x, z) && !inBuild(x, z, 0.4);
+const weedSpotOK = (x, z) => groundOK(x, z) && !world.isWater(x, z) && !overBridge(x, z) && !inBuild(x, z, 0.4) && !pathAt(x, z);
 const stillSpotOK = (x, z, where) => (where === 'pond' ? world.isPond(x, z) : world.isSwampWater(x, z)) && !world.isRiver(x, z) && !overBridge(x, z);
 const litterSpotOK = (x, z, k) => k && LITTER[k] && LITTER[k].still ? stillSpotOK(x, z, LITTER[k].still) : weedSpotOK(x, z);
 function spawnWeed(){
@@ -2211,6 +2217,53 @@ function moveBridge(b){
 }
 // Tapping the river starts placing a bridge: a see-through preview follows your finger along the river; 確定 builds it there.
 // a new bridge is bought in the shop (建築): its ghost starts on the open stretch of river nearest the view, then slides along it
+// ---------- paths you lay yourself (js/paths.js): paint 1 m squares with a finger; erase; move the view ----------
+let PTH = null, pathVer = 0, pathDirty = false;
+const pathAt = (x, z) => S.paths && S.paths[Math.floor(x) + ',' + Math.floor(z)];
+function pathsRedraw(){ if (!PTH) PTH = createPaths({scene, gy, normal:(x, z) => world.normal(x, z)}); PTH.rebuild(S.paths || {}); pathVer++; pathDirty = false;
+  world.hidePlantsWhere(pathAt); }
+function pathCellOK(i, j){
+  const x = i + 0.5, z = j + 0.5;
+  if (!world.inWorld(x, z) || !world.isOpen(x, z)) return '這裡還沒開拓。';
+  if ([[0.1, 0.1], [0.9, 0.1], [0.1, 0.9], [0.9, 0.9], [0.5, 0.5]].some(([a, b]) => world.isWater(i + a, j + b) || overBridge(i + a, j + b))) return '水裡不能鋪路。';
+  if (!world.buildable(x, z)) return '這裡太斜了。';
+  if (inBuild(x, z, 0)) return '這裡有建築。';
+  return '';
+}
+function startPaint(kind){
+  if (placing) return; const K = PATH_KINDS[kind]; if (!K) return;
+  if (S.coins < K.price){ toast('代幣不夠。'); return; }
+  closeSheet(); $('#modal').hidden = true;
+  placing = {paint:true, kind, tool:'paint', b:{name:K.name, price:K.price}, mesh:{position:V3(camTarget.x, 0, camTarget.z)}, cam:{yaw, pitch, zoom}, start:{...(S.paths || {})}, spent:0, ok:true};
+  S.paths = S.paths || {}; gridMesh.visible = foot.visible = true; foot.scale.set(1, 1, 1); layGrid(camTarget.x, camTarget.z);
+  document.body.classList.add('placing'); $('#placeBar').hidden = false; $('#placeOk').disabled = false; $('#placeOk').textContent = '完成';
+  paintUI();
+}
+function paintUI(){
+  const P = placing, K = PATH_KINDS[P.kind];
+  $('#placeRot').textContent = {paint:'工具：鋪路', erase:'工具：擦掉', pan:'工具：移動畫面'}[P.tool];
+  $('#placeName').textContent = `鋪${K.name}（一格 ${K.price} 代幣）` + (P.spent ? `　已花 ${P.spent}` : '');
+  $('#placeHint').textContent = P.why || {paint:'手指在地上畫，經過的格子就鋪上路。', erase:'畫過的格子會把路拿掉（不退錢）。', pan:'拖曳移動畫面，看別的地方。'}[P.tool];
+}
+function paintPointer(e, hitP){
+  const P = placing;
+  if (P.tool === 'pan'){   // drag the view: keep the ground point under the finger
+    if (e.type === 'pointerdown' || !P.grab){ P.grab = hitP.clone(); return; }
+    P.mesh.position.x += P.grab.x - hitP.x; P.mesh.position.z += P.grab.z - hitP.z; panTarget.copy(P.mesh.position); layGrid(P.mesh.position.x, P.mesh.position.z); return; }
+  P.grab = null;
+  // every square between the last point and this one (a quick swipe leaves no gaps)
+  const from = e.type === 'pointerdown' || !P.last ? hitP : P.last, steps = Math.max(1, Math.ceil(from.distanceTo(hitP)/0.4)); P.last = hitP.clone();
+  for (let s=1; s<=steps; s++){ const q = from.clone().lerp(hitP, s/steps), i = Math.floor(q.x), j = Math.floor(q.z), key = i + ',' + j;
+    foot.position.set(i + 0.5, gy(i + 0.5, j + 0.5) + 0.07, j + 0.5);
+    if (P.tool === 'erase'){ if (S.paths[key]){ delete S.paths[key]; pathDirty = true; } continue; }
+    if (S.paths[key] === P.kind) continue;
+    const why = pathCellOK(i, j); P.why = why; foot.material.color.set(why ? '#e05a4f' : '#5ad16a'); if (why) continue;
+    if (S.coins < P.b.price){ P.why = '代幣用完了。'; foot.material.color.set('#e05a4f'); break; }
+    S.coins -= P.b.price; P.spent += P.b.price; S.paths[key] = P.kind; pathDirty = true; hudDirty = true;
+    weeds.filter(w => Math.floor(w.g.position.x) === i && Math.floor(w.g.position.z) === j).forEach(w => { weeds.splice(weeds.indexOf(w), 1); scene.remove(w.g); }); }
+  if (pathDirty){ pathsRedraw(); if (Math.random() < 0.35) sfx('pop'); }
+  layGrid(hitP.x, hitP.z); paintUI(); P.why = '';
+}
 function buyBridge(){
   if (S.coins < BRIDGE_PRICE){ toast(`蓋橋要 ${BRIDGE_PRICE} 代幣。`); return; }
   const z0 = camTarget.z; let best = null;
@@ -3580,7 +3633,7 @@ function commitEvolution(){
 const GF = createGrassField({scene, mobile});
 let gfSig = '';
 const MARGIN_W = 15;
-const gfOK = (x, z) => !world.isWater(x, z) && world.slope(x, z) < 1.0 && !inBuild(x, z) && !fenceAt(x, z) && !(BG.pond && Math.hypot(x - BG.pond.position.x, z - BG.pond.position.z) < 1.9);
+const gfOK = (x, z) => !pathAt(x, z) && !world.isWater(x, z) && world.slope(x, z) < 1.0 && !inBuild(x, z) && !fenceAt(x, z) && !(BG.pond && Math.hypot(x - BG.pond.position.x, z - BG.pond.position.z) < 1.9);
 const meadowOn = () => S.grassTrial !== false;
 function setGrassTrial(on){
   S.grassTrial = !!on; GF.visible = on; world.hideTuftsIn(X0 - MARGIN_W - 5, X1 + MARGIN_W + 5, Z0 - MARGIN_W - 5, Z1 + MARGIN_W + 5, on);
@@ -3595,7 +3648,7 @@ function gfInfo(x, z){ const o = world.meadowAt(x, z); let sh = 0;
   for (let i=-1;i<=1;i++) for (let j=-1;j<=1;j++){ const L = gfShade.get((Math.floor(x/4) + i) + ',' + (Math.floor(z/4) + j)); if (L) for (const [tx, tz, r] of L){ const d = Math.hypot(x - tx, z - tz); if (d < r*1.3) sh = Math.max(sh, Math.min(1, (r*1.3 - d)/(r*0.7))); } }
   o.push(sh); return o; }
 function gfRebuild(){   // (remade, nearest first, whenever the world loads, something is built, moved, fenced or planted, or a plot opens)
-  const sig = JSON.stringify([world.data.seed, world.data.v, S.place || {}, Object.keys(S.builds || {}).length, (S.fences || []).length, world.data.bridges.length, world.data.open.length, world.data.feats.length, trees.length, trees.filter(t => t.cut).length]);
+  const sig = JSON.stringify([world.data.seed, world.data.v, S.place || {}, Object.keys(S.builds || {}).length, (S.fences || []).length, world.data.bridges.length, world.data.open.length, world.data.feats.length, trees.length, trees.filter(t => t.cut).length, pathVer]);
   if (sig === gfSig) return; gfTrees(); if (gfSig) GF.invalidate(); gfSig = sig;
 }
 let gfT = 0;
@@ -4495,7 +4548,9 @@ function shopEntries(tab){
   if (tab === 'cloth') return CLOTHES.filter(c => !c.holiday || S.owned[c.id] || holLive(c)).map(clothE);
   if (tab === 'build') return [...BUILDS.filter(b => (!b.holiday || S.builds[b.id] || holLive(b)) && (b.id !== 'fence' || S.builds.fence)).map(buildE),
     {icon:'🌉', name:'木頭拱橋', badge:`${BRIDGE_PRICE}`, body:`<p>蓋在河上，袋熊就能走到對岸。可以蓋好幾座。</p><p>${BRIDGE_PRICE} 代幣。要移動或拆掉已經蓋好的橋，點一下那座橋。</p>`,
-      actions:[...no, {label:'選位置蓋', onClick:() => buyBridge()}]}];
+      actions:[...no, {label:'選位置蓋', onClick:() => buyBridge()}]},
+    ...Object.entries(PATH_KINDS).map(([k, K]) => ({icon:K.icon, name:K.name, badge:`${K.price}/格`, body:`<p>${K.desc}</p><p>一格（1 公尺見方）${K.price} 代幣。用手指在地上畫，經過的格子就會鋪上；可以切換成「擦掉」把路拿掉，或「移動畫面」看別的地方。</p>`,
+      actions:[...no, {label:'開始鋪路', onClick:() => startPaint(k)}]}))];
   if (tab === 'garden') return [...Object.entries(TREE_KINDS).map(([k, K]) => ({icon:K.icon, name:K.name, badge:`${K.price}`, body:`<p>${K.desc}</p><p>${K.price} 代幣。種在開拓過的地上，可以轉方向。</p>`,
       actions:[...no, {label:'選位置種', onClick:() => startPiece('tree', k)}]})),
     ...Object.entries(FENCE_KINDS).map(([k, K]) => ({icon:K.icon, name:K.name, badge:`${K.price}`, body:`<p>${K.desc}</p><p>一段 ${K.price} 代幣。每蓋好一段會接著出現下一段，可以一直蓋下去。點蓋好的圍籬可以拆掉。</p>`,
@@ -5175,7 +5230,7 @@ if (!S.world.balanced){ S.world.balanced = 1; const taken = (x, z, r) => S.trees
     if (mine.length < 4) world.topUpFeats(k, 4 + Math.floor(Math.random()*2), taken);
     else if (mine.length > 7){ const drop = mine.slice(7).map(d => d.id); S.world.feats = S.world.feats.filter(d => !drop.includes(d.id)); world.data.feats = S.world.feats; } } }
 // (seedWorldNature above fills any plot that has no rocks, bushes or trees yet: new worlds, and the plots added when the world grew to 4 × 4)
-S.trees.filter(d => world.isOpenKey(d.p || '0,0')).forEach(makeTree); applyBumps(); (S.fences || []).forEach(makeFence);
+S.trees.filter(d => world.isOpenKey(d.p || '0,0')).forEach(makeTree); applyBumps(); (S.fences || []).forEach(makeFence); pathsRedraw();
 world.showFeats();
 const fauna = createFauna({scene, world, mat, hbMat, onSound: (n, at) => sfx(n, at), clone: n => animalClone(n), real: n => realClone(REAL_ALIAS[n] || n), lod:furLOD}); fauna.setTrunk(trunkShape);
 const koalaPerches = () => fauna.setPerches([...trees.filter(tr => tr.d.euc && !tr.cut).map(tr => tr.d), ...world.lockedEucs(BIO.aus)]);
@@ -5256,7 +5311,7 @@ if (EVOTEST) (async () => {
     out(`${bad.length ? '✗' : '✓'} 實跑 ${n} 條分支（另 2 條固定：蛋→初生→幼兒）${bad.length ? '\n' + bad.join('\n') : '，全部進化到正確型態'}`); };
   P.querySelector('#edReset').onclick = () => location.reload();
 })();
-if (new URLSearchParams(location.search).has('debug')) window.W = {renderer, scene, flock, boats, startPiece, fences, TREE_KINDS, startEvolution, EVO_FX, getEvo: () => evo, BEACH_LIFE, wear, art, setArt, inBuild, freeNear, poopNow, spawnWeed, weedSpotOK, overBridge, moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+if (new URLSearchParams(location.search).has('debug')) window.W = {renderer, scene, startPaint, pathsRedraw, flock, boats, startPiece, fences, TREE_KINDS, startEvolution, EVO_FX, getEvo: () => evo, BEACH_LIFE, wear, art, setArt, inBuild, freeNear, poopNow, spawnWeed, weedSpotOK, overBridge, moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   sim:(secs) => { skipRender = true; try { for (let i=0;i<secs*30;i++) step(true); } finally { skipRender = false; } clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};
