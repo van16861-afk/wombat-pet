@@ -11,7 +11,7 @@ import * as EV from './evo27.js';
 import { createGrassField } from './grassfield.js';
 import { createFauna, SPECIES } from './fauna.js';
 import { createWildlife, WILD_NAMES } from './wildlife.js';
-import { createWorld, newWorld, HALF, PLOT, WATER_Y, X0, X1, Z0, Z1, BIO, plotKey, PLOT_KEYS, SEE, seeThrough, leafMaterial, swaying, CANOPY_BLOBS, leafyCanopy, canopyTex, vines, fieldStone } from './world.js';
+import { createWorld, newWorld, HALF, PLOT, WATER_Y, X0, X1, Z0, Z1, BIO, plotKey, PLOT_KEYS, SEE, seeThrough, leafMaterial, swaying, CANOPY_BLOBS, leafyCanopy, canopyTex, vines, fieldStone, paintedCrown, paintedLeafMat } from './world.js';
 
 // Keep r128-era colour handling so the hand-tuned palette and fur shader look the same.
 THREE.ColorManagement.enabled = false;
@@ -399,9 +399,14 @@ function natModel(name, height, round){
   return out;
 }
 const natSet = (k, n, h, round) => Array.from({length:n}, (_, i) => natModel(`nat_${k}${i + 1}`, h, round)).filter(Boolean);
+// broad-leaf trees and bushes in the painted-meadow look: the kit's trunk and branches kept (animals climb them), the leaves
+// replaced by a few big round puffs in flat tones of green
+const PAINT_LEAF = paintedLeafMat('#4f8f30', 4.2), PAINT_SWAMP = paintedLeafMat('#62743f', 4.2), PAINT_BUSH = paintedLeafMat('#4b8630', 1.15), PAINT_EUC = paintedLeafMat('#7f9c6c', 4.2);
+function painted(m, i, bush){ if (!m || !m.canopy) return m;
+  return {...m, canopy:paintedCrown(m.canopy, 11 + i*7, mobile ? 2 : 3), canopyMat:bush === 'euc' ? PAINT_EUC : bush ? PAINT_BUSH : PAINT_LEAF, swampMat:PAINT_SWAMP}; }
 if (Object.keys(NATURE).length){
   const oaks = natSet('oak', 5, 4.2, true), pines = natSet('pine', 5, 4.4, true), bushes = natSet('bush', 2, 1.15, true);
-  if (TREE_MODELS){ if (oaks.length) TREE_MODELS.oak = oaks; if (pines.length) TREE_MODELS.pine = pines; if (bushes.length) TREE_MODELS.bush = bushes; }
+  if (TREE_MODELS){ if (oaks.length) TREE_MODELS.oak = oaks.map((m, i) => painted(m, i)); if (pines.length) TREE_MODELS.pine = pines; TREE_MODELS.euc = TREE_MODELS.euc.map((m, i) => painted(m, i + 20, 'euc')); if (bushes.length) TREE_MODELS.bush = bushes.map((m, i) => painted(m, i, true)); }
 }
 const NATURE_SMALL = Object.keys(NATURE).length ? {grass:natSet('grass', 3, 0.5), flower:natSet('flower', 4, 0.55), fern:natSet('fern', 4, 0.45), mush:natSet('mush', 2, 0.3)} : null;
 // shells only near the camera, to keep phones fast
@@ -3571,17 +3576,20 @@ function commitEvolution(){
   E.toldStay = false; EV.logEvo(E, `evolve:${from}>${evo.form}@${Math.round(ageMin())}`);
   S.stage = evo.next; S.form = evo.form; S.care = freshCare(); applyForm(); petS = stageScale(); hudDirty = true;
 }
-// ---------- the trial meadow on the home plot (js/grassfield.js) ----------
+// ---------- the painted meadow over the whole map (js/grassfield.js; 設定 can turn it off to save a phone's battery) ----------
 const GF = createGrassField({scene, mobile});
 let gfSig = '';
-const gfOK = (x, z) => world.walkable(x, z) && !world.isWater(x, z) && !inBuild(x, z) && !fenceAt(x, z) && !(BG.pond && Math.hypot(x - BG.pond.position.x, z - BG.pond.position.z) < 1.9);
+const MARGIN_W = 15;
+const gfOK = (x, z) => !world.isWater(x, z) && world.slope(x, z) < 1.0 && !inBuild(x, z) && !fenceAt(x, z) && !(BG.pond && Math.hypot(x - BG.pond.position.x, z - BG.pond.position.z) < 1.9);
+const meadowOn = () => S.grassTrial !== false;
 function setGrassTrial(on){
-  S.grassTrial = !!on; GF.visible = S.grassTrial; world.hideTuftsIn(-PLOT/2, PLOT/2, -PLOT/2, PLOT/2, S.grassTrial);
-  if (S.grassTrial){ gfSig = ''; gfRebuild(); }
+  S.grassTrial = !!on; GF.visible = on; world.hideTuftsIn(X0 - MARGIN_W - 5, X1 + MARGIN_W + 5, Z0 - MARGIN_W - 5, Z1 + MARGIN_W + 5, on);
+  if (on){ if (!gfSig) GF.setSource({ok:gfOK, H:world.H, info:world.meadowAt, bounds:[X0 - MARGIN_W, X1 + MARGIN_W, Z0 - MARGIN_W, Z1 + MARGIN_W]}); gfRebuild(); }
+  else { GF.clear(); gfSig = ''; }
 }
-function gfRebuild(){   // (again whenever something is built, moved or fenced on the plot)
-  const sig = JSON.stringify([S.place || {}, Object.keys(S.builds || {}).length, (S.fences || []).length, world.data.bridges.length]);
-  if (sig === gfSig) return; gfSig = sig; GF.build(-PLOT/2, PLOT/2, -PLOT/2, PLOT/2, gfOK, world.H);
+function gfRebuild(){   // (remade, nearest first, whenever something is built, moved or fenced, or a plot opens)
+  const sig = JSON.stringify([S.place || {}, Object.keys(S.builds || {}).length, (S.fences || []).length, world.data.bridges.length, world.data.open.length, world.data.feats.length]);
+  if (sig === gfSig) return; if (gfSig) GF.invalidate(); gfSig = sig;
 }
 let gfT = 0;
 function updateGrassTrial(dt, t){
@@ -4526,7 +4534,7 @@ function renderSheet(){
     else h += owned.map(c => `<div class="card" style="margin-top:10px"><div class="row"><h3>${c.name}</h3><button class="btn ${S.worn[c.id] ? '' : 'ghost'}" data-wear="${c.id}">${S.worn[c.id] ? '脫下' : '穿上'}</button></div><div class="swrow" role="radiogroup" aria-label="${c.name}顏色">` + PALETTE.map(p => `<button class="sw" role="radio" aria-checked="${(S.colors[c.id]||c.def)===p}" aria-label="${p}" data-col="${c.id}|${p}" style="background:${p}"></button>`).join('') + `</div></div>`).join('');
   } else if (sheetKind === 'settings'){
     const sp = [1,10,60], wx = [['auto','自動'],['sunny','晴'],['cloudy','多雲'],['rain','雨'],['snow','雪'],['storm','雷雨']];
-    h = `<p class="sec">草原畫風試作（家裡那塊地換成又密又會隨風起伏的草原，像你給的參考圖）</p><div class="opts"><button class="icon" data-gt="1" aria-pressed="${!!S.grassTrial}">開啟</button><button class="icon" data-gt="0" aria-pressed="${!S.grassTrial}">關閉</button></div>`
+    h = `<p class="sec">草原畫風（整張地圖又密又會隨風起伏的草；手機太燙可以先關掉）</p><div class="opts"><button class="icon" data-gt="1" aria-pressed="${meadowOn()}">開啟</button><button class="icon" data-gt="0" aria-pressed="${!meadowOn()}">關閉</button></div>`
       + `<p class="sec">減少動態效果（進化演出不晃動、不快轉，閃光較柔和）</p><div class="opts"><button class="icon" data-rm="auto" aria-pressed="${S.reduceMotion == null}">跟系統設定</button><button class="icon" data-rm="on" aria-pressed="${S.reduceMotion === true}">開啟</button><button class="icon" data-rm="off" aria-pressed="${S.reduceMotion === false}">關閉</button></div>`
       + `<p class="sec">畫風</p><div class="opts"><button class="icon" data-art="ghibli" aria-pressed="${S.art !== 'plain'}">吉卜力水彩（試作）</button><button class="icon" data-art="plain" aria-pressed="${S.art === 'plain'}">原本的畫風</button></div>`
       + musicHTML() + `<p class="sec">晝夜</p><div class="opts"><button class="icon" data-day="hourly" aria-pressed="${S.dayMode==='hourly'}">每小時切換早晚</button><button class="icon" data-day="real" aria-pressed="${S.dayMode==='real'}">跟現實時間同步</button></div>`
@@ -5179,7 +5187,7 @@ setupBeach();
 (S.snowmen || []).forEach(([x,z,ry,m]) => makeSnowman(x,z,ry,m));
 if (S.petPos){ pos.set(S.petPos[0], 0, S.petPos[1]); root.rotation.y = S.petPos[2]; }
 applyForm();
-setArt(S.art); if (S.grassTrial) setGrassTrial(true);
+setArt(S.art); if (meadowOn()) setGrassTrial(true);
 petS = stageScale();
 refreshViewBtn(); if (!PREVIEW){ dailyNow(); taskBadge(); }
 if (camMode() === 'iso'){ yaw = 0.785; pitch = 0.79; } else if (camMode() === 'top'){ yaw = 0; pitch = 1.42; }

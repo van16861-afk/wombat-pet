@@ -4,7 +4,7 @@
 // (clear water you can see the pebbles and fish through, crossed by bridges you build) and a beach with the sea in the east.
 // Everything is generated from a seed into S.world, so it stays the same on every device.
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // 4 × 4 plots: plot columns/rows -2..1 → x and z run from -45 to 27. Home is plot 0,0 (one of the four middle plots).
 // Plots are 30 × 30 (18 until 2026-10, then 24; upgradeWorld v4 and v5 spread older saves out to the new size).
@@ -78,6 +78,34 @@ export function swaying(m, height = 2.5, amp = 0.3, wave = 0.2, see = true){   /
   };
   m.customProgramCacheKey = () => 'sway' + height + '|' + amp + '|' + wave + (see ? '' : '|nosee');
   return m;
+}
+// Round painted crowns, like the trees in a hand-painted meadow: a few big soft puffs of leaves (lumpy, not faceted) filling the
+// space of the original crown, shaded in a few flat tones of green (sunlit top, deep shade underneath) instead of leaf cards.
+export function paintedCrown(src, seed = 1, detail = 3){
+  const R = rng(seed); src.computeBoundingBox(); const bb = src.boundingBox, c = bb.getCenter(new THREE.Vector3()), e = bb.getSize(new THREE.Vector3()).multiplyScalar(0.5);
+  const ex = Math.max(e.x, e.z), base = Math.min(ex, e.y), blobs = [[0, 0.05, 0, base*0.78]];
+  const n = 6 + Math.floor(R()*3);
+  for (let i=0;i<n;i++){ const a = i/n*Math.PI*2 + R()*0.6, up = R() - 0.35;   // a ring of puffs round the middle, a few on top
+    blobs.push([Math.cos(a)*e.x*(0.5 + 0.12*R()), up*e.y*0.55, Math.sin(a)*e.z*(0.5 + 0.12*R()), base*(0.48 + 0.14*R())]); }
+  for (let i=0;i<2 + Math.floor(R()*2);i++){ const a = R()*6.28; blobs.push([Math.cos(a)*e.x*0.25, e.y*(0.42 + 0.12*R()), Math.sin(a)*e.z*0.25, base*(0.45 + 0.1*R())]); }
+  const parts = blobs.map(([x, y, z, r], bi) => {
+    let g = new THREE.IcosahedronGeometry(1, detail); g.deleteAttribute('uv'); g.deleteAttribute('normal'); g = mergeVertices(g);
+    const P = g.attributes.position, v = new THREE.Vector3(), ph = R()*9;
+    for (let i=0;i<P.count;i++){ v.fromBufferAttribute(P, i);   // lumpy: leaf clumps bulge out of each puff
+      const k = 1 + 0.09*Math.sin(v.x*5.1 + ph)*Math.sin(v.y*4.7 + ph*1.3)*Math.sin(v.z*5.3 - ph) + 0.05*Math.sin(v.x*11 + v.z*9 + ph);
+      v.multiplyScalar(r*k); v.y *= 0.86; P.setXYZ(i, c.x + x + v.x, c.y + y + v.y, c.z + z + v.z); }
+    g.computeVertexNormals();
+    const N = g.attributes.normal, col = new Float32Array(P.count*3), w = new THREE.Vector3(), lo = bb.min.y, hi = bb.max.y, tone = 0.94 + 0.12*R();
+    for (let i=0;i<P.count;i++){ v.fromBufferAttribute(P, i); w.copy(v).sub(c); w.y = w.y*0.8 + 0.2*e.y; w.normalize();   // the whole crown's roundness...
+      const nn = new THREE.Vector3().fromBufferAttribute(N, i).multiplyScalar(0.55).addScaledVector(w, 0.45).normalize(); N.setXYZ(i, nn.x, nn.y, nn.z);   // ...blended with each puff's
+      const h = Math.min(1, Math.max(0, (v.y - lo)/(hi - lo))), inner = Math.max(0, 1 - v.clone().sub(c).length()/(ex*1.05));
+      const k = (0.55 + 0.5*h)*(1 - 0.35*inner)*tone; col[i*3] = k*0.95; col[i*3 + 1] = k; col[i*3 + 2] = k*0.9; }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3)); return g; });
+  const out = mergeGeometries(parts); out.computeBoundingBox(); out.computeBoundingSphere(); return out;
+}
+const toonRamp = (() => { const d = new Uint8Array([50, 95, 150, 200, 228]); const t = new THREE.DataTexture(d, d.length, 1, THREE.RedFormat); t.minFilter = t.magFilter = THREE.NearestFilter; t.needsUpdate = true; return t; })();
+export function paintedLeafMat(color = '#5f9c38', height = 4.2){   // flat tones of green, swaying in the wind
+  return swaying(new THREE.MeshToonMaterial({color, vertexColors:true, gradientMap:toonRamp}), height, 0.25, 0.08);
 }
 // Painted leaf clusters (a soft alpha cut-out) used for every tree canopy, so trees look leafy instead of faceted.
 const leafTex = (() => { const cv = document.createElement('canvas'); cv.width = cv.height = 128; const x = cv.getContext('2d');
@@ -910,6 +938,12 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
       if (!hide){ A.set(t.userData.orig); t.instanceMatrix.needsUpdate = true; continue; }
       let hit = false; for (let i=0;i<t.count;i++){ const o = t.userData.orig, x = o[i*16 + 12], z = o[i*16 + 14]; if (x > x0 && x < x1 && z > z0 && z < z1){ t.setMatrixAt(i, Z); hit = true; } }
       if (hit) t.instanceMatrix.needsUpdate = true; } };
+  // what the meadow grass (grassfield.js) is like here: [how grassy 0..1, golden-dry, red outback, swamp, dimmed (locked plot)]
+  W.meadowAt = (x, z) => {
+    if (W.isWater(x, z)) return [0, 0, 0, 0, 1];
+    const g = surf(x, z)[1], sv = D.bio ? plotW(BIO.savanna, x, z, 6.5, 9.8) : 0, hi = D.bio ? plotW(BIO.high, x, z, 6, 9) : 0;
+    return [g, Math.min(1, sv + hi*0.4), D.bio ? plotW(BIO.aus, x, z, 6.5, 9.8) : 0, D.bio ? swampW(x, z) : 0, !inWorld(x, z) || W.isOpen(x, z) ? 1 : 0.8];
+  };
   W.load = (data) => {
     D = upgradeWorld(data); W.data = D;
     const R = rng(D.seed);
