@@ -176,3 +176,8 @@ body.placing .dock, body.placing .stats, body.placing .alert{display:none}
 #loading .ld-bar i{display:block;height:100%;width:5%;background:#7a9b5c;transition:width .3s}
 @keyframes ldHop{0%,100%{transform:translateY(0) rotate(-8deg)}50%{transform:translateY(-12px) rotate(8deg)}}
 @media (prefers-color-scheme: dark){#loading{background:#1d2420;color:#e2e9de}#loading .ld-bar{background:#33402f}}
+/* volume sliders (設定) */
+.vols{display:flex;flex-direction:column;gap:6px;margin:4px 0 8px}
+.volrow{display:flex;align-items:center;gap:10px;font-size:15px}
+.volrow input{flex:1;accent-color:var(--accent,#7a5a3a)}
+.volrow output{width:2.4em;text-align:right;font-variant-numeric:tabular-nums}

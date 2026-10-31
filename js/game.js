@@ -5,7 +5,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import { cloud } from './cloud.js';
 import { createGhibli } from './ghibli.js';
-import { createEvolution } from './evolution.js';
+import { createEvolution, EVO_TRACKS, trackFor } from './evolution.js';
 import { createHoliday } from './holiday.js';
 import * as EV from './evo27.js';
 import { createGrassField } from './grassfield.js';
@@ -130,7 +130,7 @@ function updateFx(dt){
 // B = paw, A = fur length. Fur is drawn as SHELLS layers of the same skinned mesh pushed out along the normal.
 const U = {
   uColor:{value:new THREE.Color('#8b6b50')}, uBelly:{value:new THREE.Color('#b39a82')}, uBlush:{value:new THREE.Color('#ef9e97')},
-  uLight:{value:L}, uForce:{value:V3(0,0,0)}, uSky:{value:new THREE.Color('#fff8ec')}, uGround:{value:new THREE.Color('#77806a')}, uSun:{value:1}, uWhite:{value:0}
+  uLight:{value:L}, uForce:{value:V3(0,0,0)}, uSky:{value:new THREE.Color('#fff8ec')}, uGround:{value:new THREE.Color('#77806a')}, uSun:{value:1}, uWhite:{value:0}, uWhiteC:{value:new THREE.Color(1.25, 1.21, 1.1)}
 };
 const VS = `uniform float uLayer; uniform float uLen; uniform vec3 uForce;
 #include <common>
@@ -148,7 +148,7 @@ void main(){
   vN = normalize(mat3(modelMatrix) * objectNormal); vWP = wp.xyz;
   gl_Position = projectionMatrix * viewMatrix * wp; }`;
 const FS = `uniform float uLayer;
-uniform vec3 uColor; uniform vec3 uBelly; uniform vec3 uBlush; uniform vec3 uLight; uniform vec3 uSky; uniform vec3 uGround; uniform float uSun; uniform float uWhite;
+uniform vec3 uColor; uniform vec3 uBelly; uniform vec3 uBlush; uniform vec3 uLight; uniform vec3 uSky; uniform vec3 uGround; uniform float uSun; uniform float uWhite; uniform vec3 uWhiteC;
 varying vec3 vN; varying vec3 vWP; varying vec3 vP; varying vec4 vMask;
 float h3(vec3 p){ p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
 void main(){
@@ -164,13 +164,13 @@ void main(){
   vec3 V = normalize(cameraPosition - vWP);
   float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0) * 0.45 * uLayer;
   col = col * (hemi * 0.5 + d * 0.72 * uSun) + rim * uSky * 0.35;
-  col = mix(col, vec3(1.0, 0.97, 0.88) * 1.25, uWhite);
+  col = mix(col, uWhiteC, uWhite);
   gl_FragColor = vec4(col, 1.0); }`;
 const SHELLS = mobile ? 10 : 16, FUR_LEN = 0.075;
 const furShells = [];
 const furMat = i => { const m = new THREE.ShaderMaterial({vertexShader:VS, fragmentShader:FS, vertexColors:true,
   uniforms:{uLayer:{value:i/(SHELLS-1)}, uLen:{value:FUR_LEN}, uColor:U.uColor, uBelly:U.uBelly, uBlush:U.uBlush, uLight:U.uLight,
-    uForce:U.uForce, uSky:U.uSky, uGround:U.uGround, uSun:U.uSun, uWhite:U.uWhite}}); furShells.push(m); return m; };
+    uForce:U.uForce, uSky:U.uSky, uGround:U.uGround, uSun:U.uSun, uWhite:U.uWhite, uWhiteC:U.uWhiteC}}); furShells.push(m); return m; };
 const hit = [], petMats = [];
 const mat = (c, r=0.7) => new THREE.MeshStandardMaterial({color:c, roughness:r, metalness:0});
 function makeShadow(w, d){
@@ -1315,20 +1315,24 @@ const WX = {
 
 // ---------- sound & music ----------
 const SND = {ctx:null, on:false, songId:null, song:null, step:0, next:0};
+const volOf = k => { const v = S && S[k]; return v == null ? 1 : Math.max(0, Math.min(1, v)); };
+function setVol(k, v){ S[k] = Math.round(v*100)/100; const c = SND.ctx; if (!c) return;
+  if (k === 'volM') SND.musVol.gain.setTargetAtTime(volOf('volM'), c.currentTime, 0.05); else SND.sfx.gain.setTargetAtTime(0.6*volOf('volS'), c.currentTime, 0.05); }
 function audio(){
   if (SND.ctx) return SND.ctx;
   const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null;
   const c = new AC(); SND.ctx = c;
   const master = c.createGain(); master.gain.value = 0.5;
   const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 7000; master.connect(lp); lp.connect(c.destination);
-  const music = c.createGain(); music.gain.value = 0; music.connect(master);
+  const musVol = c.createGain(); musVol.gain.value = volOf('volM'); musVol.connect(master);   // (the music volume: the game's songs and the evolution track)
+  const music = c.createGain(); music.gain.value = 0; music.connect(musVol);
   // a soft room reverb (generated impulse) gives the sampled instruments some air
   const rev = c.createConvolver(), ir = c.createBuffer(2, Math.floor(c.sampleRate*2.6), c.sampleRate);
   for (let ch=0; ch<2; ch++){ const d = ir.getChannelData(ch); for (let i=0;i<d.length;i++) d[i] = (Math.random()*2 - 1)*Math.pow(1 - i/d.length, 3.2); }
-  rev.buffer = ir; const wet = c.createGain(); wet.gain.value = 0.32; music.connect(rev); rev.connect(wet); wet.connect(master);
-  const sfxBus = c.createGain(); sfxBus.gain.value = 0.6; sfxBus.connect(master);
+  rev.buffer = ir; const wet = c.createGain(); wet.gain.value = 0.32; music.connect(rev); rev.connect(wet); wet.connect(musVol);
+  const sfxBus = c.createGain(); sfxBus.gain.value = 0.6*volOf('volS'); sfxBus.connect(master);
   const mk = sec => { const b = c.createBuffer(1, Math.floor(c.sampleRate*sec), c.sampleRate), d = b.getChannelData(0); for (let i=0;i<d.length;i++) d[i] = Math.random()*2-1; return b; };
-  Object.assign(SND, {master, music, sfx:sfxBus, noise:mk(0.1), noiseLong:mk(2.5)});
+  Object.assign(SND, {master, music, musVol, sfx:sfxBus, noise:mk(0.1), noiseLong:mk(2.5)});
   return c;
 }
 const mtof = m => 440*Math.pow(2,(m-69)/12);
@@ -1487,12 +1491,12 @@ function tick(){
     schedule(SND.step, SND.next); SND.next += 60/SND.song.bpm/2; SND.step++;
   }
 }
-function duck(on){ if (SND.ctx && SND.on) SND.music.gain.setTargetAtTime(on ? 0.12 : 0.9, SND.ctx.currentTime, 0.2); }
+function duck(on){ if (SND.ctx && SND.on) SND.music.gain.setTargetAtTime(on ? (evo ? 0 : 0.12) : 0.9, SND.ctx.currentTime, 0.2); }
 function setSound(on){
   const c = audio(); if (!c){ toast('這個瀏覽器不支援播放聲音。'); return; }
   c.resume(); SND.on = on;
   if (on){ SND.songId = wantedSong(); SND.song = SONGS[SND.songId]; SND.next = c.currentTime + 0.08; SND.step = 0; loadSong(SND.songId);
-    SND.music.gain.cancelScheduledValues(c.currentTime); SND.music.gain.setTargetAtTime(0.9, c.currentTime, 0.05); clearInterval(SND.timer); SND.timer = setInterval(tick, 30); }
+    SND.music.gain.cancelScheduledValues(c.currentTime); SND.music.gain.setTargetAtTime(evo ? 0 : 0.9, c.currentTime, 0.05); clearInterval(SND.timer); SND.timer = setInterval(tick, 30); }
   else { clearInterval(SND.timer); SND.music.gain.setTargetAtTime(0, c.currentTime, 0.08); rainSound(false); }
   $('#btnMusic').setAttribute('aria-pressed', on ? 'true' : 'false');
   hudDirty = true;
@@ -3579,46 +3583,77 @@ function catchUp(ms){
 const fxo = $('#fxo'), fxSub = $('#fxSub'), fxName = $('#fxName');
 // The evolution sequence (js/evolution.js): its own dream-space scene with glow and motion trails, played with the game's own
 // wombat; the form changes at the white-out. Its music and sounds are made here, timed to its beats.
+// Evolution sound. Music: the author's two 15 s tracks (assets/music/evolution), played on its own channel under the music volume, and
+// used as the sequence's clock. Sound effects: a slot per mark of the sequence; a file listed in assets/evolution/manifest.json
+// ("sfx": {"impact": "assets/sounds/evolution/impact.mp3", …}) is played if there is one, otherwise a synthesized stand-in.
+// Logos: "logos": {"u_gold": "assets/evolution/u_gold/logo.png", …} replaces the drawn crest for that form.
+const EVO_SLOTS = ['awaken', 'portal', 'spin', 'charge', 'impact', 'reveal', 'logo'];
+const EVO_AUDIO = {buf:{}, sfxBuf:{}, manifest:null, src:null, gain:null, t0:0, track:null};
+fetch('assets/evolution/manifest.json').then(r => r.ok ? r.json() : {}).catch(() => ({})).then(m => { EVO_AUDIO.manifest = m || {}; });
+function evoLoad(url, into, key){
+  const c = audio(); if (!c || into[key]) return into[key];
+  into[key] = fetch(url).then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }).then(b => new Promise((ok, no) => c.decodeAudioData(b, ok, no)))
+    .then(b => (into[key] = b)).catch(e => { console.warn('evolution audio', url, e); into[key] = null; });
+  return into[key];
+}
+function evoMusicStart(E){   // starts (or restarts, after the music is switched on mid-way) the track at the sequence's current time
+  const c = SND.ctx, b = EVO_AUDIO.buf[EVO_AUDIO.track]; if (!c || !SND.on || !(b instanceof AudioBuffer) || EVO_AUDIO.src) return;
+  if (c.state !== 'running') c.resume();
+  const g = c.createGain(); g.gain.value = 1; g.connect(SND.musVol || SND.master);
+  const src = c.createBufferSource(); src.buffer = b; src.connect(g); const off = Math.max(0, E ? E.t : 0), at = c.currentTime + 0.03;
+  src.start(at, Math.min(off, b.duration - 0.05)); EVO_AUDIO.src = src; EVO_AUDIO.gain = g; EVO_AUDIO.t0 = at - off;
+  src.onended = () => { if (EVO_AUDIO.src === src) EVO_AUDIO.src = null; };
+}
+function evoMusicStop(fade = 0.25){ const c = SND.ctx, s_ = EVO_AUDIO.src; if (!c || !s_) return; EVO_AUDIO.src = null;
+  EVO_AUDIO.gain.gain.setTargetAtTime(0, c.currentTime, fade/3); try { s_.stop(c.currentTime + fade + 0.1); } catch(e){} }
+const evoClock = () => { const c = SND.ctx; return EVO_AUDIO.src && c && c.state === 'running' ? c.currentTime - EVO_AUDIO.t0 : null; };
 const EVO_SOUND = {
-  preload(){ if (audio()) ['string_ensemble_1', 'orchestral_harp', 'music_box', 'trumpet'].forEach(loadInst); },
+  preload(track){ if (!audio()) return; EVO_AUDIO.track = track; evoLoad(EVO_TRACKS[track].file, EVO_AUDIO.buf, track);
+    const m = (EVO_AUDIO.manifest || {}).sfx || {}; EVO_SLOTS.forEach(k => { if (m[k]) evoLoad(m[k], EVO_AUDIO.sfxBuf, k); });
+    ['string_ensemble_1', 'orchestral_harp', 'music_box', 'trumpet'].forEach(loadInst); },
   play(n, E){
-    const c = SND.ctx; if (!c || !SND.fx) return;
-    const now = c.currentTime, at = T => now + Math.max(0, T - E.t), out = SND.sfx;
-    const note = (inst, m, T, v, d, wave = 'triangle') => { if (!playI(inst, m, at(T), v, d, out)) tone(wave, mtof(m), at(T), v*0.5, d, out, 0.01); };
+    const c = SND.ctx; if (!c) return;
+    if (n === 'awaken'){ const b = EVO_AUDIO.buf[EVO_AUDIO.track];   // the music starts with the sequence (or as soon as it has loaded, at the right point)
+      if (b instanceof AudioBuffer) evoMusicStart(E); else if (b && b.then) b.then(() => { if (EVO_FX.active) evoMusicStart(EVO_FX); }); }
+    if (n === 'skip'){ evoMusicStop(0.35); return; }
+    if (!SND.fx) return;
+    const fileBuf = EVO_AUDIO.sfxBuf[n];
+    if (fileBuf instanceof AudioBuffer){ const src = c.createBufferSource(); src.buffer = fileBuf; src.connect(SND.sfx); src.start(); return; }
+    const now = c.currentTime, out = SND.sfx, music = EVO_AUDIO.src;   // (stand-ins: kept light when the real music is playing)
+    const note = (inst, m, T, v, d, wave = 'triangle') => { const at = now + Math.max(0, T - E.t); if (!playI(inst, m, at, v, d, out)) tone(wave, mtof(m), at, v*0.5, d, out, 0.01); };
     switch (n){
-      case 'start': [84, 88, 91, 96].forEach((m, i) => note('music_box', m, E.t + i*0.07, 0.5, 0.9, 'sine')); tone('sine', 2093, now + 0.3, 0.05, 1.2, out, 0.4); break;
-      case 'whoosh': { const w = noiseHit(now, 0.75, 0.4, 'bandpass', 300, out, SND.noiseLong, 1.2); w.f.frequency.setValueAtTime(300, now); w.f.frequency.exponentialRampToValueAtTime(4200, now + 0.6); break; }
-      case 'bgm': {
-        // strings swell over a dreamy progression (Am - F - C - G), harp arpeggios quicken toward the flash, a soft pulse beneath
-        [[57, 60, 64], [53, 57, 60], [48, 52, 55, 60], [55, 59, 62]].forEach((ch, i) => ch.forEach(m => note('string_ensemble_1', m, 1.3 + i*0.95, 0.32, 1.1)));
-        const scale = [57, 60, 62, 64, 67, 69, 72, 74, 76, 79, 81, 84, 86, 88];
-        for (let T = 1.4, i = 0; T < 5.0; i++){ note('orchestral_harp', scale[i % scale.length] + (i >= scale.length ? 12 : 0)*0, T, 0.35, 0.4); T += lerp(0.26, 0.055, clamp((T - 1.4)/3.6, 0, 1)); }
-        for (let T = 2.4; T < 5.0; ){ const k = tone('sine', 110, at(T), 0.35, 0.18, out); k.frequency.exponentialRampToValueAtTime(45, at(T) + 0.12); T += lerp(0.5, 0.16, clamp((T - 2.4)/2.6, 0, 1)); }
-        break; }
-      case 'charge': { const o = tone('sawtooth', 180, now, 0.05, 1.45, out, 1.2); o.frequency.exponentialRampToValueAtTime(1500, now + 1.4);
-        const r = noiseHit(now, 1.45, 0.22, 'bandpass', 600, out, SND.noiseLong, 2); r.f.frequency.setValueAtTime(600, now); r.f.frequency.exponentialRampToValueAtTime(7000, now + 1.4);
-        tone('sine', 880, now, 0.06, 1.45, out, 1.3).frequency.exponentialRampToValueAtTime(3520, now + 1.4); break; }
-      case 'flash': { const o = tone('sine', 140, now, 0.9, 1.1, out); o.frequency.exponentialRampToValueAtTime(30, now + 0.8);
-        noiseHit(now, 1.0, 0.6, 'lowpass', 900, out, SND.noiseLong); noiseHit(now, 0.25, 0.4, 'highpass', 3000, out);
-        [96, 100, 103, 108].forEach((m, i) => tone('sine', mtof(m), now + 0.05 + i*0.03, 0.08, 1.4, out)); break; }
-      case 'reveal': [48, 55, 60, 64, 67, 72].forEach(m => { note('string_ensemble_1', m, E.t, 0.4, 2.2); }); [60, 64, 67, 72].forEach(m => note('trumpet', m, E.t + 0.05, 0.42, 1.6, 'sawtooth'));
-        [72, 76, 79, 84, 88, 91, 96].forEach((m, i) => note('orchestral_harp', m, E.t + i*0.05, 0.3, 0.8)); break;
-      case 'card': [79, 84, 88, 91].forEach((m, i) => note('music_box', m, E.t + i*0.12, 0.45, 1.2, 'sine')); tone('sine', 2637, now + 0.5, 0.06, 1.6, out, 0.02); break;
+      case 'awaken': [84, 88, 91, 96].forEach((m, i) => note('music_box', m, E.t + 0.3 + i*0.09, 0.4, 0.9, 'sine')); tone('sine', 2093, now + 0.6, 0.04, 1.4, out, 0.5); break;
+      case 'portal': { const w = noiseHit(now, 1.2, 0.35, 'bandpass', 300, out, SND.noiseLong, 1.2); w.f.frequency.setValueAtTime(260, now); w.f.frequency.exponentialRampToValueAtTime(5200, now + 1.0); break; }
+      case 'spin': if (!music){ [[57, 60, 64], [53, 57, 60], [48, 52, 55, 60], [55, 59, 62]].forEach((ch, i) => ch.forEach(m => note('string_ensemble_1', m, E.t + i*0.9, 0.3, 1.0))); }
+        { const o = tone('sine', 220, now, 0.04, 3.4, out, 1.5); o.frequency.exponentialRampToValueAtTime(440, now + 3.4); } break;
+      case 'charge': { const o = tone('sawtooth', 160, now, music ? 0.025 : 0.05, 2.5, out, 2.2); o.frequency.exponentialRampToValueAtTime(1400, now + 2.4);
+        const r = noiseHit(now, 2.5, music ? 0.12 : 0.22, 'bandpass', 600, out, SND.noiseLong, 2); r.f.frequency.setValueAtTime(600, now); r.f.frequency.exponentialRampToValueAtTime(7000, now + 2.4); break; }
+      case 'impact': { const o = tone('sine', 140, now, 0.8, 1.1, out); o.frequency.exponentialRampToValueAtTime(30, now + 0.8);
+        noiseHit(now, 1.0, 0.5, 'lowpass', 900, out, SND.noiseLong); noiseHit(now, 0.25, 0.3, 'highpass', 3000, out);
+        [96, 100, 103, 108].forEach((m, i) => tone('sine', mtof(m), now + 0.05 + i*0.03, 0.06, 1.4, out)); break; }
+      case 'reveal': if (!music){ [48, 55, 60, 64, 67, 72].forEach(m => note('string_ensemble_1', m, E.t, 0.4, 2.2)); [60, 64, 67, 72].forEach(m => note('trumpet', m, E.t + 0.05, 0.42, 1.6, 'sawtooth')); }
+        [72, 76, 79, 84, 88, 91, 96].forEach((m, i) => note('orchestral_harp', m, E.t + i*0.05, music ? 0.18 : 0.3, 0.8)); break;
+      case 'logo': [79, 84, 88, 91].forEach((m, i) => note('music_box', m, E.t + i*0.1, music ? 0.25 : 0.45, 1.2, 'sine')); tone('sine', 2637, now + 0.4, 0.05, 1.6, out, 0.02); break;
     }
   }
 };
 const EVO_FX = createEvolution({renderer, mobile, sound:EVO_SOUND});
+let evoTrackPick = null;   // (test panel: force track A or B)
 function startEvolution(next, to){
   if (!to){ const r = decideEvo(); if (!r.d.eligible) return; to = r.d.to; }
   evo = {t:0, next, form:to, seq:true, committed:false};
   B.mode = 'evolve'; closeSheet(); clothesHidden = true; applyClothes(); duck(true); cry('evolve');
   const nextF = FORMS[to] || FORMS.normal, fromName = S.stage === 'baby' ? '幼兒袋熊' : form().name;
-  const ICON = {growth:'🌱', mature:'🌿', perfect:'👑', ultimate:'🌟'}, stage27 = nextF.stage;
-  EVO_FX.start({pet:root, fromName, toName:nextF.name, stageName:EV.STAGE27[stage27] || STAGES[next].name, icon:ICON[stage27] || '✨', reduced:reducedMotion(),
+  const stage27 = nextF.stage;
+  const track = evoTrackPick || trackFor(stage27), logos = (EVO_AUDIO.manifest || {}).logos || {};
+  EVO_SOUND.preload(track);
+  EVO_FX.start({pet:root, fromName, toName:nextF.name, toId:to, stage:stage27, stageName:EV.STAGE27[stage27] || STAGES[next].name, track, logoUrl:logos[to] || null, reduced:reducedMotion(),
+    clock:evoClock,
+    music:{get on(){ return SND.on; }, toggle:() => { setSound(!SND.on); duck(true); if (SND.on) evoMusicStart(EVO_FX); else evoMusicStop(0.2); }},
     sound:{get on(){ return SND.fx !== false; }, toggle:() => $('#btnSfx').click()},
-    setWhite: v => { U.uWhite.value = v; petMats.forEach(m => m.emissive.setScalar(v*0.95)); },
+    setWhite: (v, col) => { U.uWhite.value = v; U.uWhiteC.value.set(col || '#fff7e0').multiplyScalar(1.25); const c = new THREE.Color(col || '#ffffff'); petMats.forEach(m => m.emissive.copy(c).multiplyScalar(v*0.6)); },
     onSwap: () => commitEvolution(),
-    onDone: () => endEvolution()});
+    onDone: () => { evoMusicStop(0.4); endEvolution(); }});
 }
 // the one place an evolution is applied (the skip button and the full show both end here, once)
 function commitEvolution(){
@@ -4596,7 +4631,9 @@ function renderSheet(){
     else h += owned.map(c => `<div class="card" style="margin-top:10px"><div class="row"><h3>${c.name}</h3><button class="btn ${S.worn[c.id] ? '' : 'ghost'}" data-wear="${c.id}">${S.worn[c.id] ? '脫下' : '穿上'}</button></div><div class="swrow" role="radiogroup" aria-label="${c.name}顏色">` + PALETTE.map(p => `<button class="sw" role="radio" aria-checked="${(S.colors[c.id]||c.def)===p}" aria-label="${p}" data-col="${c.id}|${p}" style="background:${p}"></button>`).join('') + `</div></div>`).join('');
   } else if (sheetKind === 'settings'){
     const sp = [1,10,60], wx = [['auto','自動'],['sunny','晴'],['cloudy','多雲'],['rain','雨'],['snow','雪'],['storm','雷雨']];
-    h = `<p class="sec">草原畫風（整張地圖又密又會隨風起伏的草；手機太燙可以先關掉）</p><div class="opts"><button class="icon" data-gt="1" aria-pressed="${meadowOn()}">開啟</button><button class="icon" data-gt="0" aria-pressed="${!meadowOn()}">關閉</button></div>`
+    const vol = (k, label) => `<label class="volrow">${label} <input type="range" min="0" max="100" step="5" value="${Math.round(volOf(k)*100)}" data-vol="${k}" aria-label="${label}"><output>${Math.round(volOf(k)*100)}</output></label>`;
+    h = `<p class="sec">音量（音樂和音效分開調；進化演出的配樂跟著音樂音量）</p><div class="vols">${vol('volM', '🎵 音樂')}${vol('volS', '🔊 音效')}</div>`
+      + `<p class="sec">草原畫風（整張地圖又密又會隨風起伏的草；手機太燙可以先關掉）</p><div class="opts"><button class="icon" data-gt="1" aria-pressed="${meadowOn()}">開啟</button><button class="icon" data-gt="0" aria-pressed="${!meadowOn()}">關閉</button></div>`
       + `<p class="sec">減少動態效果（進化演出不晃動、不快轉，閃光較柔和）</p><div class="opts"><button class="icon" data-rm="auto" aria-pressed="${S.reduceMotion == null}">跟系統設定</button><button class="icon" data-rm="on" aria-pressed="${S.reduceMotion === true}">開啟</button><button class="icon" data-rm="off" aria-pressed="${S.reduceMotion === false}">關閉</button></div>`
       + `<p class="sec">畫風</p><div class="opts"><button class="icon" data-art="ghibli" aria-pressed="${S.art !== 'plain'}">吉卜力水彩（試作）</button><button class="icon" data-art="plain" aria-pressed="${S.art === 'plain'}">原本的畫風</button></div>`
       + musicHTML() + `<p class="sec">晝夜</p><div class="opts"><button class="icon" data-day="hourly" aria-pressed="${S.dayMode==='hourly'}">每小時切換早晚</button><button class="icon" data-day="real" aria-pressed="${S.dayMode==='real'}">跟現實時間同步</button></div>`
@@ -4646,7 +4683,10 @@ function musicHTML(){
     + `<span>鼓</span>${sel('drums', [['auto', '自動'], ['none', '不要鼓'], ['rock', '搖滾鼓'], ['swing', '爵士鼓'], ['bossa', '巴薩諾瓦'], ['folk', '民謠輕鼓']])}`
     + `</div><div class="opts"><button class="btn ghost" data-musreset>全部改回自動</button></div>`;
 }
+sheetBody.addEventListener('input', e => { const k = e.target.dataset && e.target.dataset.vol; if (!k) return;   // the volume sliders
+  setVol(k, +e.target.value/100); const o = e.target.parentNode.querySelector('output'); if (o) o.textContent = e.target.value; });
 sheetBody.addEventListener('change', e => {
+  if (e.target.dataset && e.target.dataset.vol){ save(); return; }
   const k = e.target.dataset && e.target.dataset.mus; if (!k) return;
   S.music = {...(S.music || {}), [k]:e.target.value}; save();
   if (SND.ctx && SND.on){ if (k === 'song'){ SND.step = 0; } SND.songId = null; loadSong(wantedSong()); } else toast('打開右上角的「音樂」就能聽到。');
@@ -5279,10 +5319,14 @@ if (EVOTEST) (async () => {
     <div><select id="edForm"><option value="normal">幼年期Ⅱ 幼兒袋熊</option>${EV.FORM_IDS.map(id => `<option value="${id}">${EV.STAGE27[FORMS[id].stage]} ${FORMS[id].name}</option>`).join('')}</select><button id="edSet">指定型態</button></div>
     <div><select id="edEdge"></select><button id="edGo">走這條路線進化</button></div>
     <div>速度 <button data-sp="1">1x</button><button data-sp="10">10x</button><button data-sp="60">60x</button> <button id="edNear">階段時間快到</button></div>
+    <div>🎬 試播 <select id="edTo">${EV.FORM_IDS.map(id => `<option value="${id}">${EV.STAGE27[FORMS[id].stage]} ${FORMS[id].name}</option>`).join('')}</select><select id="edTrack"><option value="">音樂：自動</option><option value="A">A 漸強爆發</option><option value="B">B 熱血高潮</option></select><button id="edPlay">播放 15 秒進化</button></div>
     <div>技能 <button id="edSkill">使用</button><button id="edCd">重置冷卻</button> 演出 <button id="edSkip">進化並立刻跳過</button></div>
     <div><button id="edAll">全部自動測試</button><button id="edWalk">69 條路線逐條實跑</button><button id="edMig">存檔遷移測試</button><button id="edReset">還原</button></div>
     <pre>選一個型態，或按「全部自動測試」。</pre>`;
   renderEdges();
+  P.querySelector('#edPlay').onclick = () => { const to = P.querySelector('#edTo').value, e = EV.edgesTo(to)[0]; if (!e || EVO_FX.active) return;
+    setForm(e.from === 'baby2' ? 'normal' : e.from); evoTrackPick = P.querySelector('#edTrack').value || null; unlockAudio();
+    startEvolution(STAGES[S.stage].next, to); out(`試播：${e.from === 'baby2' ? '幼兒袋熊' : FORMS[e.from].name} → ${FORMS[to].name}（音樂 ${evoTrackPick || trackFor(FORMS[to].stage)}）`); };
   P.querySelector('#edSet').onclick = () => { setForm(P.querySelector('#edForm').value); out(`已指定：${stageLabel()}`); };
   P.querySelector('#edGo').onclick = () => { const e = EV.edgesFrom(from())[+P.querySelector('#edEdge').value]; if (!e) return;
     S.evo.forceM = e.fallback ? T.neutral() : T.satisfy(e); nearEnd(); S.speed = 1; out(`條件：${e.human_condition}\n等牠站好就會進化成 ${FORMS[e.to].name}…`); };
@@ -5533,8 +5577,15 @@ function step(manual){
   if (!skipRender){
     if (evo && evo.seq && EVO_FX.inScene) EVO_FX.render();
     else {
-      if (evo && evo.seq){ const k = EVO_FX.zoomIn(), c = V3(pos.x, petGY + pos.y + 0.7*petS, pos.z), d = camera.position.clone().sub(c).setLength(2.6 + 2.2*petS);   // shot 1: rush in, trembling
-        camera.position.lerp(c.clone().add(d), k*0.9); if (!reducedMotion()){ camera.position.x += (Math.random() - 0.5)*0.05*k; camera.position.y += (Math.random() - 0.5)*0.05*k; } camera.lookAt(c); }
+      if (evo && evo.seq){ const k = EVO_FX.zoomIn();   // shot 1: a slow push in to a close-up of its face (framed from its visible size, measured once)
+        if (!evo.face){ const b = new THREE.Box3(), v = V3(0, 0, 0); root.updateMatrixWorld(true);
+          root.traverse(o => { if (!o.isMesh || !o.geometry || o.material.visible === false || o.userData.kind) return; for (let x = o; x; x = x.parent) if (!x.visible) return;
+            o.geometry.computeBoundingBox(); const g = o.geometry.boundingBox; for (const c of [[g.min.x, g.min.y, g.min.z], [g.max.x, g.max.y, g.max.z]]) b.expandByPoint(v.set(...c).applyMatrix4(o.matrixWorld)); });
+          const fwd = root.getWorldDirection(V3(0, 0, 0)).setY(0); if (fwd.lengthSq() < 1e-4) fwd.set(0, 0, 1); fwd.normalize();   // (the model faces its +Z)
+          const sz = b.getSize(V3(0, 0, 0)), c = b.getCenter(V3(0, 0, 0)), reach = Math.abs(fwd.x)*sz.x/2 + Math.abs(fwd.z)*sz.z/2;
+          evo.face = {at:c.clone().addScaledVector(fwd, reach*0.7).setY(b.min.y + sz.y*0.55), fwd, h:Math.max(0.4, sz.y)}; }
+        const F = evo.face, side = V3(F.fwd.z, 0, -F.fwd.x), want = F.at.clone().addScaledVector(F.fwd, F.h*(2.3 - 0.7*k)).addScaledVector(side, F.h*0.35).add(V3(0, F.h*0.12, 0));
+        camera.position.lerp(want, Math.min(1, k*1.2)); if (!reducedMotion()){ camera.position.y += Math.sin(EVO_FX.t*9)*0.004*F.h*k; } camera.lookAt(F.at); }
       if (art.on) art.render(); else renderer.render(scene, camera); } }
   if (!manual) requestAnimationFrame(step);
 }
