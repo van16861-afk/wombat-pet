@@ -11,6 +11,9 @@ const rnd = (a, b) => a + Math.random()*(b - a);
 const wrapA = a => { while (a > Math.PI) a -= 2*Math.PI; while (a < -Math.PI) a += 2*Math.PI; return a; };
 const plotC = k => k.split(',').map(Number).map(v => v*PLOT);
 
+// the realistic koala's cling clip hugs a level branch, belly to the sky; this turns it to hug an upright trunk (spine up, belly forward)
+const KOALA_CLING = new THREE.Quaternion(0.343, 0.607, 0.596, 0.398).normalize(), Y_UP = new THREE.Vector3(0, 1, 0);
+const KOALA_MID = new THREE.Vector3(-0.07, 0.3, 0.01), KOALA_PIV = KOALA_MID.clone().sub(KOALA_MID.clone().applyQuaternion(KOALA_CLING));   // (turned about its middle, not its far-off root)
 export const SPECIES = {fox:'紅狐狸', donkey:'驢子', crane:'丹頂鶴', monkey:'台灣獼猴', horse:'馬', tiger:'老虎', hippo:'河馬', capybara:'水豚', tortoise:'陸龜', snake:'蛇', peacock:'孔雀', deer:'梅花鹿', wolf:'狼', moose:'駝鹿', frog:'青蛙', dragonfly:'蜻蜓', turtle:'烏龜', croc:'鱷魚', heron:'蒼鷺', beaver:'河狸', kangaroo:'袋鼠', quokka:'短尾矮袋鼠（微笑袋鼠）', emu:'鴯鶓', koala:'無尾熊'};
 
 export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod}){
@@ -771,7 +774,10 @@ export function createFauna({scene, world, mat, hbMat, onSound, clone, real, lod
         case 'koala': {
           if (isReal(a)){   // the realistic koala hugs the outside of the trunk (its own clinging clip), belly to the bark
             if (a.perch){ const T = trunkOf ? trunkOf(a.perch) : null, ang = a.perch.ry || 0, h = 1.25*a.perch.s, ax = T ? T.axis(h) : a.perch, r = (T ? T.r(h) : 0.3*a.perch.s) + 0.24*a.g.scale.x;
-              p.set(ax.x + Math.sin(ang)*r, gy(a.perch.x, a.perch.z) + h, ax.z + Math.cos(ang)*r); a.g.rotation.y = ang + Math.PI; }
+              p.set(ax.x + Math.sin(ang)*r, gy(a.perch.x, a.perch.z) + h, ax.z + Math.cos(ang)*r);
+              a.g.rotation.set(0, ang + Math.PI, 0); a.g.quaternion.multiply(KOALA_CLING);
+              p.add(KOALA_PIV.clone().multiplyScalar(a.g.scale.x).applyAxisAngle(Y_UP, ang + Math.PI)); }   // (the clip clings lying along a branch, belly up: stood upright, belly and arms to the bark)
+            else a.g.rotation.set(0, a.g.rotation.y, 0);
             if (a.timer <= 0){ a.timer = rnd(6, 12); if (Math.random() < 0.5) o.onZzz && o.onZzz(p.clone().add(V3(0, 0.9, 0))); }
             a.pose = 'idle'; break; }
           const kh = a.g.userData.head; if (kh && Math.sin(a.t*0.5) > 0.6) kh.rotation.x = 0.25 + Math.sin(a.t*8)*0.06; else if (kh) kh.rotation.x *= 0.9;   // munching eucalyptus leaves

@@ -40,11 +40,11 @@ const skyMat = new THREE.ShaderMaterial({
 // --- the painting pass ---
 const PaintShader = {
   defines:{R:3},
-  uniforms:{tDiffuse:{value:null}, tDepth:{value:null}, uRes:{value:new THREE.Vector2(1, 1)}, uAmt:{value:0.8}, uNight:{value:0}, uTime:{value:0}, uCover:{value:0.5},
+  uniforms:{tDiffuse:{value:null}, tDepth:{value:null}, uRes:{value:new THREE.Vector2(1, 1)}, uAmt:{value:0.8}, uHaze:{value:new THREE.Color('#cfe7ef')}, uNight:{value:0}, uTime:{value:0}, uCover:{value:0.5},
     uInvProj:{value:new THREE.Matrix4()}, uCamWorld:{value:new THREE.Matrix4()}},
   vertexShader:`varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position, 1.0); }`,
   fragmentShader:NOISE + `
-    uniform sampler2D tDiffuse, tDepth; uniform vec2 uRes; uniform float uAmt, uNight, uTime, uCover; uniform mat4 uInvProj, uCamWorld; varying vec2 vUv;
+    uniform sampler2D tDiffuse, tDepth; uniform vec2 uRes; uniform vec3 uHaze; uniform float uAmt, uNight, uTime, uCover; uniform mat4 uInvProj, uCamWorld; varying vec2 vUv;
     vec3 tx(vec2 o){ return texture2D(tDiffuse, vUv + o/uRes).rgb; }
     void main(){
       vec3 src = tx(vec2(0));
@@ -61,26 +61,27 @@ const PaintShader = {
       vec3 c = clamp(mix(src, paint, uAmt), 0.0, 1.0);
       // faint ink edges where the brightness changes sharply
       float l0 = dot(tx(vec2(-1, 0)), vec3(0.33)) - dot(tx(vec2(1, 0)), vec3(0.33)), l1 = dot(tx(vec2(0, -1)), vec3(0.33)) - dot(tx(vec2(0, 1)), vec3(0.33));
-      c *= 1.0 - smoothstep(0.1, 0.4, length(vec2(l0, l1)))*0.12;
+      c *= 1.0 - smoothstep(0.15, 0.5, length(vec2(l0, l1)))*0.05;   // (only the strongest: lines all over the grass read as grime)
       // soft cloud shadows drifting across the land (world position rebuilt from the depth buffer)
       float z = texture2D(tDepth, vUv).x;
       if (z < 0.9999){ vec4 vp = uInvProj*vec4(vUv*2.0 - 1.0, z*2.0 - 1.0, 1.0); vp /= vp.w; vec3 wp = (uCamWorld*vp).xyz;
         float cs = smoothstep(0.5 - uCover*0.25, 0.68 - uCover*0.25, fbm(wp.xz*0.03 + vec2(uTime*0.05, uTime*0.02)));
-        c *= mix(vec3(1.0), vec3(0.8, 0.86, 0.98), cs*(1.0 - uNight)); }
+        c *= mix(vec3(1.0), vec3(0.86, 0.9, 1.0), cs*(1.0 - uNight));
+        // air between here and the far hills: distant things fade softly into the sky's horizon colour, like a painted backdrop
+        float far = 1.0 - exp(-max(length(vp.xyz) - 26.0, 0.0)*0.016); c = mix(c, uHaze, far*0.5); }
       // grading: cool blue-green shade, warm sunny highlights, richer colour
       float lum = dot(c, vec3(0.299, 0.587, 0.114));
       c = mix(c, c*vec3(0.84, 0.95, 1.12), (1.0 - smoothstep(0.05, 0.6, lum))*0.55*(1.0 - uNight*0.5));
       c += vec3(0.05, 0.03, -0.015)*smoothstep(0.45, 1.0, lum)*(1.0 - uNight);
-      c = pow(c, vec3(1.12));                                   // deeper mid-tones (the game's own colours are pale)
-      c = mix(c, c*c*(3.0 - 2.0*c), 0.3);                         // gentle S-curve for painted contrast
-      float g = max(c.g - max(c.r, c.b), 0.0); c.r += g*0.18; c.b += g*0.12; c.g -= g*0.12;   // tame neon greens toward soft sap/olive greens
-      lum = dot(c, vec3(0.299, 0.587, 0.114)); c = clamp(mix(vec3(lum), c, 1.32), 0.0, 1.0);
+      c = mix(c, c*c*(3.0 - 2.0*c), 0.25);                        // a little painted contrast
+      c = mix(vec3(0.035, 0.06, 0.09)*(1.0 - uNight*0.7), vec3(1.0), c);   // no black: shade stays a clear, cool colour (as in a painted background)
+      float g = max(c.g - max(c.r, c.b), 0.0); c.r += g*0.05; c.b += g*0.06; c.g -= g*0.03;   // tame neon greens toward soft sap/olive greens
+      lum = dot(c, vec3(0.299, 0.587, 0.114)); c = clamp(mix(vec3(lum), c, 1.3), 0.0, 1.0);
       // watercolour paper: low-frequency blotches plus fine grain
       vec2 px = vUv*uRes;
-      float bl = fbm(px/160.0);
-      c *= 0.985 + 0.03*bl + 0.008*(h21(px) - 0.5);   // only a faint paper feel (stronger grain and pooling read as dirt)
+      c *= 0.996 + 0.004*(h21(px) - 0.5);   // the barest paper feel (grain and blotches read as dirt)
       // soft vignette
-      vec2 q = vUv - 0.5; c *= 1.0 - dot(q, q)*0.35;
+      vec2 q = vUv - 0.5; c *= 1.0 - dot(q, q)*0.22;
       gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
     }`,
 };
@@ -125,7 +126,7 @@ export function createGhibli({renderer, scene, camera, mobile}){
       U.uCover.value = 0.52 + grey*0.35; U.uNight.value = night;
       if (sunDir) U.uSun.value.copy(sunDir);
       sky.position.copy(camera.position);
-      if (paint){ paint.uniforms.uNight.value = night; paint.uniforms.uTime.value = U.uTime.value; paint.uniforms.uCover.value = 0.4 + grey*0.6; }
+      if (paint){ paint.uniforms.uHaze.value.copy(hor); paint.uniforms.uNight.value = night; paint.uniforms.uTime.value = U.uTime.value; paint.uniforms.uCover.value = 0.4 + grey*0.6; }
       return hor;
     },
     render(){ composer.render(); }, get composer(){ return composer; }, get paint(){ return paint; },

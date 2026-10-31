@@ -6,6 +6,7 @@ import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import { cloud } from './cloud.js';
 import { createGhibli } from './ghibli.js';
 import { createEvolution } from './evolution.js';
+import { createHoliday } from './holiday.js';
 import { createFauna, SPECIES } from './fauna.js';
 import { createWildlife, WILD_NAMES } from './wildlife.js';
 import { createWorld, newWorld, HALF, PLOT, WATER_Y, X0, X1, Z0, Z1, BIO, plotKey, PLOT_KEYS, SEE, seeThrough, leafMaterial, swaying, CANOPY_BLOBS, leafyCanopy, canopyTex, vines, fieldStone } from './world.js';
@@ -26,7 +27,7 @@ renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
 
 const mobile = matchMedia('(pointer:coarse)').matches;
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, mobile ? 1.75 : 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, mobile ? 1.4 : 2));   // (phones: the painting filter runs on every pixel; 1.4 still looks sharp)
 renderer.setClearColor(0x000000, 0);
 
 // ---------- helpers ----------
@@ -768,11 +769,23 @@ const BUILDS = [
   {id:'slide',     name:'溜滑梯',   price:80, desc:'公園裡的那種溜滑梯。', holiday:'children', spot:190, size:[2,4]},
   {id:'dragonboat',name:'小龍舟',   price:80, desc:'放在院子外的迷你龍舟。', holiday:'dragon', spot:220, size:[2,5]},
   {id:'moonlamp',  name:'月亮燈',   price:70, desc:'晚上會發光的大月亮。', holiday:'midautumn', spot:250, size:[2,2]},
-  {id:'pumpkins',  name:'南瓜燈',   price:70, desc:'三顆會發光的南瓜。', holiday:'halloween', spot:280, size:[3,2]},
-  {id:'xmastree',  name:'聖誕樹',   price:90, desc:'掛滿彩球，頂端有顆星星。', holiday:'christmas', spot:310, size:[2,2]}
+  {id:'pumpkins',  name:'南瓜燈',   price:70, desc:'稻草堆上三顆刻了鬼臉的南瓜，裡面點著蠟燭，晚上鬼臉會一閃一閃地亮。', holiday:'halloween', spot:280, size:[3,2]},
+  {id:'xmastree',  name:'聖誕樹',   price:90, desc:'掛滿彩球，頂端有顆星星。', holiday:'christmas', spot:310, size:[2,2]},
+  {id:'clocktower', name:'新年鐘塔', price:90, desc:'指針慢慢走向午夜的小鐘塔，晚上鐘面會亮。', holiday:'newyear', spot:115, size:[2,2]},
+  {id:'cnygate',   name:'春聯牌坊', price:90, desc:'貼著春聯和福字的紅色牌坊，兩旁掛著燈籠。', holiday:'cny', spot:145, size:[4,1]},
+  {id:'rosebed',   name:'玫瑰花台', price:80, desc:'種滿紅色和粉紅色玫瑰的花台。', holiday:'valentine', spot:175, size:[3,2]},
+  {id:'seesaw',    name:'蹺蹺板',   price:70, desc:'公園裡的蹺蹺板，會自己上上下下。', holiday:'children', spot:205, size:[4,1]},
+  {id:'dragondrum',name:'龍舟鼓',   price:80, desc:'划龍舟時打節奏的大紅鼓。', holiday:'dragon', spot:235, size:[2,2]},
+  {id:'rabbitlamp',name:'玉兔燈',   price:80, desc:'白白胖胖的兔子燈，晚上會亮。', holiday:'midautumn', spot:265, size:[2,2]},
+  {id:'pumpkincart',name:'南瓜馬車', price:120, desc:'大南瓜做的馬車，晚上窗戶會亮。', holiday:'halloween', spot:295, size:[3,4]},
+  {id:'sleigh',    name:'聖誕雪橇', price:110, desc:'紅色雪橇上堆滿了禮物。', holiday:'christmas', spot:325, size:[2,3]}
 ];
 BUILDS.forEach(b => { if (b.size) b.r = Math.max(0.5, Math.hypot(b.size[0], b.size[1])/2*0.72); });   // radius the wombat steers around
-const BG = {}, nightGlow = [], trees = [], fences = [];   // (fences: the pieces bought one at a time)
+const BG = {}, nightGlow = [], trees = [], fences = [];
+// holiday dressing in 3D (js/holiday.js); bats squeak now and then (short falling chirps, quiet unless close)
+const HD = createHoliday({scene, gy:(x, z) => gy(x, z), onChirp:p => { const c = SND.ctx; if (!c || !SND.fx) return;
+  const v = clamp(1 - Math.hypot(p.x - camTarget.x, p.z - camTarget.z)/(14*Math.max(0.8, zoom)), 0, 1); if (v < 0.05) return;
+  const now = c.currentTime; for (let i=0;i<1 + Math.floor(Math.random()*3);i++){ const o = tone('sine', rnd(6200, 7800), now + i*0.07, 0.05*v, 0.035, SND.sfx); o.frequency.exponentialRampToValueAtTime(3800, now + i*0.07 + 0.035); } }});   // (fences: the pieces bought one at a time)
 function faceCenter(g, p){ g.position.copy(p); g.rotation.y = Math.atan2(-p.x, -p.z); }
 function glowMat(color, emissive){ const m = new THREE.MeshStandardMaterial({color, emissive, emissiveIntensity:0, roughness:0.5}); nightGlow.push(m); return m; }
 function signTexture(name){
@@ -782,7 +795,8 @@ function signTexture(name){
 function build(id){
   if (BG[id]) return;
   const g = new THREE.Group(), wood = mat('#9a7350',0.9);
-  if (id === 'house'){
+  if (HD.build(id, g, {glowMat, mat})){ const b = bdef(id); if (b && b.spot) faceCenter(g, ringSpot(b.spot)); }   // (holiday pieces: js/holiday.js)
+  else if (id === 'house'){
     let dome;
     const pr = propClone('house');
     if (pr){ g.add(pr); swapMat(pr, 'Glass', glowMat('#ffe6a3', '#ffcf5a')); dome = pr.getObjectByProperty('isMesh', true); dome.userData.kind = 'house'; }
@@ -1204,13 +1218,11 @@ function nextHoliday(){ for (let i=1;i<=400;i++){ const d = new Date(Date.now() 
 let decoId = null, decoT = 0; const decoObjs = [];
 function setupDeco(h){
   decoObjs.forEach(o => scene.remove(o)); decoObjs.length = 0; decoId = h ? h.id : null;
-  if (!h) return;
+  if (!h){ HD.setDeco(null, []); return; }
   const ring = (emoji, n, y, size) => { for (let i=0;i<n;i++){ const a = i/n*Math.PI*2 + 0.2, s = new THREE.Sprite(new THREE.SpriteMaterial({map:emojiTex(emoji), transparent:true, depthWrite:false}));
     const yy = y + gy(Math.sin(a)*6.6, Math.cos(a)*6.6); s.position.set(Math.sin(a)*6.6, yy, Math.cos(a)*6.6); s.scale.setScalar(size); s.userData.y = yy; s.userData.ph = i; scene.add(s); decoObjs.push(s); } };
-  if (h.deco === 'pumpkins') ring('🎃', 10, 0.42, 0.9);
-  if (h.deco === 'gifts') ring('🎁', 10, 0.4, 0.8);
-  if (h.deco === 'lanterns') ring('🏮', 8, 2.6, 0.9);
-  if (h.deco === 'leaves') ring('🌿', 10, 0.35, 0.7);
+  const spots = n => Array.from({length:n}, (_, i) => { const a = i/n*Math.PI*2 + 0.2; return V3(Math.sin(a)*6.6, 0, Math.cos(a)*6.6); }).filter(p => groundOK(p.x, p.z));
+  HD.setDeco(h.deco, spots(h.deco === 'lanterns' ? 8 : 10));
   if (h.deco === 'moon'){ const s = new THREE.Sprite(new THREE.SpriteMaterial({map:radialTex('rgba(255,244,200,1)','rgba(255,236,170,0)'), transparent:true, depthWrite:false}));
     s.position.set(-9, 10, -16); s.scale.setScalar(9); s.userData.y = 10; scene.add(s); decoObjs.push(s);
     const core = new THREE.Sprite(new THREE.SpriteMaterial({map:radialTex('rgba(255,248,215,1)','rgba(255,248,215,0.9)'), transparent:true, depthWrite:false}));
@@ -1224,6 +1236,7 @@ function fireworkBurst(at){
   sfx('firework');
 }
 function updateDeco(dt, t){
+  HD.update(dt, t, {night:nightF});
   const h = activeHoliday();
   if ((h ? h.id : null) !== decoId) setupDeco(h);
   decoObjs.forEach(s => { if (s.userData.ph !== undefined) s.position.y = s.userData.y + Math.sin(t*1.5 + s.userData.ph)*0.08; });
@@ -1231,11 +1244,11 @@ function updateDeco(dt, t){
     decoT -= dt;
     const at = () => V3(camTarget.x + rnd(-6,6), 0.3, camTarget.z + rnd(-6,6));
     if (decoT <= 0) switch (h.deco){
-      case 'hearts':   decoT = 0.6; floatSprite(emojiTex('💗'), at(), {size:0.5, vy:0.8, max:5, grow:0}); break;
-      case 'balloons': decoT = 0.9; floatSprite(emojiTex(['🎈','🎈','🎈','🪁'][Math.floor(Math.random()*4)]), at(), {size:0.8, vy:1.0, vx:rnd(-0.2,0.2), max:7, grow:0}); break;
-      case 'lanterns': decoT = 1.4; floatSprite(emojiTex('🏮'), at(), {size:0.6, vy:0.6, max:8, grow:0}); break;
-      case 'leaves':   decoT = 0.8; { const p = at(); p.y = 5; floatSprite(emojiTex('🍃'), p, {size:0.45, vy:-0.7, vx:rnd(-0.5,0.5), max:7, grow:0}); } break;
-      case 'pumpkins': decoT = 2.5; { const p = at(); p.y = rnd(2,4); floatSprite(emojiTex('🦇'), p, {size:0.6, vy:rnd(-0.2,0.4), vx:rnd(-2,2), vz:rnd(-2,2), max:4, grow:0}); } break;
+      case 'hearts':   decoT = 0.9; { const p = at(); p.y = gy(p.x, p.z) + 0.3; HD.drift('heart', p); } break;
+      case 'balloons': decoT = 1.4; { const p = at(); p.y = gy(p.x, p.z) + 0.6; HD.drift('balloon', p); } break;
+      case 'lanterns': decoT = nightF > 0.4 ? 1.6 : 4; { const p = at(); p.y = gy(p.x, p.z) + 0.5; HD.drift('skylantern', p); } break;
+      case 'leaves':   decoT = 0.8; { const p = at(); p.y = gy(p.x, p.z) + 5; HD.drift('leaf', p); } break;
+      case 'pumpkins': decoT = 99; break;   // (the bats fly all day)
       case 'fireworks': decoT = rnd(1.2,2.4); fireworkBurst(V3(camTarget.x + rnd(-7,7), rnd(6,9), camTarget.z + rnd(-9,-3))); break;
       case 'gifts': case 'moon': decoT = 99; break;
     }
@@ -1917,9 +1930,11 @@ function makeTree(d, preview){
       h.position.set(0.5, 1.3, 0.4); }
     h.userData.y0 = h.position.y; g.add(h); g.userData.hive = h;
   }
+  const bb = new THREE.Box3().setFromObject(g);   // (still unplaced: the tree's own size, for its tap area)
   g.position.set(d.x, gy(d.x, d.z) - 0.05, d.z); g.rotation.y = d.ry || 0; g.scale.setScalar(d.s); scene.add(g);
   if (preview) return {d, g};   // (a sapling being placed: not a tree yet)
-  const hb = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 2.6, 8), hbMat); hb.position.y = 1.3; hb.userData.kind = 'tree'; g.add(hb);
+  const top = bb.isEmpty() ? 2.6 : Math.max(2.6, bb.max.y), rad = bb.isEmpty() ? 0.8 : clamp(Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z)*0.45, 0.8, 2.2);
+  const hb = new THREE.Mesh(new THREE.CylinderGeometry(rad, 0.8, top, 10), hbMat); hb.position.y = top/2; hb.userData.kind = 'tree'; g.add(hb);   // the whole tree, crown and all (and the nest hanging in it)
   const fade = []; g.traverse(o => { if (o.isMesh && o !== hb && !o.userData.noFade) { o.material = seeThrough(o.material.clone()); o.material.transparent = true; fade.push(o.material); } });
   const tr = {d, g, hb, fade, alpha:1, shake:0, sh:makeShadow(2.6*d.s, 2.6*d.s)}; tr.sh.g.position.set(d.x, gy(d.x, d.z), d.z); hb.userData.ref = tr; trees.push(tr); NAV.dirty = true; return tr;
 }
@@ -2156,6 +2171,15 @@ function moveBridge(b){
   bridgeMenu(V3(world.riverX(oldZ), 0, oldZ), {moving:oldZ});
 }
 // Tapping the river starts placing a bridge: a see-through preview follows your finger along the river; 確定 builds it there.
+// a new bridge is bought in the shop (建築): its ghost starts on the open stretch of river nearest the view, then slides along it
+function buyBridge(){
+  if (S.coins < BRIDGE_PRICE){ toast(`蓋橋要 ${BRIDGE_PRICE} 代幣。`); return; }
+  const z0 = camTarget.z; let best = null;
+  for (let d = 0; d < 80 && !best; d += 0.5) for (const z of [z0 + d, z0 - d]){ const x = world.riverX(z); if (world.inWorld(x, z) && world.isOpen(x, z) && !world.bridgeWhy(z)){ best = V3(x, 0, z); break; } }
+  if (!best) for (let d = 0; d < 80 && !best; d += 0.5) for (const z of [z0 + d, z0 - d]){ const x = world.riverX(z); if (world.inWorld(x, z) && world.isOpen(x, z)){ best = V3(x, 0, z); break; } }
+  if (!best){ toast('開拓過的地上沒有河，先開拓有河經過的土地。'); return; }
+  bridgeMenu(best);
+}
 function bridgeMenu(p, opt = {}){
   if (!p || placing) return;
   if (!world.isOpen(p.x, p.z)){ plotMenu(plotKey(p.x, p.z)); return; }
@@ -2352,8 +2376,9 @@ function navLight(color, size){ const s = new THREE.Sprite(new THREE.SpriteMater
   s.scale.setScalar(size); s.userData.night = true; return s; }
 function makeCanoe(){
   const g = realClone('fishboat'); if (!g) return null;
-  { g.updateMatrixWorld(true); const b = new THREE.Box3().setFromObject(g, true), lp = new THREE.Group();   // the lantern on a short pole at the stern
-    lp.position.set((b.min.x + b.max.x)/2 - g.position.x, b.max.y - g.position.y - 0.15, b.min.z - g.position.z + 0.25);
+  { g.updateMatrixWorld(true); let hull = null; g.traverse(o => { if (o.isMesh && o.name === 'boat') hull = o; });
+    const b = new THREE.Box3().setFromObject(hull || g, true), lp = new THREE.Group();   // the lantern on a short pole at the stern (the hull's box: not the rod's or the oars')
+    lp.position.set((b.min.x + b.max.x)/2 - g.position.x, b.max.y - g.position.y - 0.12, b.min.z - g.position.z + 0.45);
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.5, 5), mat('#4a3a2a', 0.8)); pole.position.y = 0.25; lp.add(pole);
     const glass = glowMat('#ffd890', '#ffb347'); boatGlows.push(glass); nightGlow.splice(nightGlow.indexOf(glass), 1);
     const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.12, 8), glass); lamp.position.y = 0.52; lp.add(lamp);
@@ -2393,15 +2418,24 @@ function updateFlock(dt){
     const a = rnd(0, 6.28), dir = V3(Math.sin(a), 0, Math.cos(a)), mid = V3(camTarget.x + rnd(-15, 15), 0, camTarget.z + rnd(-15, 15)), side = V3(dir.z, 0, -dir.x);
     flock.birds = []; flock.t = 0; flock.dir = dir; flock.start = mid.clone().addScaledVector(dir, -70); flock.h = rnd(4.2, 5.8);   // (the camera looks down from about 11 up: lower than that or they fly out of sight)
     for (let i=0, n = 5 + Math.floor(Math.random()*4); i<n; i++){ const g = realClone('flamingo'); if (!g) break; const row = Math.ceil(i/2), sgn = i % 2 ? 1 : -1;
-      g.scale.setScalar(rnd(0.9, 1.1)); scene.add(g); flock.birds.push({g, off:side.clone().multiplyScalar(sgn*row*2.4).addScaledVector(dir, -row*2.2).add(V3(0, rnd(-0.6, 0.6), 0)), ph:rnd(0, 3), glide:0}); }
+      g.scale.setScalar(rnd(0.9, 1.1)); scene.add(g);
+      const hb = new THREE.Mesh(new THREE.SphereGeometry(1.3, 8, 6), hbMat); hb.position.y = 0.6; hb.userData.kind = 'flamingo'; g.add(hb);   // (a generous tap area: they fly by fast)
+      flock.birds.push({g, hb, off:side.clone().multiplyScalar(sgn*row*2.4).addScaledVector(dir, -row*2.2).add(V3(0, rnd(-0.6, 0.6), 0)), ph:rnd(0, 3), glide:0}); }
     sfx('flamingo', mid); return; }
   flock.t += dt; const along = flock.t*7.5, base = flock.start.clone().addScaledVector(flock.dir, along);
   for (const b of flock.birds){ const p = base.clone().add(b.off); b.g.position.set(p.x, flock.h + b.off.y + Math.sin(flock.t*0.8 + b.ph)*0.4, p.z); b.g.rotation.y = Math.atan2(flock.dir.x, flock.dir.z);
     b.glide -= dt; if (b.glide < -rnd(3, 6)) b.glide = rnd(1.5, 3);   // flap a while, then glide a while
-    playRig(b.g.userData, b.glide > 0 ? 'glide' : 'fly', 1); b.g.userData.mixer.update(dt); }
+    if (b.flap > 0){ b.flap -= dt; b.glide = -1; b.g.position.y += Math.sin(Math.min(1, b.flap)*Math.PI)*0.5; }   // (tapped: a burst of wingbeats, a little climb)
+    playRig(b.g.userData, b.glide > 0 ? 'glide' : 'fly', b.flap > 0 ? 1.6 : 1); b.g.userData.mixer.update(dt); }
   if (Math.random() < dt*0.08) sfx('flamingo', base);
   if (along > 140){ flock.birds.forEach(b => scene.remove(b.g)); flock.birds = null; flock.wait = rnd(150, 400); }
 }
+function pokeFlamingo(b){
+  if (!b) return; b.flap = 1.2; sfx('flamingo', b.g.position); const first = !stat('meet:flamingo'); track('meet:flamingo');
+  floatSprite(emojiTex('🦩'), b.g.position.clone().add(V3(0, 1.2, 0)), {size:0.7, vy:0.6, max:1.4});
+  toast(first ? '遇見了紅鶴！牠們成群飛過，邊飛邊叫。' : '紅鶴嘎嘎地叫了幾聲，用力拍了拍翅膀。');
+}
+const flockPick = () => flock.birds ? flock.birds.map(b => b.hb) : [];
 function updateBoats(dt, t){
   updateFlock(dt);
   const sea = z => world.shoreX(z), cz = (Z0 + Z1)/2;
@@ -3250,8 +3284,10 @@ function sim(m, offline){
   const st = S.st, k = offline ? 0.25 : 1, w = weatherNow();
   if (lastHappy != null && st.happy > lastHappy) st.happy = lastHappy + (st.happy - lastHappy)*HAPPY_GAIN;   // every boost to mood counts a bit less, so it builds up slowly
   const fBaby = S.stage === 'baby' ? 1.25 : 1, fOld = S.stage === 'ultimate' ? 1.15 : 1, dirty = cleanVal() < 40;
-  st.hunger -= 0.7*m*k*fBaby*fOld*(S.form === 'chubby' ? 1.15 : 1);
-  st.thirst -= 0.9*m*k*(w==='rain'||w==='storm' ? 0.6 : 1)*fOld;
+  // asleep (and while you're away it naps in its burrow most of the time) it gets hungry and thirsty far more slowly
+  const kb = offline ? 0.45 : asleep() ? 0.4 : 1;
+  st.hunger -= 0.5*m*k*kb*fBaby*fOld*(S.form === 'chubby' ? 1.15 : 1);
+  st.thirst -= 0.65*m*k*kb*(w==='rain'||w==='storm' ? 0.6 : 1)*fOld;
   st.happy  -= (0.45 + (dirty?0.3:0) + (badWeather()?0.1:0))*m*k*(BG.flowers ? 0.7 : 1)*(BG.fountain ? 0.85 : 1);
   if (BG.fruittree){ S.fruitT = (S.fruitT ?? 120) - m; if (S.fruitT <= 0){ S.fruitT = 120; S.food = S.food || {}; if (!S.food.apple){ S.food.apple = true; if (!offline) toast('果樹結果了！以後蘋果隨時都能免費給牠吃。'); } else { S.coins += 3; if (!offline) toast('果樹結的蘋果賣了 3 代幣。'); } } }
   S.aff = clamp(S.aff - (0.05 + (st.hunger < 25 || dirty ? 0.04 : 0))*m*k, 0, 100);   // affection fades slowly unless you keep caring
@@ -3269,7 +3305,7 @@ function sim(m, offline){
   if (dh === 0 && st.hunger > 40 && st.thirst > 40) dh = 0.5;
   st.health += dh*m*(offline ? 0.3 : 1);
   for (const key in st) st[key] = clamp(st[key], 0, 100);
-  if (offline) st.health = Math.max(st.health, 5);
+  if (offline){ st.health = Math.max(st.health, 40); st.hunger = Math.max(st.hunger, 20); st.thirst = Math.max(st.thirst, 20); st.happy = Math.max(st.happy, 25); }   // away at work or school: it waits for you hungry, never sick
   const c = S.care;
   if (st.hunger < 25) c.hungry += m; if (st.thirst < 25) c.thirsty += m; if (dirty) c.dirty += m; if (st.health < 35) c.sick += m;
   if (growthOK()) S.growth += 0.08*m;
@@ -4118,7 +4154,7 @@ const TRICK_ICON = {sit:'🐾', flip:'🤸', roll:'🌀', spin:'⭐', belly:'�
 const TRICK_DESC = {dig:'用前腳拚命挖土，偶爾會挖到代幣！', zoomies:'突然興奮地繞圈暴衝。體力 -6，心情 +10', wave:'坐著舉起前腳跟你揮手。', bow:'低下頭鞠個躬。', hop:'往前跳三下。', stretch:'前腳往前伸，打個大哈欠。', sit:'乖乖坐下，看著你。心情 +6', flip:'原地一個後空翻！體力 -6，心情 +10', roll:'連續側翻滾三圈。體力 -6，心情 +10', spin:'跳起來轉一圈。體力 -6，心情 +10',
   belly:'翻過來露出肚子扭扭。體力 -6，心情 +10', shake:'甩甩全身的毛。體力 -6，心情 +10', dance:'跟著音樂跳舞。體力 -8，心情 +14', ballroll:'縮成一顆球往前滾。體力 -6，心情 +12'};
 const CLOTH_ICON = {party:'🥳', straw:'👒', glasses:'👓', bow:'🎀', scarf:'🧣', sweater:'🧶', nyband:'🎊', caishen:'🧧', heartgl:'😍', propeller:'🚁', sachet:'🎐', bunny:'🐰', witch:'🧙', santa:'🎅'};
-const BUILD_ICON = {cottage:'🏡', bench:'🪑', swing:'🎠', sandbox:'🏖️', well:'🪣', windmill:'🌬️', mailbox:'📮', scarecrow:'🌾', mushroom:'🍄', fruittree:'🍎', fountain:'⛲', house:'🕳️', pond:'🐟', lamp:'💡', flowers:'🌷', fence:'🪵', fireworks:'🎆', lanterns:'🏮', heartarch:'💗', slide:'🎢', dragonboat:'🐉', moonlamp:'🌕', pumpkins:'🎃', xmastree:'🎄'};
+const BUILD_ICON = {cottage:'🏡', bench:'🪑', swing:'🎠', sandbox:'🏖️', well:'🪣', windmill:'🌬️', mailbox:'📮', scarecrow:'🌾', mushroom:'🍄', fruittree:'🍎', fountain:'⛲', house:'🕳️', pond:'🐟', lamp:'💡', flowers:'🌷', fence:'🪵', fireworks:'🎆', lanterns:'🏮', heartarch:'💗', slide:'🎢', dragonboat:'🐉', moonlamp:'🌕', pumpkins:'🎃', clocktower:'🕛', cnygate:'🧧', rosebed:'🌹', seesaw:'🛝', dragondrum:'🥁', rabbitlamp:'🐇', pumpkincart:'🎃', sleigh:'🛷', xmastree:'🎄'};
 let shopTab = 'food', feedTab = 'food', detailQty = 1;
 const tabsHTML = (tabs, cur, attr) => `<div class="tabs" role="tablist">` + tabs.map(([k,l]) => `<button class="tab" role="tab" aria-selected="${k === cur}" data-${attr}="${k}">${l}</button>`).join('') + `</div>`;
 const tileHTML = (e, i) => `<button class="tile${e.dim ? ' dim' : ''}" data-tile="${i}" aria-label="${e.name}"><span class="ti">${e.icon}</span><span class="tn">${e.name}</span>${e.badge ? `<span class="tb">${e.badge}</span>` : ''}</button>`;
@@ -4195,7 +4231,9 @@ function shopEntries(tab){
     body:`<p>${b.desc}</p><p>${b.holiday ? `${HOLIDAYS.find(x=>x.id===b.holiday).name}限定。` : ''}${S.builds[b.id] ? '已經蓋好了。' : `${b.price} 代幣`}</p>`,
     actions: S.builds[b.id] ? (b.size ? [...no, {label:'移動', onClick:() => startPlace(b.id, false)}] : no) : !holLive(b) ? no : [...no, {label: b.size ? '選位置蓋' : '建造', onClick:() => b.size ? startPlace(b.id, true) : buyBuild(b)}]});
   if (tab === 'cloth') return CLOTHES.filter(c => !c.holiday || S.owned[c.id] || holLive(c)).map(clothE);
-  if (tab === 'build') return BUILDS.filter(b => (!b.holiday || S.builds[b.id] || holLive(b)) && (b.id !== 'fence' || S.builds.fence)).map(buildE);
+  if (tab === 'build') return [...BUILDS.filter(b => (!b.holiday || S.builds[b.id] || holLive(b)) && (b.id !== 'fence' || S.builds.fence)).map(buildE),
+    {icon:'🌉', name:'木頭拱橋', badge:`${BRIDGE_PRICE}`, body:`<p>蓋在河上，袋熊就能走到對岸。可以蓋好幾座。</p><p>${BRIDGE_PRICE} 代幣。要移動或拆掉已經蓋好的橋，點一下那座橋。</p>`,
+      actions:[...no, {label:'選位置蓋', onClick:() => buyBridge()}]}];
   if (tab === 'garden') return [...Object.entries(TREE_KINDS).map(([k, K]) => ({icon:K.icon, name:K.name, badge:`${K.price}`, body:`<p>${K.desc}</p><p>${K.price} 代幣。種在開拓過的地上，可以轉方向。</p>`,
       actions:[...no, {label:'選位置種', onClick:() => startPiece('tree', k)}]})),
     ...Object.entries(FENCE_KINDS).map(([k, K]) => ({icon:K.icon, name:K.name, badge:`${K.price}`, body:`<p>${K.desc}</p><p>一段 ${K.price} 代幣。每蓋好一段會接著出現下一段，可以一直蓋下去。點蓋好的圍籬可以拆掉。</p>`,
@@ -4486,7 +4524,7 @@ const GUIDE = [
     html:`<ul><li>世界是 <b>4 × 4 塊領地</b>，每塊 18 × 18 格。一開始只有家那一塊，其他 15 塊長滿樹叢和石頭，上面插著「未開拓」的牌子。</li>
       <li><b>點未開拓的土地</b>就能花代幣整理、打通；要先打通相連的那一塊才能往外擴。每多開一塊，下一塊會貴一點。</li>
       <li>地上的<b>石頭、樹叢、樹</b>點一下都可以花代幣清掉（大石頭比袋熊還大）。樹上的<b>蜂窩</b>也能單獨清除。</li>
-      <li><b>西邊有一條河</b>：看得到水在流、水底的石頭和魚。要過河就<b>點河面蓋橋</b>。把袋熊丟進河裡，牠會自己爬上岸。</li>
+      <li><b>西邊有一條河</b>：看得到水在流、水底的石頭和魚。要過河就到<b>商店 → 建築買木頭拱橋</b>；要移動或拆掉橋，先點那座橋。把袋熊丟進河裡，牠會自己爬上岸。</li>
       <li><b>東邊是沙灘和海</b>：有螃蟹、寄居蟹，點<b>貝殼</b>可以撿（+1 代幣），偶爾會漂來<b>瓶中信</b>，打開可能有代幣。</li>
       <li><b>特別的區域</b>：北邊的<b>荷花池塘</b>（青蛙、蜻蜓、烏龜）、西邊的<b>沼澤</b>（鱷魚、蒼鷺）、河上游的<b>河狸溪</b>（河狸的水壩和小屋）、西南的<b>澳洲草原</b>（袋鼠、微笑袋鼠、鴯鶓、尤加利樹上的無尾熊）、西邊的<b>鹿的森林</b>（梅花鹿會在樹林間奔跑）、西北的<b>狼的高地</b>（高台上有山洞，狼晚上會嚎叫，下雨打雷時會躲進山洞）。點一下動物會有反應，第一次遇見每種動物都有成就。</li>
       <li><b>海邊和天空</b>：海鷗在沙灘上空盤旋、偶爾停在沙灘上；海豚會成群游過、跳出水面翻轉；鯨魚不時浮上來噴水再潛下去；淺海有熱帶魚。白天有老鷹在高空盤旋、會停在樹頂；晚上樹頂有貓頭鷹盯著你看；石頭上常有蜥蜴曬太陽，靠近就溜走。</li>
@@ -4604,11 +4642,13 @@ function pickAt(e){
   if (BG.house) list.push(BG.house.userData.dome);
   Object.values(BG).forEach(g => g.userData.hb && list.push(g.userData.hb));
   trees.forEach(tr => list.push(tr.hb)); fences.forEach(o => list.push(o.hb)); if (tomb && tomb.userData.hb) list.push(tomb.userData.hb);
-  list.push(...world.pick, ...beachPick(), ...fauna.pick, ...wild.pick);
+  list.push(...world.pick, ...beachPick(), ...fauna.pick, ...wild.pick, ...flockPick());
   scene.updateMatrixWorld(true);
   const hits = ray.intersectObjects(list, false).filter(h => isShown(['poop','weed'].includes(h.object.userData.kind) ? h.object.parent : h.object));
   const ani = hits.find(h => h.object.userData.kind === 'animal');   // an insect sitting on a rock or a trunk: the rock's tap area would catch it first
-  return hits.find(h => ['poop', 'weed'].includes(h.object.userData.kind)) || (ani && hits[0].object.userData.kind !== 'pet' && ani.distance - hits[0].distance < 0.8 ? ani : null)
+  const inTree = hits[0] && hits[0].object.userData.kind === 'tree', petH = inTree && hits.find(h => h.object.userData.kind === 'pet');   // (a tree's tap area is the whole crown: a bird perched in it, or the wombat just behind it, comes first)
+  if (petH && petH.distance - hits[0].distance < 4.5) return petH;
+  return hits.find(h => ['poop', 'weed'].includes(h.object.userData.kind)) || (ani && hits[0].object.userData.kind !== 'pet' && ani.distance - hits[0].distance < (inTree ? 4.5 : 0.8) ? ani : null)
     || hits[0] || null;   // (a poop under the river's surface can still be tapped: the water would catch the tap first)
 }
 function updatePointerWorld(e){
@@ -4706,13 +4746,14 @@ function up(e){
     else if (k === 'build') buildMenu(tapObj.userData.ref);
     else if (k === 'rock' || k === 'bush') featMenu(tapObj.userData.ref);
     else if (k === 'locked') plotMenu(tapObj.userData.ref);
-    else if (k === 'river') bridgeMenu(tapPoint);
+    else if (k === 'river') toast('想在河上蓋橋，到「商店 → 建築」買木頭拱橋。');
     else if (k === 'bridge') bridgeObjMenu(tapObj.userData.ref);
     else if (k === 'shell') pickShell(tapObj.userData.ref);
     else if (k === 'bottle') openBottle(tapObj.userData.ref);
     else if (k === 'crab') pokeCrab(tapObj.userData.ref);
     else if (k === 'beachlife') pokeBeachLife(tapObj.userData.ref);
     else if (k === 'animal') pokeAnimal(tapObj.userData.ref);
+    else if (k === 'flamingo') pokeFlamingo(flock.birds && flock.birds.find(b => b.hb === tapObj));
     else if (k === 'food' || k === 'bowl') callToFood(k, tapObj.userData.ref);
     else if (k === 'fish'){ const f = tapObj.userData.ref; if (world.jumpFish(f)){ sfx('splash'); for (let i=0;i<8;i++){ const a = Math.random()*Math.PI*2; floatSprite(radialTex('rgba(225,240,248,1)','rgba(225,240,248,0)'), f.g.position.clone().setY(WATER_Y + 0.1), {size:0.25, vx:Math.cos(a)*1.4, vz:Math.sin(a)*1.4, vy:rnd(2,3), g:9, max:0.7, grow:0}); }
       const first = !stat('meet:fish'); track('meet:fish'); if (first) toast('魚兒跳出水面了！'); } }
@@ -4723,7 +4764,7 @@ function up(e){
     else if (p && petActive() && !asleep() && !act && !['inHouse','enter','exit','eat','drink','evolve'].includes(B.mode)){
       if (groundOK(p.x, p.z) && world.isMud(p.x, p.z) && !whyCantPlay()) startUse('mud', p);   // tap the mud: it goes for a roll
       else if (groundOK(p.x, p.z)){ B.target.copy(p).setY(0); B.mode = 'goto'; B.timer = 25; B.treeVisit = null; B.path = null; showEmote('❗',0.9); }
-      else if (world.isWater(p.x, p.z)) toast('那裡是水，袋熊過不去。河上可以蓋橋（點一下河面）。');
+      else if (world.isWater(p.x, p.z)) toast('那裡是水，袋熊過不去。河上可以蓋橋（商店 → 建築）。');
     }
   }
   if (mode === 'grab') endGrab();
@@ -4850,6 +4891,10 @@ if (!S.world.trim){ S.world.trim = 1; const keep = id => (id*2654435761 >>> 0) %
   S.trees = S.trees.filter((t, i) => !t.p || world.isOpenKey(t.p) || i % 3 !== 0); }
 if (!S.world.forestMore){ S.world.forestMore = 1; S.trees.push(...world.moreTrees(BIO.forest, 9, S.trees)); }   // the deer forest is thick with trees
 if (!S.world.forestMore2){ S.world.forestMore2 = 1; S.trees.push(...world.moreTrees(BIO.forest, 16, S.trees)); }   // ... and thicker still since the world grew
+if (!S.world.ausMore){ S.world.ausMore = 1;   // the outback was too bare: a eucalyptus woodland (kept clear of anything built there)
+  const built = (x, z) => Object.entries(S.place || {}).some(([id, p]) => { const b = bdef(id); return b && b.size && S.builds[id] && cellsOf(b, p).some(([cx, cz]) => Math.hypot(cx - x, cz - z) < 2); });
+  const have = S.trees.filter(t => t.p === BIO.aus).length;   // (only worlds seeded before: new ones get the woodland from the start)
+  if ((S.world.seeded || []).includes(BIO.aus) && have < 10) S.trees.push(...world.moreTrees(BIO.aus, 14 - have, S.trees).filter(d => !built(d.x, d.z) && !(S.fences || []).some(f => Math.hypot(f.x - d.x, f.z - d.z) < 1.5))); }
 if (!S.world.meadowed){ S.world.meadowed = 1; S.trees = S.trees.filter((t, i) => t.p !== BIO.meadow || i % 4 === 0); }   // the flower meadow is open, with just a few trees
 seedWorldNature();
 // even out what there is to clear: every plot gets 4–7 rocks and bushes (once; cleared ones don't come back)
@@ -4891,7 +4936,7 @@ if (!S.seenGuide) setTimeout(() => openGuide(0), 500);
 else if (S.stage !== 'egg' && !S.dead) setTimeout(() => toast(`歡迎回來，${S.name || '牠'}在等你。`), 800);
 if (S.stage === 'egg' && S.warm >= 100) hatchStart();
 if (boot0.user && !PREVIEW) claimCloud(boot0.checked ? (boot0.remote ? boot0.remote.rev : null) : undefined);
-if (new URLSearchParams(location.search).has('debug')) window.W = {flock, boats, startPiece, fences, TREE_KINDS, startEvolution, EVO_FX, getEvo: () => evo, BEACH_LIFE, wear, art, setArt, inBuild, freeNear, poopNow, spawnWeed, weedSpotOK, overBridge, moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+if (new URLSearchParams(location.search).has('debug')) window.W = {renderer, scene, flock, boats, startPiece, fences, TREE_KINDS, startEvolution, EVO_FX, getEvo: () => evo, BEACH_LIFE, wear, art, setArt, inBuild, freeNear, poopNow, spawnWeed, weedSpotOK, overBridge, moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   sim:(secs) => { skipRender = true; try { for (let i=0;i<secs*30;i++) step(true); } finally { skipRender = false; } clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};
@@ -4902,9 +4947,12 @@ if (PREVIEW) setTimeout(() => toast(`預覽模式：${form().name}。這裡的�
 const clock = new THREE.Clock();
 const tmpQ = new THREE.Quaternion(), tmpQi = new THREE.Quaternion();
 let t = 0, hudT = 0, lastReal = performance.now(), skipRender = false;
+let lastDraw = 0;
 function step(manual){
   manual = manual === true;   // W.run() drives frames by hand in tests
   if (halted) return;
+  // phones: about 30 frames a second (they ran hot drawing 60 of these scenes a second); the evolution show keeps full speed
+  if (mobile && !manual && !evo){ const n = performance.now(); if (n - lastDraw < 1000/31){ requestAnimationFrame(step); return; } lastDraw = n; }
   const nowR = performance.now(), gap = nowR - lastReal; lastReal = nowR;
   if (gap > 2000 && !manual) catchUp(gap);
   const dt = manual ? 1/30 : Math.min(clock.getDelta(), 1/30); t += dt;

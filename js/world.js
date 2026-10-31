@@ -226,6 +226,24 @@ export function upgradeWorld(D){
   return D;
 }
 
+// One instanced mesh spread over the whole land is drawn whole wherever the camera looks; cut into tiles, the tiles off screen are
+// skipped (and instances scaled to nothing are dropped). Returns the tiles, which take its place in its parent.
+const TILE = 12;
+function chunkIM(im){
+  const par = im.parent, M = new THREE.Matrix4(), c = new THREE.Color(), bins = new Map(), e = M.elements;
+  if (!par || im.count < 64) return [im];
+  for (let i=0;i<im.count;i++){ im.getMatrixAt(i, M); if (e[0] === 0 && e[5] === 0 && e[10] === 0) continue;
+    const k = Math.floor(e[12]/TILE) + ',' + Math.floor(e[14]/TILE); (bins.get(k) || bins.set(k, []).get(k)).push(i); }
+  const out = [];
+  for (const idx of bins.values()){ const t = new THREE.InstancedMesh(im.geometry, im.material, idx.length);
+    idx.forEach((i, j) => { im.getMatrixAt(i, M); t.setMatrixAt(j, M); if (im.instanceColor){ im.getColorAt(i, c); t.setColorAt(j, c); } });
+    t.computeBoundingSphere(); t.boundingSphere.radius += 0.6;   // (room for the sway)
+    Object.assign(t.userData, im.userData, {keep:true}); t.renderOrder = im.renderOrder; par.add(t); out.push(t); }
+  par.remove(im); im.dispose(); return out;
+}
+function chunkAll(root, pick){ const list = []; root.traverse(o => { if (o.isInstancedMesh && o.count >= 64 && !o.userData.keep) list.push(o); });
+  list.forEach(im => { const out = chunkIM(im), i = pick.indexOf(im); if (i >= 0) pick.splice(i, 1, ...out); }); }
+
 // ---------- the world: terrain shape, looks, water, nature ----------
 export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fishModel, treeModels, plants, onFeatGone}){
   const W = {feats:[], pick:[], bridges:[], plots:{}};
@@ -377,7 +395,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
     const m = new THREE.InstancedMesh(geo, swaying(new THREE.MeshLambertMaterial({vertexColors:true}), 0.34, 0.2, 0.75, false), list.length);
     list.forEach(([x, z, tall], i) => { const s = 0.7 + R()*0.6, sy = tall ? 1.5 + R()*0.9 : 0.8 + R()*0.4; M.compose(V3(x, H(x, z) - 0.02, z), q.setFromAxisAngle(V3(0, 1, 0), R()*6.28), V3(s*(tall ? 1.3 : 1), s*sy, s*(tall ? 1.3 : 1))); m.setMatrixAt(i, M);
       m.setColorAt(i, col.set(tall ? ['#e2cf86', '#d8c27a', '#e8d898', '#cdb56c'][i % 4] : GRASS_COLS[i % GRASS_COLS.length]).multiplyScalar((0.85 + R()*0.15)*(W.isOpen(x, z) || !inWorld(x, z) ? 1 : 0.8))); });
-    group.add(m); tufts = m; W.tufts = m;
+    group.add(m); tufts = {material:m.material, chunks:chunkIM(m)}; W.tufts = tufts;
   }
 
   // --- wildflowers in little patches: daisies, buttercups, pink clover, purple lupine spikes; they sway with the grass ---
@@ -385,10 +403,10 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
     const stemGeo = (() => { const g = new THREE.CylinderGeometry(0.008, 0.012, 0.3, 3); g.translate(0, 0.15, 0); return g; })();
     const paint = (g, rgb) => { const n = g.attributes.position.count, c = new Float32Array(n*3); for (let i=0;i<n;i++) c.set(rgb, i*3); g.setAttribute('color', new THREE.BufferAttribute(c, 3)); return g; };
     const head = (() => { const parts = [];   // five petals around a centre (petals take the instance colour, the centre stays golden)
-      for (let i=0;i<5;i++){ const p = new THREE.SphereGeometry(0.035, 5, 3); p.scale(1, 0.25, 0.55); p.translate(0.04, 0, 0); p.rotateY(i*Math.PI*2/5); parts.push(paint(p, [1, 1, 1])); }
-      const c = new THREE.SphereGeometry(0.022, 6, 4); c.scale(1, 0.6, 1); c.translate(0, 0.008, 0); parts.push(paint(c, [1.0, 0.75, 0.2]));
+      for (let i=0;i<5;i++){ const p = new THREE.SphereGeometry(0.035, 4, 2); p.scale(1, 0.25, 0.55); p.translate(0.04, 0, 0); p.rotateY(i*Math.PI*2/5); parts.push(paint(p, [1, 1, 1])); }
+      const c = new THREE.SphereGeometry(0.022, 5, 2); c.scale(1, 0.6, 1); c.translate(0, 0.008, 0); parts.push(paint(c, [1.0, 0.75, 0.2]));
       const g = mergeGeometries(parts); g.translate(0, 0.3, 0); return g; })();
-    const spike = (() => { const parts = []; for (let i=0;i<9;i++){ const b = new THREE.SphereGeometry(0.028 - i*0.002, 5, 3); b.translate(Math.sin(i*2.4)*0.02, 0.3 + i*0.03, Math.cos(i*2.4)*0.02); parts.push(paint(b, [1, 1, 1])); }
+    const spike = (() => { const parts = []; for (let i=0;i<9;i++){ const b = new THREE.SphereGeometry(0.028 - i*0.002, 4, 2); b.translate(Math.sin(i*2.4)*0.02, 0.3 + i*0.03, Math.cos(i*2.4)*0.02); parts.push(paint(b, [1, 1, 1])); }
       return mergeGeometries(parts); })();
     const KINDS = [['#ffffff', 0], ['#fff7e6', 0], ['#ffd23a', 0], ['#ffe066', 0], ['#f5a8c4', 0], ['#ee86ad', 0], ['#a98be0', 1], ['#8f7ad8', 1], ['#9ec8f0', 0]];
     const list = [], N = Math.round((mobile ? 1300 : 3400)*DENS);
@@ -544,7 +562,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
   W.moreTrees = (k, n, existing) => { const R = rng(D.seed*3 + hashKey(k)), [cx, cz] = plotCenter(k), out = [];
     for (let t=0; t<n*15 && out.length < n; t++){ const x = cx + (R()*2 - 1)*PLOT*0.42, z = cz + (R()*2 - 1)*PLOT*0.42, s = 0.95 + R()*0.35;
       if (W.isWater(x, z) || slope(x, z) > 0.55 || existing.some(o => Math.hypot(o.x - x, o.z - z) < 2.4) || out.some(o => Math.hypot(o.x - x, o.z - z) < 2.4) || D.feats.some(o => Math.hypot(o.x - x, o.z - z) < W.featR(o) + 1.2)) continue;
-      out.push({x:+x.toFixed(2), z:+z.toFixed(2), s:+s.toFixed(2), ry:+(R()*6.28).toFixed(2), hive:false, p:k}); }
+      out.push({x:+x.toFixed(2), z:+z.toFixed(2), s:+s.toFixed(2), ry:+(R()*6.28).toFixed(2), hive:false, p:k, ...(k === BIO.aus ? {euc:1} : k === BIO.swamp ? {swamp:1} : {})}); }
     return out; };
   W.addBush = (x, z, k) => { const d = {id:D.nid++, k:'bush', x:+x.toFixed(2), z:+z.toFixed(2), s:+(0.7 + Math.random()*0.4).toFixed(2), ry:+(Math.random()*6.28).toFixed(2), v:Math.floor(Math.random()*12), p:k};
     D.feats.push(d); const f = makeFeat(d); f.g.scale.setScalar(0.01); fading.push({g:f.g, t:0, grow:true}); return f; };
@@ -564,6 +582,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
     const tree = (x, z) => { const s = 0.85 + R()*0.3; if (!ok(x, z, 0.9*s) || W.isBeach(x, z)) return false; trees.push({x:+x.toFixed(2), z:+z.toFixed(2), s:+s.toFixed(2), ry:+(R()*6.28).toFixed(2), hive: k !== BIO.aus && R() < 0.25, p:k, ...(k === BIO.aus ? {euc:1} : k === BIO.swamp ? {swamp:1} : {})}); return true; };
     if (home){ put(1, rock(0.6 + R()*0.2)); put(1, rock(0.3 + R()*0.15)); put(1, bush); }
     else if (k === BIO.savanna){ put(1, rock(0.55 + R()*0.25)); put(2, bush); put(2, tree); }   // open grassland: just a couple of shade trees
+    else if (k === BIO.aus){ put(1, rock(0.55 + R()*0.25)); put(2, rock(0.3 + R()*0.2)); put(4, bush); put(13 + Math.floor(R()*3), tree); }   // the outback: a eucalyptus woodland
     else { put(R() < 0.5 ? 1 : 0, rock(1.0 + R()*0.25)); put(1, rock(0.55 + R()*0.25)); put(2, rock(0.3 + R()*0.2)); put(2 + Math.floor(R()*2), bush); put(3 + Math.floor(R()*2), tree); }   // fewer and smaller than before
     return trees;
   };
@@ -817,9 +836,9 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
     if (P){ P.sign.userData.kind = null; P.g.traverse(o => { const i = W.pick.indexOf(o); if (i >= 0) W.pick.splice(i, 1); }); fading.push({g:P.g, t:0, s:1, plot:true}); delete W.plots[k]; }
     const [cx, cz] = plotCenter(k), h = PLOT/2 + 1.5;
     recolor((x, z) => Math.abs(x - cx) < h && Math.abs(z - cz) < h);
-    if (tufts){ const M = new THREE.Matrix4(), p = V3(0, 0, 0), q = new THREE.Quaternion(), s = V3(0, 0, 0), c = new THREE.Color();
-      for (let i=0;i<tufts.count;i++){ tufts.getMatrixAt(i, M); M.decompose(p, q, s); if (plotKey(p.x, p.z) !== k) continue; tufts.getColorAt(i, c); tufts.setColorAt(i, c.multiplyScalar(1.25)); }
-      tufts.instanceColor.needsUpdate = true; }
+    if (tufts) for (const t of tufts.chunks){ const M = new THREE.Matrix4(), p = V3(0, 0, 0), q = new THREE.Quaternion(), s = V3(0, 0, 0), c = new THREE.Color(); let hit = false;
+      for (let i=0;i<t.count;i++){ t.getMatrixAt(i, M); M.decompose(p, q, s); if (plotKey(p.x, p.z) !== k) continue; t.getColorAt(i, c); t.setColorAt(i, c.multiplyScalar(1.25)); hit = true; }
+      if (hit) t.instanceColor.needsUpdate = true; }
     D.feats.filter(d => d.p === k).forEach(d => { const f = makeFeat(d); f.g.scale.setScalar(0.01); fading.push({g:f.g, t:0, grow:true}); });
     buildBorder();
   };
@@ -894,6 +913,7 @@ export function createWorld({scene, mobile, renderer, grassTex, mat, hbMat, fish
     for (const k of PLOT_KEYS) if (!W.isOpenKey(k)) buildLocked(k);
     D.bridges.forEach(makeBridge);
     buildBorder();
+    chunkAll(group, W.pick);
   };
   W.showFeats = () => D.feats.filter(d => W.isOpenKey(d.p)).forEach(makeFeat);
   return W;
