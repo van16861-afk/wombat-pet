@@ -483,7 +483,7 @@ export function createEvolution({renderer, mobile, sound}){
   // without one (a stand-in) is measured from all its solid parts
   function petBox(p){
     const b = new THREE.Box3(), v = new THREE.Vector3(); p.updateMatrixWorld(true);
-    let body = null; p.traverse(o => { if (!body && o.isSkinnedMesh && o.userData.kind === 'pet') body = o; });
+    let body = null; p.traverse(o => { if (!body && o.isSkinnedMesh && o.userData.kind === 'pet' && o.visible) body = o; });   // (the fur body or the evolved form's model, whichever is showing)
     const add = (o, g) => { for (const c of [[g.min.x, g.min.y, g.min.z], [g.max.x, g.max.y, g.max.z], [g.min.x, g.max.y, g.max.z], [g.max.x, g.min.y, g.min.z]]) b.expandByPoint(v.set(...c).applyMatrix4(o.matrixWorld)); };
     if (body){ body.computeBoundingBox(); add(body, body.boundingBox); return b; }
     p.traverse(o => { if (!o.isMesh || !o.geometry || o.material.visible === false || o.material.transparent || o.material.opacity === 0) return; for (let x = o; x && x !== p; x = x.parent) if (!x.visible) return;

@@ -246,6 +246,26 @@ model.traverse(o => {
   o.userData.kind = 'pet'; hit.push(o); petMats.push(o.material);
 });
 model.updateMatrixWorld(true);
+// The 27 evolved forms have their own textured models (blender/form_build.py -> assets/models/forms/<id>.glb), skinned to this
+// same skeleton: shown instead of the fur body, face parts and form accessories, so the clips, leg and head motion all carry over.
+// Each downloads when first needed; until then the fur wombat stands in.
+const basePet = []; model.traverse(o => { if (o.isMesh) basePet.push(o); });
+const FORM_MESH = {}, formLoading = {};
+function formMesh(id){
+  if (FORM_MESH[id] || formLoading[id] || !EV.FORM27[id]) return FORM_MESH[id] || null;
+  formLoading[id] = new GLTFLoader().setDRACOLoader(draco).loadAsync(`assets/models/forms/${id}.glb`).then(g => {
+    let src = null; g.scene.traverse(o => { if (!src && o.isSkinnedMesh) src = o; });
+    const geo = src.geometry, si = geo.attributes.skinIndex, map = src.skeleton.bones.map(b => body.skeleton.bones.findIndex(x => x.name === b.name));
+    for (let i=0;i<si.count;i++) for (let k=0;k<4;k++) si.setComponent(i, k, Math.max(0, map[si.getComponent(i, k)]));
+    const tex = src.material.map; if (tex) tex.colorSpace = THREE.NoColorSpace;   // (this scene works in display values)
+    const m = new THREE.MeshStandardMaterial({map:tex || null, roughness:0.85, metalness:0});
+    const s = new THREE.SkinnedMesh(geo, m); s.bind(body.skeleton, body.bindMatrix);
+    s.position.copy(body.position); s.quaternion.copy(body.quaternion); s.scale.copy(body.scale);
+    s.frustumCulled = false; s.visible = false; s.userData.kind = 'pet'; body.parent.add(s); hit.push(s); petMats.push(m);
+    FORM_MESH[id] = s; if (S.form === id) applyForm();
+  }).catch(e => console.warn('form model not loaded', id, e));
+  return null;
+}
 // A group fixed to a bone, placed at a rest-pose position in model space (outfits, clothes and blinking eyes hang off these).
 function anchor(boneName, pos, scl){
   const g = new THREE.Group(); g.position.copy(pos); if (scl) g.scale.copy(scl);
@@ -2935,11 +2955,15 @@ function applyFur(){
   if (F.tint){ c = mixHex(c, F.tint[0], F.tint[1]); b = mixHex(b, F.tint[0], F.tint[1]*0.8); }
   if (S.muddy > 0){ const k = Math.min(0.55, S.muddy/200); c = mixHex(c, '#5b4330', k); b = mixHex(b, '#6b5038', k); }   // covered in mud after a wallow
   U.uColor.value.set(c); U.uBelly.value.set(b);
+  // an evolved form's own model keeps its painted colours: a dye only tints it, mud darkens it
+  const fm = FORM_MESH[S.form];
+  if (fm){ let t = S.dye != null && DYES[S.dye] ? mixHex('#ffffff', DYES[S.dye].c, 0.4) : '#ffffff'; if (S.muddy > 0) t = mixHex(t, '#8a6d55', Math.min(0.5, S.muddy/200)); fm.material.color.set(t); }
 }
 function applyForm(){
-  const F = form(), bd = F.body || [1,1,1];
-  model.scale.set(bd[0], bd[1], bd[2]); headScale = F.head || 1; furShells.forEach(m => m.uniforms.uLen.value = FUR_LEN*(F.fur || 1));   // skinny wombats have flatter fur, chubby ones fluffier
-  const accs = formAcc(F); Object.entries(ACC).forEach(([k,g]) => g.visible = accs.includes(k));
+  const F = form(), fm = formMesh(S.form), bd = fm ? [1,1,1] : F.body || [1,1,1];
+  Object.values(FORM_MESH).forEach(m => m.visible = m === fm); basePet.forEach(o => o.visible = !fm);   // (the form's model replaces the fur body and its face parts)
+  model.scale.set(bd[0], bd[1], bd[2]); headScale = fm ? 1 : F.head || 1; furShells.forEach(m => m.uniforms.uLen.value = FUR_LEN*(F.fur || 1));   // skinny wombats have flatter fur, chubby ones fluffier
+  const accs = fm ? [] : formAcc(F); Object.entries(ACC).forEach(([k,g]) => g.visible = accs.includes(k));
   hatLift = accs.some(a => ['poop','crown','sprout','antler'].includes(a)) ? 0.34 : 0;
   applyFur(); applyClothes();
 }
@@ -3641,7 +3665,7 @@ const EVO_FX = createEvolution({renderer, mobile, sound:EVO_SOUND});
 let evoTrackPick = null;   // (test panel: force track A or B)
 function startEvolution(next, to){
   if (!to){ const r = decideEvo(); if (!r.d.eligible) return; to = r.d.to; }
-  evo = {t:0, next, form:to, seq:true, committed:false};
+  evo = {t:0, next, form:to, seq:true, committed:false}; formMesh(to);   // (the new form's model downloads during the first seconds of the show)
   B.mode = 'evolve'; closeSheet(); clothesHidden = true; applyClothes(); duck(true); cry('evolve');
   const nextF = FORMS[to] || FORMS.normal, fromName = S.stage === 'baby' ? '幼兒袋熊' : form().name;
   const stage27 = nextF.stage;
@@ -5361,7 +5385,7 @@ if (EVOTEST) (async () => {
     out(`${bad.length ? '✗' : '✓'} 實跑 ${n} 條分支（另 2 條固定：蛋→初生→幼兒）${bad.length ? '\n' + bad.join('\n') : '，全部進化到正確型態'}`); };
   P.querySelector('#edReset').onclick = () => location.reload();
 })();
-if (new URLSearchParams(location.search).has('debug')) window.W = {renderer, scene, startPaint, pathsRedraw, flock, boats, startPiece, fences, TREE_KINDS, startEvolution, EVO_FX, getEvo: () => evo, BEACH_LIFE, wear, art, setArt, inBuild, freeNear, poopNow, spawnWeed, weedSpotOK, overBridge, moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3,
+if (new URLSearchParams(location.search).has('debug')) window.W = {renderer, scene, startPaint, pathsRedraw, flock, boats, startPiece, fences, TREE_KINDS, startEvolution, EVO_FX, getEvo: () => evo, BEACH_LIFE, wear, art, setArt, inBuild, freeNear, poopNow, spawnWeed, weedSpotOK, overBridge, moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3, applyForm, FORM_MESH,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   sim:(secs) => { skipRender = true; try { for (let i=0;i<secs*30;i++) step(true); } finally { skipRender = false; } clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};

@@ -65,3 +65,9 @@ The CC BY-NC models may not be used commercially.
 ## Scenery
 
 Trees, bushes, grass, flowers, ferns and mushrooms (`nature.glb`): [Stylized Nature MegaKit](https://quaternius.com) by Quaternius, CC0.
+
+## Evolved forms (`assets/models/forms/`)
+
+The 27 evolved wombat forms are the game's own designs (the four-view sheets in `assets/四視圖/`). Their 3D models were generated
+from those sheets on the author's computer with Tencent Hunyuan3D-2mv (shape) and Hunyuan3D-2 Paint (texture), under the Tencent
+Hunyuan 3D 2.0 Community License, then fitted onto the wombat's skeleton, reduced and compressed by `blender/form_build.py`.
