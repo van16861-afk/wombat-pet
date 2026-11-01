@@ -115,6 +115,8 @@ def ears(ob, isl, eyes):
     # and above that side's eye, at most ~1.45 above it (the plain forms' ears stand 1.1-1.2 above their eyes); the bone runs
     # from EAR_LEN below it, leaning out a little. If anything in that column reaches past the window (a flame, a mane) or
     # something cold-coloured (crystals, ice) stands higher than the ear, the ear is buried: no bone, it moves with the head.
+    # (flames are warm too and stand where the ears would: those forms' ears move with the head)
+    if ob.name[len("Form_"):] in ("p_flame", "m_ember"): return {}
     V = ob.data.vertices; out = {}; rel = {}; C = vcolors(ob)
     warm = lambda i: C is None or (C[i][0] > C[i][2] + 0.06 and C[i][0] >= C[i][1] - 0.02)
     E = {(1 if e.x > 0 else -1): e for e in eyes}
@@ -171,8 +173,9 @@ def skin(ob, isl, ear):
         x, y, z = v.co; w = {}
         for n, (lx, ly) in LEGS.items(): w[n] = ss(0.46, 0.26, math.hypot(x - lx, y - ly)) * ss(0.58, 0.3, z)
         w["tail"] = ss(1.3, 1.45, y) * ss(0.45, 0.25, abs(x)) * ss(1.1, 0.8, z)
-        # (the forms' heads are bigger than the wombat's: the neck sits further back, around the head bone's pivot at y -0.55)
-        hd = ss(-0.3, -0.7, y) * ss(0.3, 0.55, z) * (1 - max(w["leg.F.L"], w["leg.F.R"]))
+        # (the forms' heads are bigger than the wombat's and have no real neck: a long, soft blend round the head bone's pivot
+        # at y -0.55, so turning the head bends the round body gently instead of pinching a ring into it)
+        hd = ss(0.0, -0.85, y) * ss(0.2, 0.65, z) * (1 - max(w["leg.F.L"], w["leg.F.R"]))
         for n in EARS: w[n] = 0.0   # (the forms' ears sit wider and higher than the ear bones and crowns crowd them: they move with the head)
         ef = 0.0
         if v.index in main:

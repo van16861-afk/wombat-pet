@@ -278,7 +278,7 @@ function formMesh(id){
     const tex = src.material.map, nm = src.material.normalMap, an = renderer.capabilities.getMaxAnisotropy();
     if (tex){ tex.colorSpace = THREE.NoColorSpace; tex.anisotropy = an; }   // (this scene works in display values)
     if (nm) nm.anisotropy = an;   // (fur clumps, folds and trim baked from the full-detail model)
-    const m = new THREE.MeshStandardMaterial({map:tex || null, normalMap:nm || null, roughness:0.85, metalness:0});
+    const m = new THREE.MeshStandardMaterial({map:tex || null, normalMap:nm || null, normalScale:new THREE.Vector2(0.45, 0.45), roughness:0.85, metalness:0});   // (a soft normal map: at full strength the fur clumps read as hard shards)
     const s = new THREE.SkinnedMesh(geo, m); s.bind(new THREE.Skeleton(bones, inv), body.bindMatrix);
     s.position.copy(body.position); s.quaternion.copy(body.quaternion); s.scale.copy(body.scale);
     s.frustumCulled = false; s.visible = false; s.userData.kind = 'pet'; body.parent.add(s); hit.push(s); petMats.push(m);
@@ -5627,7 +5627,8 @@ function step(manual){
     } else { hy = B.lookYaw; hx = B.lookPitch + (S.st.happy < 30 || S.form === 'g_sick' ? 0.15 : 0); hs = 7; }
     lookY += (hy - lookY)*Math.min(1, dt*hs);
     lookX += (hx - lookX)*Math.min(1, dt*hs);
-    turnBone(BONE.head, -lookX, 0, lookY);           // bone +X tilts the head up, +Z turns it toward +x
+    const hk = FORM_MESH[S.form] && FORM_MESH[S.form].visible ? 0.55 : 1;   // (the forms' heads are one piece with a round body: a smaller turn, so it doesn't twist the body's skin)
+    turnBone(BONE.head, -lookX*hk, 0, lookY*hk);           // bone +X tilts the head up, +Z turns it toward +x
     BONE.head.scale.setScalar(headScale);   // the clips never scale the head, so set it (multiplying every frame made it shrink or grow forever)
 
     blinkTimer -= dt; if (blinkTimer <= 0){ blinkT = 0.14; blinkTimer = rnd(2,5.5); } if (blinkT > 0) blinkT -= dt;
