@@ -22,3 +22,6 @@
 - 寫實動物（老虎、鹿、狼、駝鹿、馬、鱷魚）：Sketchfab 的骨架動畫模型，原始檔在 `assets/source/sketchfab/`（不上傳），用 `blender/real_build.py` 減面、縮貼圖、整理動作後輸出 `assets/models/real/<名字>.glb`；作者與授權寫在 `assets/models/CREDITS.md`。遊戲裡由 `fauna.js` 依行為播放牠們自己的動作（走、跑、吃草、躺下、嚎叫），步伐速度跟著移動速度。`tools/view.html?f=檔案&a=動作&t=秒` 可以單獨檢查模型。
 - 外部素材（CC0）原始檔放在 `assets/source/`（不上傳）：Quaternius Stylized Nature MegaKit（`blender/nature_build.py` → `assets/models/nature.glb`：樹、松、灌木、草叢、花、蕨類、蘑菇）、Quaternius Ultimate Animated Animals、GOBKIT 昆蟲／鳥類包。
 - 27 個進化型態的模型：用四視圖在本機的混元 3D（`E:\Hunyuan3D`，`gen_mv.py`）生成有貼圖的模型，再用 `blender/form_build.py`（`blender.exe -b blender/wombat.blend -P blender/form_build.py`）套到袋熊原本的骨架上、減面、壓縮，輸出 `assets/models/forms/<型態代號>.glb`。遊戲進化成該型態時才下載，取代毛皮身體和配件；動作沿用袋熊的骨架和 W_* 動作。
+  - 貼圖：`E:Hunyuan3Detex.py` 把四視圖（先用 Real-ESRGAN 放大、`eyes_find.py` 找出眼睛並抹掉）投影到 2 萬面的模型上，看不到的地方用混元的顏色，凹凸貼圖從 180 萬面的高精度模型烤；整批重做：`bash E:/Hunyuan3D/redo_all.sh`。
+  - 眼睛：遊戲依模型附帶的 `eyes` 資料放真的眼球（會眨眼）；耳朵：耳朵沒被裝飾蓋住的型態有自己的耳朵骨頭 `earF.L/R`（會動）。
+  - 衣服：依 `fit` 資料（頭頂、頭寬、眼睛、身體、脖子）把衣服移到該型態身上；型態本身的裝飾已經佔住的位置（`WEAR_BLOCK`）不穿，避免穿模。

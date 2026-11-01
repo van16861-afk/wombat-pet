@@ -41,10 +41,10 @@ const skyMat = new THREE.ShaderMaterial({
 const PaintShader = {
   defines:{R:3},
   uniforms:{tDiffuse:{value:null}, tDepth:{value:null}, uRes:{value:new THREE.Vector2(1, 1)}, uAmt:{value:0.8}, uHaze:{value:new THREE.Color('#cfe7ef')}, uNight:{value:0}, uTime:{value:0}, uCover:{value:0.5},
-    uInvProj:{value:new THREE.Matrix4()}, uCamWorld:{value:new THREE.Matrix4()}},
+    uInvProj:{value:new THREE.Matrix4()}, uCamWorld:{value:new THREE.Matrix4()}, uFocus:{value:new THREE.Vector4(0, 0, 0, 1)}},
   vertexShader:`varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position, 1.0); }`,
   fragmentShader:NOISE + `
-    uniform sampler2D tDiffuse, tDepth; uniform vec2 uRes; uniform vec3 uHaze; uniform float uAmt, uNight, uTime, uCover; uniform mat4 uInvProj, uCamWorld; varying vec2 vUv;
+    uniform sampler2D tDiffuse, tDepth; uniform vec2 uRes; uniform vec3 uHaze; uniform float uAmt, uNight, uTime, uCover; uniform mat4 uInvProj, uCamWorld; uniform vec4 uFocus; varying vec2 vUv;
     vec3 tx(vec2 o){ return texture2D(tDiffuse, vUv + o/uRes).rgb; }
     void main(){
       vec3 src = tx(vec2(0));
@@ -58,7 +58,9 @@ const PaintShader = {
       vec3 paint = src; float best = 1e9;
       float nq = float((R + 1)*(R + 1));
       for (int k=0;k<4;k++){ vec3 mu = m[k]/nq, v = abs(s[k]/nq - mu*mu); float sv = v.r + v.g + v.b; if (sv < best){ best = sv; paint = mu; } }
-      vec3 c = clamp(mix(src, paint, uAmt), 0.0, 1.0);
+      // the pet keeps its own detail: no painterly smoothing inside a soft circle round it (uFocus: centre in uv, radius, aspect)
+      float keep = 1.0 - smoothstep(uFocus.z*0.85, uFocus.z*1.15, length((vUv - uFocus.xy)*vec2(uFocus.w, 1.0)));
+      vec3 c = clamp(mix(src, paint, uAmt*(1.0 - keep)), 0.0, 1.0);
       // faint ink edges where the brightness changes sharply
       float l0 = dot(tx(vec2(-1, 0)), vec3(0.33)) - dot(tx(vec2(1, 0)), vec3(0.33)), l1 = dot(tx(vec2(0, -1)), vec3(0.33)) - dot(tx(vec2(0, 1)), vec3(0.33));
       c *= 1.0 - smoothstep(0.15, 0.5, length(vec2(l0, l1)))*0.05;   // (only the strongest: lines all over the grass read as grime)
@@ -129,6 +131,7 @@ export function createGhibli({renderer, scene, camera, mobile}){
       if (paint){ paint.uniforms.uHaze.value.copy(hor); paint.uniforms.uNight.value = night; paint.uniforms.uTime.value = U.uTime.value; paint.uniforms.uCover.value = 0.4 + grey*0.6; }
       return hor;
     },
+    focus(x, y, r){ if (paint) paint.uniforms.uFocus.value.set(x, y, r, innerWidth/innerHeight); },   // (uv centre and radius, in screen heights)
     render(){ composer.render(); }, get composer(){ return composer; }, get paint(){ return paint; },
   };
 }

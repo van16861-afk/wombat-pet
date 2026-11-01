@@ -75,6 +75,15 @@ function setArt(v){ art.set(v !== 'plain');
   if (art.on){ hemi.color.set('#eef4ff'); hemi.groundColor.set('#55776a'); } else { hemi.color.set(0xfff8ec); hemi.groundColor.set(0x6d7562); }   // cool blue-green shade under leaves and bellies
   if (world && world.tufts) world.tufts.material.color.set('#ffffff'); }
 
+// the watercolour filter leaves the pet itself sharp: a screen circle round it (from its feet to about its height above)
+const afA = new THREE.Vector3(), afB = new THREE.Vector3();
+function artFocus(){
+  if (!root.visible){ art.focus(0, 0, 0); return; }
+  const h = 2.6*root.scale.y; afA.copy(root.position).y += h*0.45; afB.copy(afA); afB.y += h*0.75;
+  afA.project(camera); afB.project(camera);
+  art.focus(afA.x*0.5 + 0.5, afA.y*0.5 + 0.5, afA.z < 1 ? Math.abs(afB.y - afA.y)*0.5 : 0);
+}
+
 // ---------- canvas textures ----------
 function canvasTex(w, h, draw){ const cv = document.createElement('canvas'); cv.width = w; cv.height = h; draw(cv.getContext('2d'), w, h); return new THREE.CanvasTexture(cv); }
 const radCache = {};
@@ -251,17 +260,37 @@ model.updateMatrixWorld(true);
 // Each downloads when first needed; until then the fur wombat stands in.
 const basePet = []; model.traverse(o => { if (o.isMesh) basePet.push(o); });
 const FORM_MESH = {}, formLoading = {};
+const EYE_BALL = new THREE.MeshStandardMaterial({color:'#140f0d', roughness:0.12, metalness:0}), EYE_GLINT = new THREE.MeshBasicMaterial({color:'#ffffff'});
+let formEyes = [];
 function formMesh(id){
   if (FORM_MESH[id] || formLoading[id] || !EV.FORM27[id]) return FORM_MESH[id] || null;
   formLoading[id] = new GLTFLoader().setDRACOLoader(draco).loadAsync(`assets/models/forms/${id}.glb`).then(g => {
     let src = null; g.scene.traverse(o => { if (!src && o.isSkinnedMesh) src = o; });
-    const geo = src.geometry, si = geo.attributes.skinIndex, map = src.skeleton.bones.map(b => body.skeleton.bones.findIndex(x => x.name === b.name));
+    // its own ear bones (earFL / earFR, children of the head, set where this form's ears grow) join the wombat skeleton
+    const SB = src.skeleton.bones, bones = [...body.skeleton.bones], inv = [...body.skeleton.boneInverses], ears = {};
+    const map = SB.map((b, j) => { let i = bones.findIndex(x => x.name === b.name); if (i >= 0) return i;
+      const nb = new THREE.Bone(); nb.name = b.name; nb.position.copy(b.position); nb.quaternion.copy(b.quaternion); nb.scale.copy(b.scale);
+      (BONE[b.parent && b.parent.name] || BONE.head).add(nb); bones.push(nb); inv.push(src.skeleton.boneInverses[j].clone());
+      if (/^earF/.test(b.name)) ears[/L$/.test(b.name) ? 1 : -1] = {b:nb, q:nb.quaternion.clone()};
+      return bones.length - 1; });
+    const geo = src.geometry, si = geo.attributes.skinIndex;
     for (let i=0;i<si.count;i++) for (let k=0;k<4;k++) si.setComponent(i, k, Math.max(0, map[si.getComponent(i, k)]));
-    const tex = src.material.map; if (tex) tex.colorSpace = THREE.NoColorSpace;   // (this scene works in display values)
-    const m = new THREE.MeshStandardMaterial({map:tex || null, roughness:0.85, metalness:0});
-    const s = new THREE.SkinnedMesh(geo, m); s.bind(body.skeleton, body.bindMatrix);
+    const tex = src.material.map, nm = src.material.normalMap, an = renderer.capabilities.getMaxAnisotropy();
+    if (tex){ tex.colorSpace = THREE.NoColorSpace; tex.anisotropy = an; }   // (this scene works in display values)
+    if (nm) nm.anisotropy = an;   // (fur clumps, folds and trim baked from the full-detail model)
+    const m = new THREE.MeshStandardMaterial({map:tex || null, normalMap:nm || null, roughness:0.85, metalness:0});
+    const s = new THREE.SkinnedMesh(geo, m); s.bind(new THREE.Skeleton(bones, inv), body.bindMatrix);
     s.position.copy(body.position); s.quaternion.copy(body.quaternion); s.scale.copy(body.scale);
     s.frustumCulled = false; s.visible = false; s.userData.kind = 'pet'; body.parent.add(s); hit.push(s); petMats.push(m);
+    // real eyeballs where the drawing's eyes were (the texture has them painted over), so they can blink; placed from the
+    // head bone's rest pose (the clips may be mid-move while this loads)
+    const hi = body.skeleton.boneInverses[body.skeleton.bones.indexOf(BONE.head)], mx = new THREE.Matrix4();
+    s.userData.eyeG = JSON.parse(src.userData.eyes || '[]').map(e => { const r = e.r;
+      const g = new THREE.Group(); mx.multiplyMatrices(hi, new THREE.Matrix4().makeTranslation(e.p[0], e.p[2], -e.p[1] - r*0.45)); mx.decompose(g.position, g.quaternion, g.scale);
+      const ball = new THREE.Mesh(new THREE.SphereGeometry(r*1.15, 20, 14), EYE_BALL), glint = new THREE.Mesh(new THREE.SphereGeometry(r*0.3, 10, 8), EYE_GLINT);
+      glint.position.set(r*0.35, r*0.45, r*0.95); g.add(ball, glint); g.visible = false; BONE.head.add(g); return g; });
+    s.userData.ears = ears; s.userData.fit = JSON.parse(src.userData.fit || 'null');
+    s.userData.eyeP = JSON.parse(src.userData.eyes || '[]').map(e => V3(e.p[0], e.p[2], -e.p[1]));
     FORM_MESH[id] = s; if (S.form === id) applyForm();
   }).catch(e => console.warn('form model not loaded', id, e));
   return null;
@@ -277,7 +306,7 @@ const bodyFit = new THREE.Group(); anchor('spine', V3(0, 0.82, -0.04), V3(1.02, 
 const eyes = ['Eye', 'Eye001'].map(n => { const e = model.getObjectByName(n), w = e.getWorldPosition(V3(0,0,0));
   const g = anchor('head', model.worldToLocal(w)); g.attach(e); return g; });
 // where the eyes sit in the head's frame (+1 = the model's left eye), for glasses
-const eyeSpots = () => { const o = {}; eyes.forEach(g => { const p = head.worldToLocal(g.getWorldPosition(V3(0,0,0))); o[p.x > 0 ? 1 : -1] = p; }); return o; };
+const eyeSpots = () => { const o = {}; head.updateWorldMatrix(true, false); eyes.forEach(g => { const p = head.worldToLocal(g.getWorldPosition(V3(0,0,0))); o[p.x > 0 ? 1 : -1] = p; }); return o; };
 const ears = [['earL', 1], ['earR', -1]].map(([n, s]) => ({bone:BONE[n], s, v:0, a:0}));
 const legs = [['legFL', 1], ['legFR', 1], ['legBL', -1], ['legBR', -1]].map(([n, fr], i) => ({bone:BONE[n], phase:i*1.7, front:fr}));
 // animation clips, blended by weight every frame
@@ -2961,16 +2990,74 @@ function applyFur(){
 }
 function applyForm(){
   const F = form(), fm = formMesh(S.form), bd = fm ? [1,1,1] : F.body || [1,1,1];
-  Object.values(FORM_MESH).forEach(m => m.visible = m === fm); basePet.forEach(o => o.visible = !fm);   // (the form's model replaces the fur body and its face parts)
+  Object.values(FORM_MESH).forEach(m => { m.visible = m === fm; m.userData.eyeG.forEach(g => g.visible = m === fm); }); basePet.forEach(o => o.visible = !fm);   // (the form's model replaces the fur body and its face parts)
+  formEyes = fm ? fm.userData.eyeG : []; ears.forEach(e => e.fb = fm && fm.userData.ears[e.s] || null); fitClothes(fm);
   model.scale.set(bd[0], bd[1], bd[2]); headScale = fm ? 1 : F.head || 1; furShells.forEach(m => m.uniforms.uLen.value = FUR_LEN*(F.fur || 1));   // skinny wombats have flatter fur, chubby ones fluffier
   const accs = fm ? [] : formAcc(F); Object.entries(ACC).forEach(([k,g]) => g.visible = accs.includes(k));
   hatLift = accs.some(a => ['poop','crown','sprout','antler'].includes(a)) ? 0.34 : 0;
   applyFur(); applyClothes();
 }
+// Clothes on an evolved form: the frames they hang from (the head anchor for hats and glasses, bodyFit for the bow, scarf,
+// sweater and sachet) are moved and scaled from the wombat's head and trunk onto the form's (measured by form_build.py), and
+// the lenses go in front of the form's own eyes. Slots the form already fills itself (its crown, collar, cape, mane...) stay
+// empty, so nothing is worn through them.
+const WEAR_BLOCK = {g_sick:'eyes', g_naughty:'hat', g_good:'neck scarf body', m_stinky:'hat', m_energetic:'hat', m_rock:'hat body', m_flower:'hat body',
+  m_warm:'neck scarf body', m_ember:'hat body', p_royal:'hat neck scarf body', p_forest:'hat body', p_wind:'hat body', p_flame:'hat body', p_frost:'hat body',
+  p_stone:'hat neck scarf body', p_astral:'hat neck scarf body', p_shadow:'hat neck scarf body', u_gold:'hat neck body', u_worldtree:'hat neck scarf body',
+  u_lightning:'hat body', u_sky:'hat neck scarf body', u_abyss:'hat body', u_holy:'hat neck scarf body'};
+const wearBlocked = c => !!FORM_MESH[S.form] && (WEAR_BLOCK[S.form] || '').split(' ').includes(c.slot);
+const boneInv = n => body.skeleton.boneInverses[body.skeleton.bones.indexOf(BONE[n])];
+const FIT0 = {}, neckFit = new THREE.Group();
+function fitClothes(fm){
+  if (!FIT0.head){   // (once: the wombat's own frames and eye spots; the scarf and sachet get a frame of their own at the neck)
+    const sp = bodyFit.parent; sp.updateMatrix(); neckFit.matrix.copy(sp.matrix); neckFit.matrix.decompose(neckFit.position, neckFit.quaternion, neckFit.scale); sp.parent.add(neckFit);
+    ['scarf', 'sachet'].forEach(id => neckFit.add(CL[id].g));
+    FIT0.bow = null;
+    { const bow = CL.bow.g, inv = n => new THREE.Matrix4().copy(boneInv(n)).invert(); head.updateMatrix();   // (the bow moves from the head to the neck frame, same rest place)
+      const hm = inv('head').multiply(head.matrix), nm = inv('spine').multiply(neckFit.matrix);
+      bow.position.applyMatrix4(hm).applyMatrix4(nm.clone().invert()); bow.scale.multiply(head.scale).divide(neckFit.scale); neckFit.add(bow); FIT0.bow = bow.position.clone(); FIT0.bowS = bow.scale.clone(); FIT0.neckS = neckFit.scale.clone(); }
+    [head, sp, neckFit].forEach(g => { g.updateMatrix(); FIT0[g.uuid] = g.matrix.clone(); }); FIT0.head = true;
+    FIT0.neck = CL.scarf.g.position.clone().applyMatrix4(new THREE.Matrix4().copy(boneInv('spine')).invert().multiply(sp.matrix));   // (the wombat's neck, model space)
+    ['glasses', 'heartgl'].forEach(id => FIT0[id] = CL[id].g.children.map(c => [c.position.clone(), c.scale.clone()])); }
+  const frames = [[head, 'head'], [bodyFit.parent, 'spine'], [neckFit, 'neck']], specs = ['glasses', 'heartgl'];
+  const f = fm && fm.userData.fit, T3 = p => V3(p[0], p[2], -p[1]), M = new THREE.Matrix4(), A = new THREE.Matrix4();
+  frames.forEach(([g, bone]) => {
+    let L = FIT0[g.uuid].clone();
+    if (f){ const W = f.wombat, F = f.form, hi = boneInv(bone === 'neck' ? 'spine' : bone);
+      const m0 = A.copy(hi).invert().multiply(L);   // (the frame in model space)
+      // the neck: the forms' big heads hang down to about 0.6 of their eye height (where their own bandanas and scarves sit),
+      // and a ring there is as wide as the trunk
+      // a ring at the neck (scarf, sachet cord) lies almost flat round the body there (~15 degrees, front down), like a collar: these
+      // chibi bodies have no neck for it to stand round. Sized to the body's cross-section at that height (+4%).
+      const R = F.ring || [F.r[0], F.r[1], F.c[1]], neck = V3(0, T3(F.neck).y, -R[2]);
+      const from = bone === 'head' ? T3(W.top) : bone === 'neck' ? FIT0.neck : T3(W.c), to = bone === 'head' ? T3(F.top) : bone === 'neck' ? neck : T3(F.c);
+      const k = bone === 'head' ? V3(F.hw/W.hw, F.hw/W.hw, F.hw/W.hw) : bone === 'neck' ? V3(R[0]*1.04/0.99, R[1]*1.04/0.81, R[0]*1.04/0.99) : V3(F.r[0]/W.r[0], F.r[2]/W.r[2], F.r[1]/W.r[1]).multiplyScalar(0.92);   // (the trunk's measure takes in fur tips: the sweater a little snugger)
+      M.makeTranslation(to.x, to.y, to.z).multiply(new THREE.Matrix4().makeRotationX(bone === 'neck' ? -1.7 : 0)).multiply(new THREE.Matrix4().makeScale(k.x, k.y, k.z)).multiply(new THREE.Matrix4().makeTranslation(-from.x, -from.y, -from.z)).multiply(m0);
+      L = hi.clone().multiply(M); }
+    L.decompose(g.position, g.quaternion, g.scale);
+    if (bone === 'neck'){   // the bow: on a form, just under the neck line on the front of the trunk (their chins hang far lower than the wombat's)
+      const bow = CL.bow.g; bow.position.copy(FIT0.bow);
+      bow.quaternion.identity(); bow.scale.copy(FIT0.bowS);
+      if (f){ const at = T3(f.form.neck); at.z -= 0.04;   // (form_build.py: the chest's front at the neck line), upright and the wombat's size
+        const fr = A.copy(boneInv('spine')).invert().multiply(L), q = new THREE.Quaternion(), sc = V3(1, 1, 1); fr.decompose(V3(0, 0, 0), q, sc);
+        bow.position.copy(at.applyMatrix4(fr.clone().invert())); bow.quaternion.copy(q).invert(); bow.scale.copy(FIT0.bowS).multiply(FIT0.neckS).divide(sc); } }
+  });
+  specs.forEach(id => { const ch = CL[id].g.children; FIT0[id].forEach(([p, sc], i) => { ch[i].position.copy(p); ch[i].scale.copy(sc); }); });
+  if (f && fm.userData.eyeP.length === 2){   // lenses in front of the form's eyes, the bridge stretched between them
+    head.updateMatrix(); const toHead = A.copy(boneInv('head')).invert().multiply(head.matrix).invert();
+    const E = {}; fm.userData.eyeP.forEach(p => { const q = p.clone().applyMatrix4(toHead); E[q.x > 0 ? 1 : -1] = q; });
+    // (as buildClothes lays them out: lens just in front of each eye, the bridge above their middle, shortened by the lens rims)
+    const SPEC = {glasses:{dz:0.05, bz:0.08, gap:0.2}, heartgl:{dz:0.06, bz:0.09, gap:0.16}};
+    specs.forEach(id => { const ch = CL[id].g.children, o = SPEC[id];
+      [-1, 1].forEach((sd, i) => ch[i].position.copy(E[sd]).add(V3(0, 0, o.dz)));
+      const br = ch[2], h0 = br.geometry.parameters.height; br.position.copy(E[1]).lerp(E[-1], 0.5).add(V3(0, 0.05, o.bz));
+      br.scale.y = Math.max(0.05, Math.abs(E[1].x - E[-1].x) - o.gap)/h0; });
+  }
+}
 function wear(id, on){ const c = CLOTHES.find(x => x.id === id); if (on) CLOTHES.forEach(o => { if (o.slot === c.slot) S.worn[o.id] = false; }); S.worn[id] = on; applyClothes(); }
 function applyClothes(){
   CLOTHES.forEach(c => {
-    const v = !!(S.owned[c.id] && S.worn[c.id]) && !clothesHidden;
+    const v = !!(S.owned[c.id] && S.worn[c.id]) && !clothesHidden && !wearBlocked(c);
     const cl = CL[c.id]; cl.g.visible = v; cl.mats.forEach(m => m.color.set(S.colors[c.id] || c.def));
     if (c.slot === 'hat' && cl.g.userData.baseY !== undefined) cl.g.position.y = cl.g.userData.baseY + hatLift;
   });
@@ -4652,7 +4739,7 @@ function renderSheet(){
       + (S.renameTicket || !S.renamedOnce ? `<div class="card"><div class="row"><h3>${S.renamedOnce ? "改名券 ×1" : "改名（第一次免費）"}</h3><button class="btn" data-rename>${S.renamedOnce ? "使用" : "改名"}</button></div></div>` : `<p class="sec">想再改名字，到商店「道具」買改名券。</p>`);
     h += `<div class="row" style="margin-top:14px"><p class="sec" style="margin:0">衣服（同一個位置一次只能穿一件）</p>${owned.length ? `<button class="btn ghost" data-naked>脫光光</button>` : ''}</div>`;
     if (!owned.length) h += `<p style="color:var(--soft)">還沒有衣服。清大便、拔雜草賺代幣，去商店買吧。</p>`;
-    else h += owned.map(c => `<div class="card" style="margin-top:10px"><div class="row"><h3>${c.name}</h3><button class="btn ${S.worn[c.id] ? '' : 'ghost'}" data-wear="${c.id}">${S.worn[c.id] ? '脫下' : '穿上'}</button></div><div class="swrow" role="radiogroup" aria-label="${c.name}顏色">` + PALETTE.map(p => `<button class="sw" role="radio" aria-checked="${(S.colors[c.id]||c.def)===p}" aria-label="${p}" data-col="${c.id}|${p}" style="background:${p}"></button>`).join('') + `</div></div>`).join('');
+    else h += owned.map(c => `<div class="card" style="margin-top:10px"><div class="row"><h3>${c.name}</h3><button class="btn ${S.worn[c.id] ? '' : 'ghost'}" data-wear="${c.id}">${S.worn[c.id] ? '脫下' : '穿上'}</button></div>${wearBlocked(c) ? `<p class="note">${form().name}身上的裝飾已經佔了這個位置，現在穿不下，換型態後會再出現。</p>` : ''}<div class="swrow" role="radiogroup" aria-label="${c.name}顏色">` + PALETTE.map(p => `<button class="sw" role="radio" aria-checked="${(S.colors[c.id]||c.def)===p}" aria-label="${p}" data-col="${c.id}|${p}" style="background:${p}"></button>`).join('') + `</div></div>`).join('');
   } else if (sheetKind === 'settings'){
     const sp = [1,10,60], wx = [['auto','自動'],['sunny','晴'],['cloudy','多雲'],['rain','雨'],['snow','雪'],['storm','雷雨']];
     const vol = (k, label) => `<label class="volrow">${label} <input type="range" min="0" max="100" step="5" value="${Math.round(volOf(k)*100)}" data-vol="${k}" aria-label="${label}"><output>${Math.round(volOf(k)*100)}</output></label>`;
@@ -5546,10 +5633,11 @@ function step(manual){
     blinkTimer -= dt; if (blinkTimer <= 0){ blinkT = 0.14; blinkTimer = rnd(2,5.5); } if (blinkT > 0) blinkT -= dt;
     const closed = asleep() || B.mode === 'dying' || (evo && evo.t < 3.9);
     const es = closed || blinkT > 0 ? 0.12 : form().droopy ? 0.5 : 1;
-    eyes.forEach(e => e.scale.y += (es - e.scale.y)*Math.min(1, dt*30));
+    eyes.forEach(e => e.scale.y += (es - e.scale.y)*Math.min(1, dt*30)); formEyes.forEach(e => e.scale.y += (es - e.scale.y)*Math.min(1, dt*30));
     const droop = asleep() || S.st.happy < 30 || S.form === 'g_sick' ? 0.4 : 0;
     ears.forEach(e => { if (!reduced && Math.random() < dt*0.25 && !asleep()) e.v += rnd(-5,5); e.v += (-e.a*120 - e.v*8)*dt; e.a += e.v*dt;
-      turnBone(e.bone, -(e.a*0.3 + droop), 0, e.a*0.15*e.s); });
+      turnBone(e.bone, -(e.a*0.3 + droop), 0, e.a*0.15*e.s);
+      if (e.fb){ e.fb.b.quaternion.copy(e.fb.q); turnBone(e.fb.b, -(e.a*0.3 + droop), 0, e.a*0.15*e.s); } });   // (an evolved form's own ear bones)
 
     const h = pos.y + actY; shadow.g.position.set(pos.x, petGY + 0.02, pos.z); shadow.g.rotation.set(root.rotation.x, root.rotation.y, 0, "YXZ");
     shadow.g.scale.set((1+h*0.12)*petS*reveal, 1, (1+h*0.12)*petS*reveal); shadow.m.material.opacity = clamp(1-h/5, 0.15, 1);
@@ -5616,7 +5704,7 @@ function step(manual){
           evo.face = {at:c.clone().addScaledVector(fwd, reach*0.7).setY(b.min.y + sz.y*0.55), fwd, h:Math.max(0.4, sz.y)}; }
         const F = evo.face, side = V3(F.fwd.z, 0, -F.fwd.x), want = F.at.clone().addScaledVector(F.fwd, F.h*(2.3 - 0.7*k)).addScaledVector(side, F.h*0.35).add(V3(0, F.h*0.12, 0));
         camera.position.lerp(want, Math.min(1, k*1.2)); if (!reducedMotion()){ camera.position.y += Math.sin(EVO_FX.t*9)*0.004*F.h*k; } camera.lookAt(F.at); }
-      if (art.on) art.render(); else renderer.render(scene, camera); } }
+      if (art.on){ artFocus(); art.render(); } else renderer.render(scene, camera); } }
   if (!manual) requestAnimationFrame(step);
 }
 requestAnimationFrame(step);
