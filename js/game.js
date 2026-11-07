@@ -5256,7 +5256,7 @@ function up(e){
 }
 canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
 canvas.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse' && !pts.size) hasHover = false; });
-const maxZoom = () => camMode() === 'follow' ? 1.7 : 5.6;
+const maxZoom = () => camMode() === 'follow' && !placing ? 1.7 : 5.6;
 canvas.addEventListener('wheel', e => { e.preventDefault(); zoom = clamp(zoom*Math.exp(e.deltaY*0.001), 0.5, maxZoom()); }, {passive:false});
 canvas.addEventListener('keydown', e => {
   const fixed = camMode() !== 'follow', arrow = {ArrowLeft:[40,0], ArrowRight:[-40,0], ArrowUp:[0,40], ArrowDown:[0,-40]}[e.key];
@@ -5519,7 +5519,9 @@ function step(manual){
   const cm = camMode(), tracking = placing || evo || hatching || moonView || cm === 'follow';
   const focus = placing ? placing.mesh.position : !tracking ? panTarget : S.stage === 'egg' || hatching ? V3(0,0,0) : (S.dead && tomb ? tomb.position : pos);
   const ck = Math.min(1, dt*4);
-  if (placing){ const top = S.buildView !== 'iso'; pitch += ((top ? 1.42 : 0.79) - pitch)*ck; yaw += ((top ? 0 : 0.785) - yaw)*ck; zoom += (1.2 - zoom)*ck; }
+  if (placing){ const top = S.buildView !== 'iso'; pitch += ((top ? 1.42 : 0.79) - pitch)*ck; yaw += ((top ? 0 : 0.785) - yaw)*ck;
+    // eases in once when placing starts; after that the wheel / pinch zooms freely (out far enough to see the whole area)
+    placing.zoomT = placing.zoomT || performance.now(); if (performance.now() - placing.zoomT < 700) zoom += (clamp(zoom, 1.2, 2.2) - zoom)*ck; }
   else if (evo || hatching){}
   else if (moonView){ pitch += (0.08 - pitch)*ck; yaw += wrapA(Math.atan2(-moonDirNow.x, -moonDirNow.z) - yaw)*ck; zoom += (0.8 - zoom)*ck; }   // low behind the wombat, looking up at the moon
   else if (cm === 'iso'){ pitch += (0.79 - pitch)*ck; yaw += (wrapA(0.785 - yaw))*ck; }
