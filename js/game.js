@@ -12,6 +12,7 @@ import { createGrassField } from './grassfield.js';
 import { createPaths, PATH_KINDS } from './paths.js';
 import { createFauna, SPECIES } from './fauna.js';
 import { createWildlife, WILD_NAMES } from './wildlife.js';
+import { createMasters, MASTERS } from './masters.js';
 import { createWorld, newWorld, HALF, PLOT, WATER_Y, X0, X1, Z0, Z1, BIO, plotKey, PLOT_KEYS, SEE, seeThrough, leafMaterial, swaying, CANOPY_BLOBS, leafyCanopy, canopyTex, vines, fieldStone, paintedCrown, paintedLeafMat } from './world.js';
 
 // Keep r128-era colour handling so the hand-tuned palette and fur shader look the same.
@@ -208,6 +209,7 @@ const grassTex = canvasTex(256,256,(x,w,h)=>{
 grassTex.wrapS = grassTex.wrapT = THREE.RepeatWrapping; grassTex.repeat.set(9, 9); grassTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
 // The world (terrain, river, sea, nature: js/world.js) is built from S.world once the save is loaded; gy() is the ground height anywhere.
 let world = null;
+let MST = null;   // the area masters (js/masters.js), once created
 const gy = (x, z) => world ? world.gy(x, z) : 0;
 
 // ---------- wombat (Blender model: assets/models/wombat.glb, built by blender/wombat_build.py) ----------
@@ -854,7 +856,9 @@ const BUILDS = [
   {id:'dragondrum',name:'龍舟鼓',   price:80, desc:'划龍舟時打節奏的大紅鼓。', holiday:'dragon', spot:235, size:[2,2]},
   {id:'rabbitlamp',name:'玉兔燈',   price:80, desc:'白白胖胖的兔子燈，晚上會亮。', holiday:'midautumn', spot:265, size:[2,2]},
   {id:'pumpkincart',name:'南瓜馬車', price:120, desc:'大南瓜做的馬車，晚上窗戶會亮。', holiday:'halloween', spot:295, size:[3,4]},
-  {id:'sleigh',    name:'聖誕雪橇', price:110, desc:'紅色雪橇上堆滿了禮物。', holiday:'christmas', spot:325, size:[2,3]}
+  {id:'sleigh',    name:'聖誕雪橇', price:110, desc:'紅色雪橇上堆滿了禮物。', holiday:'christmas', spot:325, size:[2,3]},
+  // the area masters' gifts (js/masters.js): free, and in the shop only once the first win against that master unlocks them
+  {id:'riddlelanterns', name:'燈謎燈籠架', price:0, desc:'烏龜爺爺送的竹子燈籠架，燈籠下面掛著寫了謎題的紙條，晚上會亮。', reward:'turtle', size:[3,1]}
 ];
 BUILDS.forEach(b => { if (b.size) b.r = Math.max(0.5, Math.hypot(b.size[0], b.size[1])/2*0.72); });   // radius the wombat steers around
 const BG = {}, nightGlow = [], trees = [], fences = [];
@@ -946,6 +950,8 @@ function build(id){
     for (let i=0;i<5;i++){ const x = -1.2 + i*0.6, l = new THREE.Mesh(new THREE.SphereGeometry(0.22,16,12), red); l.scale.y = 1.15; l.position.set(x,2.05,0); g.add(l);
       for (const y of [2.32,1.78]){ const c = new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.1,0.06,12), goldC); c.position.set(x,y,0); g.add(c); } }
     faceCenter(g, ringSpot(130));
+  } else if (id === 'riddlelanterns'){
+    g.add(masters.riddleLanterns()); faceCenter(g, ringSpot(345));
   } else if (id === 'heartarch'){
     const pink = mat('#f2a6be',0.6);
     const arc = new THREE.Mesh(new THREE.TorusGeometry(1.3,0.14,12,40,Math.PI), pink); g.add(arc);
@@ -1070,7 +1076,7 @@ function build(id){
   scene.add(g); BG[id] = g; applyPlace(id);
 }
 function unbuildAll(){ Object.keys(BG).forEach(id => { scene.remove(BG[id]); delete BG[id]; }); nightGlow.length = 0; }
-function obstacles(){ return BUILDS.filter(b => b.r && BG[b.id]).map(b => ({c:SPOTS[b.id], r:b.r})).concat(trees.map(tr => ({c:tr.g.position, r:0.55*tr.d.s})), fences.flatMap(o => fenceDots(o.f).map(c => ({c, r:0.24}))), world ? world.feats.map(f => ({c:f.g.position, r:world.featR(f.d)})) : []); }
+function obstacles(){ return BUILDS.filter(b => b.r && BG[b.id]).map(b => ({c:SPOTS[b.id], r:b.r})).concat(trees.map(tr => ({c:tr.g.position, r:0.55*tr.d.s})), fences.flatMap(o => fenceDots(o.f).map(c => ({c, r:0.24}))), world ? world.feats.map(f => ({c:f.g.position, r:world.featR(f.d)})) : [], MST ? MST.obstacles() : []); }
 // the spot in front of the door; always outside the ring the house keeps the wombat out of (else it walks on the spot there)
 function houseDoor(){ const h = SPOTS.house, ry = BG.house ? BG.house.rotation.y : Math.atan2(-h.x, -h.z), d = V3(Math.sin(ry), 0, Math.cos(ry)), hb = bdef('house');
   return h.clone().addScaledVector(d, Math.max(2.2 + 1.6*petS + 0.3, ((hb && hb.r) || 0) + 0.9*petS + 0.3)); }
@@ -1093,6 +1099,7 @@ function canPlace(id, p){
   const b = bdef(id), cells = cellsOf(b, p), c = placeCenter(b, p);
   if (cells.some(([x, z]) => !world.isOpen(x, z))) return {ok:false, why:'這裡還沒開拓，先把這塊地整理好。'};
   if (cells.some(([x, z]) => !world.buildable(x, z))) return {ok:false, why:'這裡太斜、或太靠近水邊，不能蓋。'};
+  if (MST && cells.some(([x, z]) => MST.blocks(x, z, 0.5))) return {ok:false, why:'這裡是館主的家，換個地方蓋吧。'};
   const hs = cells.map(([x, z]) => gy(x, z)); if (Math.max(...hs) - Math.min(...hs) > 0.45) return {ok:false, why:'地面高低不平，找平一點的地方。'};
   if (BG.fence && cells.some(([x, z]) => Math.abs(Math.max(Math.abs(x), Math.abs(z)) - FENCE_R) < 0.7)) return {ok:false, why:'跟圍籬重疊了。'};
   for (const [oid, op] of Object.entries(S.place || {})){
@@ -1420,7 +1427,8 @@ const SONG_INST = {morning:{lead:'flute', arp:'orchestral_harp'}, day:{lead:'mar
   valentine:{lead:'acoustic_grand_piano', pad:'string_ensemble_1'}, children:{lead:'marimba', arp:'pizzicato_strings'}, dragon:{lead:'flute', arp:'orchestral_harp'},
   midautumn:{lead:'ocarina', arp:'orchestral_harp'}, halloween:{lead:'pizzicato_strings', arp:'music_box'}, christmas:{lead:'music_box', pad:'string_ensemble_1'},
   jazz:{lead:'tenor_sax', comp:'electric_guitar_jazz', walk:true}, bossa:{lead:'alto_sax', arp:'acoustic_guitar_nylon'}, folk:{lead:'acoustic_guitar_steel', strum:'acoustic_guitar_steel'},
-  rock:{lead:'overdriven_guitar', strum:'acoustic_guitar_steel'}, fanfare:{lead:'trumpet', strum:'acoustic_guitar_steel'}};
+  rock:{lead:'overdriven_guitar', strum:'acoustic_guitar_steel'}, fanfare:{lead:'trumpet', strum:'acoustic_guitar_steel'},
+  riddle:{lead:'flute', arp:'orchestral_harp', pad:'string_ensemble_1'}};
 // the music settings ("作曲"): pick a tune and which instrument plays the melody, the accompaniment and the drums
 const COMP_STYLE = {arp:'分解和弦', strum:'刷和弦', comp:'爵士和弦', pad:'長音'};
 function songInst(id){
@@ -1465,6 +1473,9 @@ Object.assign(SONGS, {
   folk:   {bpm:100, lead:'pluck', perc:'folk', mel:[67,0,71,0,74,0,71,74, 76,0,74,72,71,0,69,0, 69,71,72,74,78,0,76,74, 71,0,0,0,67,0,0,0], bass:[[43,50],[48,55],[50,57],[43,50]], ch:[[71,74],[72,76],[74,78],[71,74]]},
   rock:   {bpm:128, lead:'square', perc:'rock', mel:[76,0,76,79,0,76,74,0, 72,0,72,74,76,0,0,0, 74,74,71,0,74,0,79,0, 78,0,76,0,74,0,0,0], bass:[[40,47],[36,43],[43,50],[38,45]], ch:[[67,71],[67,72],[67,71],[66,69]]},
   fanfare:{bpm:120, lead:'square', perc:'rock', mel:[72,0,72,76,79,0,79,0, 81,79,77,76,74,0,0,0, 77,0,77,81,84,0,81,0, 79,0,76,0,72,0,0,0], bass:[[48,55],[41,48],[43,50],[48,55]], ch:[[64,67],[65,69],[62,67],[64,67]]},
+  // the tortoise master's lantern-riddle hall: a slow pentatonic flute tune over harp, strings and a wood block
+  riddle: {bpm:84, lead:'soft', perc:'wood', mel:[74,0,76,74,71,0,69,71, 67,0,69,71,74,0,0,0, 76,0,79,76,74,71,69,0, 71,0,69,67,69,0,0,0,
+    74,76,79,0,81,79,76,0, 74,0,71,74,76,0,0,0, 79,76,74,71,69,0,71,0, 67,0,0,0,0,0,0,0], bass:[[43,50],[40,47],[36,43],[38,45]], ch:[[71,74],[67,71],[67,72],[66,69]]},
 });
 const SONG_NAME = {morning:'早晨', day:'午後', evening:'黃昏', night:'夜晚', rain:'雨天', storm:'雷雨', snow:'雪天', jazz:'爵士', bossa:'巴薩諾瓦', folk:'民謠', rock:'搖滾', fanfare:'號角'};
 const MUSIC_SONGS = ['morning', 'day', 'evening', 'night', 'rain', 'snow', 'jazz', 'bossa', 'folk', 'rock', 'fanfare'];
@@ -1495,6 +1506,7 @@ function perc(kind, i, bar, t){
   const P = S.music || {}; if (P.drums && P.drums !== 'auto'){ if (P.drums !== 'none') kit(P.drums, i, bar, t); return; }
   if (['rock', 'swing', 'bossa', 'folk'].includes(kind)){ kit(kind, i, bar, t); return; }
   if (kind === 'shaker' && i%2 === 1) noiseHit(t, 0.05, 0.028, 'highpass', 7000, out);
+  if (kind === 'wood'){ if (i === 0 || i === 4 || (i === 6 && bar % 2)) noiseHit(t, 0.04, i === 0 ? 0.07 : 0.045, 'bandpass', i === 0 ? 1500 : 2300, out, null, 8); if (i === 0 && bar === 0) tone('sine', 98, t, 0.12, 0.5, out); }   // wood block, a soft low drum on the first beat
   if (kind === 'sleigh'){ noiseHit(t, 0.06, i%4===0 ? 0.05 : 0.022, 'highpass', 8500, out); }
   if (kind === 'drum' || kind === 'gong'){
     if (i === 0 || i === 4){ const o = tone('sine',130,t,0.35,0.25,out); o.frequency.exponentialRampToValueAtTime(48,t+0.2); }
@@ -1525,7 +1537,32 @@ function schedule(step, t){
   else if (!ins.pad && !g.sparse && (i === 2 || i === 6)) ch.forEach(n => tone('triangle', mtof(n), t, 0.04, 0.25, SND.music));
   perc(g.perc, i, bar, t);
 }
+// ---------- the area masters' music: their challenge's own tune while talking or playing, and a short piece for a win or a loss ----------
+let MUSIC_OVR = null;
+function musicFor(id){ MUSIC_OVR = id && SONGS[id] ? id : null; if (SND.ctx && SND.on){ SND.step = Math.ceil(SND.step/8)*8; loadSong(wantedSong()); } }   // (switches at the next step)
+const JINGLE_INST = ['trumpet', 'string_ensemble_1', 'acoustic_bass', 'marimba', 'ocarina', 'acoustic_grand_piano'];
+function jinglePreload(){ if (SND.ctx) JINGLE_INST.forEach(loadInst); }
+function jingle(kind){
+  if (!SND.ctx || !SND.on) return;
+  const c = SND.ctx, t0 = c.currentTime + 0.06, out = SND.musVol, len = kind === 'win' ? 3.4 : 3.6;
+  SND.music.gain.cancelScheduledValues(c.currentTime); SND.music.gain.setTargetAtTime(0.0001, c.currentTime, 0.05); SND.music.gain.setTargetAtTime(0.9, t0 + len, 0.4);   // the song steps aside
+  const n = (inst, m, t, v, d, synth = 'triangle') => { if (!playI(inst, m, t0 + t, v, d, out)) tone(synth, mtof(m), t0 + t, v*0.3, d, out); };
+  const kick = t => { const o = tone('sine', 120, t0 + t, 0.4, 0.3, out); o.frequency.exponentialRampToValueAtTime(42, t0 + t + 0.22); };
+  if (kind === 'win'){   // a fanfare: trumpet over strings, bass and drums, a marimba sparkle at the end
+    [[72, 0, 0.2], [76, 0.18, 0.2], [79, 0.36, 0.2], [84, 0.54, 0.5], [81, 1.08, 0.18], [84, 1.26, 1.8]].forEach(([m, t, d]) => n('trumpet', m, t, 0.55, d, 'square'));
+    [[[60, 64, 67], 0, 1.0], [[65, 69, 72], 1.08, 0.2], [[60, 64, 67, 72], 1.26, 1.9]].forEach(([ch, t, d]) => ch.forEach(m => n('string_ensemble_1', m, t, 0.2, d)));
+    [[36, 0, 1], [41, 1.08, 0.2], [36, 1.26, 1.8]].forEach(([m, t, d]) => n('acoustic_bass', m, t, 0.55, d, 'sine'));
+    [0, 0.54, 1.26].forEach(kick); for (let i=0;i<8;i++) noiseHit(t0 + 0.9 + i*0.045, 0.06, 0.03 + i*0.008, 'bandpass', 1900, out);
+    [84, 88, 91, 96].forEach((m, i) => n('marimba', m, 1.3 + i*0.09, 0.35, 0.6, 'sine'));
+  } else {   // a gentle "next time": ocarina over piano chords and bass, landing softly at home
+    [[76, 0, 0.3], [74, 0.3, 0.3], [72, 0.6, 0.3], [71, 0.9, 0.55], [72, 1.6, 1.8]].forEach(([m, t, d]) => n('ocarina', m, t, 0.5, d, 'sine'));
+    [[[57, 60, 64], 0], [[53, 57, 60], 0.6], [[55, 59, 62], 0.9], [[48, 55, 60, 64], 1.6]].forEach(([ch, t]) => ch.forEach((m, k) => n('acoustic_grand_piano', m, t + k*0.02, 0.22, t > 1.5 ? 1.8 : 0.6)));
+    [[45, 0], [41, 0.6], [43, 0.9], [36, 1.6]].forEach(([m, t]) => n('acoustic_bass', m, t, 0.5, t > 1.5 ? 1.8 : 0.6, 'sine'));
+    [0, 1.6].forEach(t => { const o = tone('sine', 110, t0 + t, 0.18, 0.4, out); o.frequency.exponentialRampToValueAtTime(50, t0 + t + 0.3); });
+  }
+}
 function wantedSong(){
+  if (MUSIC_OVR) return MUSIC_OVR;
   const P = S.music || {}; if (P.song && P.song !== 'auto' && SONGS[P.song]) return P.song;
   const h = activeHoliday(); if (h) return h.song;
   const w0 = weatherNow(), ph = dayInfo().phase, slot = Math.floor(Date.now()/240000);   // a new tune every 4 minutes
@@ -3175,6 +3212,8 @@ const SKILLS = {
   rock:{icon:'🦛', name:'咬碎石頭', from:'hippo', need:2, desc:'跟河馬學會把石頭咬碎，以後清石頭免費'},
   ninja:{icon:'🐢', name:'忍術瞬移', from:'turtle', need:2, desc:'跟池塘的烏龜學會忍者的瞬間移動：施展本領時會在一陣煙和樹葉中消失，「啵」一聲出現在樹、樹叢或石頭旁邊'},
   gnaw:{icon:'🦫', name:'啃木頭', from:'beaver', need:1, desc:'跟河狸學會啃樹：砍樹免費，還會賺到木材錢；也學會了做木筏和碼頭的方法（之後可以划去別的島）'},
+  // taught by an area master on the first win (js/masters.js)
+  slowlife:{icon:'🍵', name:'慢活', master:'turtle', desc:'跟烏龜爺爺學會慢慢來：睡覺時體力恢復快 30%'},
 };
 const hasSkill = k => !!(S.skills && S.skills[k]);
 const skillCount = k => stat('meetU:' + SKILLS[k].from);
@@ -3549,9 +3588,11 @@ function tasksHTML(){
     + `<p class="sec">三個都完成再加 30 代幣${D_.bonus ? '（今天已領）' : ''}。每天（台灣時間）午夜換新任務。</p>`;
   const got = ACH.filter(a => S.ach && S.ach[a.id]).length;
   const skills = `<p class="sec">跟動物學的本領</p><div class="tiles">` + Object.entries(SKILLS).map(([k, sk]) => { const ok = hasSkill(k), nm = SPECIES[sk.from] || WILD_NAMES[sk.from] || sk.from;
-    return `<div class="tile${ok ? '' : ' dim'}"><span class="ti">${sk.icon}</span><span class="tn">${sk.name}</span><span class="tn" style="color:var(--soft);font-size:11px">${ok ? sk.desc : `點過 ${sk.need} 隻不同的${nm}${sk.area ? `（要先${sk.areaTxt}）` : ''}`}</span>`
-      + `${ok ? '' : `<span class="tn" style="font-size:11px;font-weight:700">${Math.min(sk.need, skillCount(k))} / ${sk.need}</span>`}<span class="tb">${ok ? '✓' : ''}</span></div>`; }).join('') + `</div>`;
-  return skills + `<p class="sec">已達成 ${got} / ${ACH.length}</p><div class="tiles">` + ACH.map(a => { const ok = S.ach && S.ach[a.id];
+    const how = sk.master ? `打贏${MASTERS[sk.master].areaName}的${MASTERS[sk.master].name}（${MASTERS[sk.master].gameName}）` : `點過 ${sk.need} 隻不同的${nm}${sk.area ? `（要先${sk.areaTxt}）` : ''}`;
+    return `<div class="tile${ok ? '' : ' dim'}"><span class="ti">${sk.icon}</span><span class="tn">${sk.name}</span><span class="tn" style="color:var(--soft);font-size:11px">${ok ? sk.desc : how}</span>`
+      + `${ok || sk.master ? '' : `<span class="tn" style="font-size:11px;font-weight:700">${Math.min(sk.need, skillCount(k))} / ${sk.need}</span>`}<span class="tb">${ok ? '✓' : ''}</span></div>`; }).join('') + `</div>`;
+  const badges = `<p class="sec">館主徽章（每一世重新挑戰）</p><div class="tiles">${masters.badgesHTML()}</div>`;
+  return skills + badges +`<p class="sec">已達成 ${got} / ${ACH.length}</p><div class="tiles">` + ACH.map(a => { const ok = S.ach && S.ach[a.id];
     const pg = ok ? null : achProg(a);
     return `<div class="tile${ok ? '' : ' dim'}" title="${a.desc}"><span class="ti">${a.icon}</span><span class="tn">${a.name}</span><span class="tn" style="color:var(--soft);font-size:11px">${a.desc}</span>${pg ? `<span class="tn" style="font-size:11px;font-weight:700">${pg[0]} / ${pg[1]}</span>` : ''}<span class="tb">${ok ? '✓' : '+' + a.coins}</span></div>`; }).join('') + `</div>`;
 }
@@ -3593,7 +3634,7 @@ function sim(m, offline){
   if (S.swollen){ st.happy -= 0.25*m*k; st.health -= 0.08*m*k; }   // bee-sting bumps hurt until treated
   if (S.muddy > 0){ S.muddy = Math.max(0, S.muddy - m*(badWeather() ? 60 : 12)); applyFur(); }   // the mud wears off (fast in the rain)
   if (offline) st.energy += 1.2*m;
-  else if (asleep()) st.energy += (B.mode === 'inHouse' ? 3.2 : 2.4)*m;
+  else if (asleep()) st.energy += (B.mode === 'inHouse' ? 3.2 : 2.4)*m*(hasSkill('slowlife') ? 1.3 : 1);
   else if (act && act.key === 'fireflies') st.energy += 1.5*m;
   else st.energy -= 0.35*m*(w==='snow'?1.3:1)*(st.health<35?1.3:1)*(S.form === 'm_energetic' ? 0.8 : 1);
   let dh = 0;
@@ -4409,6 +4450,7 @@ function updateWorld(dt, t){
   if (badWeather()) wetUntil = Date.now() + 600000;   // worms come up in the rain and for a while after it
   wild.update(dt, t, {cam:camTarget, home: BG.house ? BG.house.position : SPOTS.house, pet: petActive() && root.visible ? pos : null, night:di.n, wet: Date.now() < wetUntil, onSound: (n, at) => sfx(n, at),
     onEvent: (e, at) => { if (e === 'eagleCatch' && Math.hypot(at.x - camTarget.x, at.z - camTarget.z) < 35){ const first = !stat('eagleCatch'); track('eagleCatch'); if (first) toast('老鷹俯衝抓到獵物了！'); } }});
+  masters.update(dt, petActive() && root.visible ? pos : null);
   fauna.update(dt, t, {bad:badWeather(), cam:camTarget, pet: petActive() && root.visible ? pos : null, night:di.n, onScare:animalScare, onSmile: p => floatSprite(emojiTex('😊'), p.add(V3(0, 0.9, 0)), {size:0.5, vy:0.5, max:1.6}), onZzz: p => floatSprite(textTex('Z','#5d6e8f','bold 90px sans-serif','rgba(255,255,255,.85)'), p, {size:0.35, vy:0.5, vx:0.2, max:2}),
     chips: p => floatSprite(radialTex('rgba(201,160,110,1)','rgba(201,160,110,0)'), p, {size:0.12, vx:rnd(-1,1), vz:rnd(-1,1), vy:rnd(1,2), g:8, max:0.6, grow:0}), treeNear:(x, z, r) => { const tr = trees.find(t => Math.hypot(t.d.x - x, t.d.z - z) < r); return tr ? tr.d : null; }});
   flashV *= Math.exp(-5*dt); $('#flash').style.opacity = (flashV*0.8).toFixed(3);
@@ -4615,7 +4657,7 @@ const TRICK_ICON = {flowerview:'🌸', nightwalk:'🔦', sit:'🐾', flip:'🤸'
 const TRICK_DESC = {dig:'用前腳拚命挖土，偶爾會挖到代幣！', zoomies:'突然興奮地繞圈暴衝。體力 -6，心情 +10', wave:'坐著舉起前腳跟你揮手。', bow:'低下頭鞠個躬。', hop:'往前跳三下。', stretch:'前腳往前伸，打個大哈欠。', sit:'乖乖坐下，看著你。心情 +6', flip:'原地一個後空翻！體力 -6，心情 +10', roll:'連續側翻滾三圈。體力 -6，心情 +10', spin:'跳起來轉一圈。體力 -6，心情 +10',
   belly:'翻過來露出肚子扭扭。體力 -6，心情 +10', shake:'甩甩全身的毛。體力 -6，心情 +10', dance:'跟著音樂跳舞。體力 -8，心情 +14', ballroll:'縮成一顆球往前滾。體力 -6，心情 +12'};
 const CLOTH_ICON = {party:'🥳', straw:'👒', glasses:'👓', bow:'🎀', scarf:'🧣', sweater:'🧶', nyband:'🎊', caishen:'🧧', heartgl:'😍', propeller:'🚁', sachet:'🎐', bunny:'🐰', witch:'🧙', santa:'🎅'};
-const BUILD_ICON = {cottage:'🏡', bench:'🪑', swing:'🎠', sandbox:'🏖️', well:'🪣', windmill:'🌬️', mailbox:'📮', scarecrow:'🌾', mushroom:'🍄', fruittree:'🍎', fountain:'⛲', house:'🕳️', pond:'🐟', lamp:'💡', flowers:'🌷', fence:'🪵', fireworks:'🎆', lanterns:'🏮', heartarch:'💗', slide:'🎢', dragonboat:'🐉', moonlamp:'🌕', pumpkins:'🎃', clocktower:'🕛', cnygate:'🧧', rosebed:'🌹', seesaw:'🛝', dragondrum:'🥁', rabbitlamp:'🐇', pumpkincart:'🎃', sleigh:'🛷', xmastree:'🎄'};
+const BUILD_ICON = {cottage:'🏡', bench:'🪑', swing:'🎠', sandbox:'🏖️', well:'🪣', windmill:'🌬️', mailbox:'📮', scarecrow:'🌾', mushroom:'🍄', fruittree:'🍎', fountain:'⛲', house:'🕳️', pond:'🐟', lamp:'💡', flowers:'🌷', fence:'🪵', fireworks:'🎆', lanterns:'🏮', heartarch:'💗', slide:'🎢', dragonboat:'🐉', moonlamp:'🌕', pumpkins:'🎃', clocktower:'🕛', cnygate:'🧧', rosebed:'🌹', seesaw:'🛝', dragondrum:'🥁', rabbitlamp:'🐇', pumpkincart:'🎃', sleigh:'🛷', xmastree:'🎄', riddlelanterns:'🏮'};
 let shopTab = 'food', feedTab = 'food', detailQty = 1;
 const tabsHTML = (tabs, cur, attr) => `<div class="tabs" role="tablist">` + tabs.map(([k,l]) => `<button class="tab" role="tab" aria-selected="${k === cur}" data-${attr}="${k}">${l}</button>`).join('') + `</div>`;
 const tileHTML = (e, i) => `<button class="tile${e.dim ? ' dim' : ''}" data-tile="${i}" aria-label="${e.name}"><span class="ti">${e.icon}</span><span class="tn">${e.name}</span>${e.badge ? `<span class="tb">${e.badge}</span>` : ''}</button>`;
@@ -4688,11 +4730,11 @@ function shopEntries(tab){
   const clothE = c => ({icon:CLOTH_ICON[c.id] || '👕', name:c.name, badge: S.owned[c.id] ? '已擁有' : `${c.price}`, dim: !S.owned[c.id] && !holLive(c),
     body:`<p>${c.holiday ? `${HOLIDAYS.find(x=>x.id===c.holiday).name}限定，只在節日當天賣。` : ''}${S.owned[c.id] ? '已經有了，到衣櫥可以穿脫、換顏色。' : `${c.price} 代幣`}</p>`,
     actions: S.owned[c.id] || !holLive(c) ? no : [...no, {label:'購買並穿上', onClick:() => buyCloth(c)}]});
-  const buildE = b => ({icon:BUILD_ICON[b.id] || '🏗️', name:b.name, badge: S.builds[b.id] ? '已建造' : `${b.price}`, dim: !S.builds[b.id] && !holLive(b),
-    body:`<p>${b.desc}</p><p>${b.holiday ? `${HOLIDAYS.find(x=>x.id===b.holiday).name}限定。` : ''}${S.builds[b.id] ? '已經蓋好了。' : `${b.price} 代幣`}</p>`,
+  const buildE = b => ({icon:BUILD_ICON[b.id] || '🏗️', name:b.name, badge: S.builds[b.id] ? '已建造' : b.reward ? '贈品' : `${b.price}`, dim: !S.builds[b.id] && !holLive(b),
+    body:`<p>${b.desc}</p><p>${b.holiday ? `${HOLIDAYS.find(x=>x.id===b.holiday).name}限定。` : ''}${b.reward ? `打贏${MASTERS[b.reward].name}得到的禮物，免費蓋。` : ''}${S.builds[b.id] ? '已經蓋好了。' : b.reward ? '' : `${b.price} 代幣`}</p>`,
     actions: S.builds[b.id] ? (b.size ? [...no, {label:'移動', onClick:() => startPlace(b.id, false)}] : no) : !holLive(b) ? no : [...no, {label: b.size ? '選位置蓋' : '建造', onClick:() => b.size ? startPlace(b.id, true) : buyBuild(b)}]});
   if (tab === 'cloth') return CLOTHES.filter(c => !c.holiday || S.owned[c.id] || holLive(c)).map(clothE);
-  if (tab === 'build') return [...BUILDS.filter(b => (!b.holiday || S.builds[b.id] || holLive(b)) && (b.id !== 'fence' || S.builds.fence)).map(buildE),
+  if (tab === 'build') return [...BUILDS.filter(b => (!b.holiday || S.builds[b.id] || holLive(b)) && (!b.reward || S.builds[b.id] || (S.rewards || {})[b.id]) && (b.id !== 'fence' || S.builds.fence)).map(buildE),
     {icon:'🌉', name:'木頭拱橋', badge:`${BRIDGE_PRICE}`, body:`<p>蓋在河上，袋熊就能走到對岸。可以蓋好幾座。</p><p>${BRIDGE_PRICE} 代幣。要移動或拆掉已經蓋好的橋，點一下那座橋。</p>`,
       actions:[...no, {label:'選位置蓋', onClick:() => buyBridge()}]},
     ...Object.entries(PATH_KINDS).map(([k, K]) => ({icon:K.icon, name:K.name, badge:`${K.price}/格`, body:`<p>${K.desc}</p><p>一格（1 公尺見方）${K.price} 代幣。用手指在地上畫，經過的格子就會鋪上；可以切換成「擦掉」把路拿掉，或「移動畫面」看別的地方。</p>`,
@@ -5126,7 +5168,7 @@ function pickAt(e){
   if (BG.house) list.push(BG.house.userData.dome);
   Object.values(BG).forEach(g => g.userData.hb && list.push(g.userData.hb));
   trees.forEach(tr => list.push(tr.hb)); fences.forEach(o => list.push(o.hb)); if (tomb && tomb.userData.hb) list.push(tomb.userData.hb);
-  list.push(...world.pick, ...beachPick(), ...fauna.pick, ...wild.pick, ...flockPick());
+  list.push(...world.pick, ...beachPick(), ...fauna.pick, ...wild.pick, ...flockPick(), ...masters.pick);
   scene.updateMatrixWorld(true);
   const hits = ray.intersectObjects(list, false).filter(h => isShown(['poop','weed'].includes(h.object.userData.kind) ? h.object.parent : h.object));
   const ani = hits.find(h => h.object.userData.kind === 'animal');   // an insect sitting on a rock or a trunk: the rock's tap area would catch it first
@@ -5237,6 +5279,7 @@ function up(e){
     else if (k === 'crab') pokeCrab(tapObj.userData.ref);
     else if (k === 'beachlife') pokeBeachLife(tapObj.userData.ref);
     else if (k === 'animal') pokeAnimal(tapObj.userData.ref);
+    else if (k === 'master') masters.tap(tapObj.userData.ref);
     else if (k === 'flamingo') pokeFlamingo(flock.birds && flock.birds.find(b => b.hb === tapObj));
     else if (k === 'food' || k === 'bowl') callToFood(k, tapObj.userData.ref);
     else if (k === 'fish'){ const f = tapObj.userData.ref; if (world.jumpFish(f)){ sfx('splash'); for (let i=0;i<8;i++){ const a = Math.random()*Math.PI*2; floatSprite(radialTex('rgba(225,240,248,1)','rgba(225,240,248,0)'), f.g.position.clone().setY(WATER_Y + 0.1), {size:0.25, vx:Math.cos(a)*1.4, vz:Math.sin(a)*1.4, vy:rnd(2,3), g:9, max:0.7, grow:0}); }
@@ -5366,6 +5409,14 @@ world.load(S.world);
 const grew = !worldIsNew && preV < 5;   // the save was made with smaller plots (18 or 24 wide): spread our own things out the same way the world was
 if (grew){ const k = PLOT/(preV < 4 ? 18 : 24), s = v => +(v*k).toFixed(2), xz = a => { a[0] = s(a[0]); a[1] = s(a[1]); };
   (S.trees || []).forEach(t => { t.x = s(t.x); t.z = s(t.z); }); (S.weeds || []).forEach(xz); (S.poops || []).forEach(xz); (S.snowmen || []).forEach(xz); if (S.petPos) xz(S.petPos); }
+// the area masters (js/masters.js): created here so their gift buildings can be built; placed in the world once the trees are in
+const masters = createMasters({scene, renderer, world, gy, mat, glowMat, canvasTex, hbMat, S:() => S, save, sfx, track, real: n => realClone(REAL_ALIAS[n] || n),
+  // no tree, rock, bush or building of ours within r of (x, z), opened plots or not
+  clear:(x, z, r) => (S.trees || []).every(t => Math.hypot(t.x - x, t.z - z) > r + 0.6*(t.s || 1)) && (S.world.feats || []).every(d => Math.hypot(d.x - x, d.z - z) > r + 0.9*(d.s || 1)) && !inBuild(x, z, r),
+  phase:() => dayInfo().phase, weather:() => weatherNow(), focus:p => { const k = 1.3*zoom; panTarget.set(p.x + Math.sin(yaw)*k, 0, p.z + Math.cos(yaw)*k); clampPan(); },   // (a little toward the camera: the master shows above the talk panel)
+  addCoins:n => addCoins(n), unlockBuild:id => { S.rewards = {...(S.rewards || {}), [id]:true}; save(); }, buildName:id => bdef(id).name,
+  learn:k => { S.skills = {...(S.skills || {}), [k]:true}; save(); }, skillName:k => SKILLS[k].name,
+  music:{play:musicFor, preload:jinglePreload, jingle}});
 Object.keys(S.builds).forEach(id => S.builds[id] && build(id));
 if (grew) (S.trees || []).forEach(t => { if (inBuild(t.x, t.z, 0.8)){ const q = freeNear(V3(t.x, 0, t.z), 0.8); t.x = +q.x.toFixed(2); t.z = +q.z.toFixed(2); } });   // buildings stayed put
 if (!S.trees) plantTrees();
@@ -5390,6 +5441,7 @@ if (!S.world.balanced){ S.world.balanced = 1; const taken = (x, z, r) => S.trees
 S.trees.filter(d => world.isOpenKey(d.p || '0,0')).forEach(makeTree); applyBumps(); (S.fences || []).forEach(makeFence); pathsRedraw();
 world.showFeats();
 const fauna = createFauna({scene, world, mat, hbMat, onSound: (n, at) => sfx(n, at), clone: n => animalClone(n), real: n => realClone(REAL_ALIAS[n] || n), lod:furLOD}); fauna.setTrunk(trunkShape);
+masters.init(); MST = masters;
 const koalaPerches = () => fauna.setPerches([...trees.filter(tr => tr.d.euc && !tr.cut).map(tr => tr.d), ...world.lockedEucs(BIO.aus)]);
 koalaPerches();
 const wild = createWildlife({scene, world, clone:animalClone, real: n => realClone(REAL_ALIAS[n] || n), hbMat, mat, lod:furLOD, fx:{
@@ -5472,7 +5524,7 @@ if (EVOTEST) (async () => {
     out(`${bad.length ? '✗' : '✓'} 實跑 ${n} 條分支（另 2 條固定：蛋→初生→幼兒）${bad.length ? '\n' + bad.join('\n') : '，全部進化到正確型態'}`); };
   P.querySelector('#edReset').onclick = () => location.reload();
 })();
-if (new URLSearchParams(location.search).has('debug')) window.W = {renderer, scene, startPaint, pathsRedraw, flock, boats, startPiece, fences, TREE_KINDS, startEvolution, EVO_FX, getEvo: () => evo, BEACH_LIFE, wear, art, setArt, inBuild, freeNear, poopNow, spawnWeed, weedSpotOK, overBridge, moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3, applyForm, FORM_MESH,
+if (new URLSearchParams(location.search).has('debug')) window.W = {renderer, scene, startPaint, pathsRedraw, flock, boats, startPiece, fences, TREE_KINDS, startEvolution, EVO_FX, getEvo: () => evo, BEACH_LIFE, wear, art, setArt, inBuild, freeNear, poopNow, spawnWeed, weedSpotOK, overBridge, moveBridge, bridgeObjMenu, startSkill, demolish, houseDoor, groundOK, navClear, camera, bridgeMenu, getPlacing: () => placing, placePointer, startUse, spawnBowl, callToFood, foods, getBowl: () => bowl, isAct: () => !!act, songId: () => SND.songId, instLoaded: () => Object.entries(INST).map(([k, v]) => k + ':' + Object.keys(v.buf).length).join(' '), amb: () => ({surf: AMB.surf ? AMB.surf.g.gain.value : -1, river: AMB.river ? AMB.river.g.gain.value : -1}), wild, fauna, pokeAnimal, swimRingVisible: () => swimRing.visible, track, checkAch, dailyNow, ACH, ACTS, moonDirNow, sunDirNow, moonPhase, NAV, findPath, navEnsure, world, openPlot, panTarget, crabs, shells, spawnFood, startPlace, commitPlace, cancelPlace, BG, die, startAct, trees, sting, butterflies, releaseSpirit, petTap, flies, roaches, THREE, model, body, head, bodyFit, BONE, CL, ACC, S, eyes, CLIP, mixer, root, squashG, B, pos, cubes, weeds, makePoop, makeWeed, cleanPoop, pullWeed, V3, applyForm, FORM_MESH, masters, musicFor, jingle,
   run:(secs) => { for (let i=0;i<secs*30;i++) step(true); clock.getDelta(); },
   sim:(secs) => { skipRender = true; try { for (let i=0;i<secs*30;i++) step(true); } finally { skipRender = false; } clock.getDelta(); },
   cam:(y, p, z) => { yaw = y; pitch = p; zoom = z; }, freeze:(ry = 0) => { B.mode = 'idle'; B.timer = 1e9; B.lookYaw = 0; B.lookPitch = 0; B.lookT = 1e9; pos.set(0,0,0); root.rotation.y = ry; }};
