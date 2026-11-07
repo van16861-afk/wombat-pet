@@ -214,7 +214,8 @@ export function createMasters(G){
       a.zz.visible = false;
       // turns (stepping round on all four legs) to face the wombat when it comes near or while talking; grazes now and then
       const d = petPos ? Math.hypot(petPos.x - a.at.x, petPos.z - a.at.z) : 99;
-      const want = M.talking === a.id || d < 7 ? Math.atan2(petPos.x - a.at.x, petPos.z - a.at.z) : a.ry, diff = wrapA(want - a.body.rotation.y);
+      // (no wombat out — an egg, asleep in its house: he faces his visitors' way, the door's)
+      const want = petPos && (M.talking === a.id || d < 7) ? Math.atan2(petPos.x - a.at.x, petPos.z - a.at.z) : a.ry, diff = wrapA(want - a.body.rotation.y);
       if (a.state === 'sleep'){ a.state = 'idle'; play(a, 'idle'); }
       if (Math.abs(diff) > 0.3){ a.state = 'turn'; play(a, 'walk', 0.7); a.body.rotation.y += Math.sign(diff)*Math.min(Math.abs(diff), dt*0.45); }
       else if (a.state === 'turn'){ a.state = 'idle'; play(a, 'idle'); }
@@ -289,7 +290,7 @@ export function createMasters(G){
       const c = await say(line, [`挑戰${a.m.gameName}`, '聊聊天', {label:'下次再來', ghost:true}]);
       if (c === 0){ if (await riddleGame(a) === 'quit') return; line = pick(T.again); continue; }
       if (c === 1){ if (await say(pick(T.chat)) === -2) return; line = '還有什麼想跟爺爺說的嗎？'; continue; }
-      if (c === 2) await say(pick(T.bye));
+      if (c === 2){ const bye = say(pick(T.bye)); await Promise.race([bye, new Promise(r => setTimeout(r, 2600))]); }   // (closes by itself after the goodbye)
       end(); return;
     }
   }

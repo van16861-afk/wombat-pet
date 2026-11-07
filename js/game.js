@@ -4450,7 +4450,7 @@ function updateWorld(dt, t){
   if (badWeather()) wetUntil = Date.now() + 600000;   // worms come up in the rain and for a while after it
   wild.update(dt, t, {cam:camTarget, home: BG.house ? BG.house.position : SPOTS.house, pet: petActive() && root.visible ? pos : null, night:di.n, wet: Date.now() < wetUntil, onSound: (n, at) => sfx(n, at),
     onEvent: (e, at) => { if (e === 'eagleCatch' && Math.hypot(at.x - camTarget.x, at.z - camTarget.z) < 35){ const first = !stat('eagleCatch'); track('eagleCatch'); if (first) toast('老鷹俯衝抓到獵物了！'); } }});
-  masters.update(dt, petActive() && root.visible ? pos : null);
+  try { masters.update(dt, petActive() && root.visible ? pos : null); } catch(e){ console.error(e); }   // (a slip in the masters must never stop the whole game)
   fauna.update(dt, t, {bad:badWeather(), cam:camTarget, pet: petActive() && root.visible ? pos : null, night:di.n, onScare:animalScare, onSmile: p => floatSprite(emojiTex('😊'), p.add(V3(0, 0.9, 0)), {size:0.5, vy:0.5, max:1.6}), onZzz: p => floatSprite(textTex('Z','#5d6e8f','bold 90px sans-serif','rgba(255,255,255,.85)'), p, {size:0.35, vy:0.5, vx:0.2, max:2}),
     chips: p => floatSprite(radialTex('rgba(201,160,110,1)','rgba(201,160,110,0)'), p, {size:0.12, vx:rnd(-1,1), vz:rnd(-1,1), vy:rnd(1,2), g:8, max:0.6, grow:0}), treeNear:(x, z, r) => { const tr = trees.find(t => Math.hypot(t.d.x - x, t.d.z - z) < r); return tr ? tr.d : null; }});
   flashV *= Math.exp(-5*dt); $('#flash').style.opacity = (flashV*0.8).toFixed(3);
