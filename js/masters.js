@@ -2,9 +2,11 @@
 // opens a visual-novel style talk (portrait, name plate, text box) and from there its challenge: a fight, a minigame, a
 // puzzle, riddles, rhythm or song guessing. Winning gives coins and a badge (once in each of the wombat's lives), and the
 // first win ever also unlocks a building and teaches a life skill; after that a win pays a little once a day.
-// The first one is 烏龜爺爺, the old tortoise by the lily pond, and his lantern riddles (燈謎).
+// 烏龜爺爺, the old tortoise by the lily pond, sets lantern riddles (燈謎); 海豚姊姊, the dolphin off the north-east beach,
+// runs the music hall: guess the song, then tap along in time (節奏).
 import * as THREE from 'three';
-import { PLOT, BIO } from './world.js';
+import { PLOT, BIO, WATER_Y } from './world.js';
+import { TUNES, parseTune } from './tunes.js';
 
 const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
 const rnd = (a, b) => a + Math.random()*(b - a);
@@ -14,8 +16,13 @@ const shuffle = a => { a = a.slice(); for (let i=a.length-1;i>0;i--){ const j = 
 
 export const MASTERS = {
   turtle:{name:'烏龜爺爺', area:BIO.pond, areaName:'荷花池塘', model:'tortoise', size:1.6, game:'riddle', gameName:'猜燈謎',
-    badge:{icon:'🏮', name:'燈謎徽章'}, building:'riddlelanterns', skill:'slowlife', coins:100, daily:20, need:4, rounds:5},
+    badge:{icon:'🏮', name:'燈謎徽章'}, building:'riddlelanterns', skill:'slowlife', coins:100, daily:20, need:4, rounds:5, song:'riddle', call:'爺爺', voice:true},
+  dolphin:{name:'海豚姊姊', area:'1,-1', areaName:'東北邊的海岸', model:'dolphin', size:0.62, por:[1, 0.35, -0.75], porD:1.3, game:'music', gameName:'音樂挑戰', sea:true,
+    badge:{icon:'🎵', name:'音樂徽章'}, building:'shellstage', skill:'rhythm', coins:100, daily:20, need:4, rounds:5, pass:80, song:'seaside', call:'姊姊'},
 };
+// the songs the rhythm game uses (steady, not too fast)
+const RHYTHM = ['twinkle', 'bee', 'lamb', 'joy', 'london', 'tigers', 'farm', 'surprise', 'largo'];
+const LEADS = ['marimba', 'flute', 'acoustic_grand_piano', 'music_box', 'ocarina'];
 
 // Lantern riddles. The traditional ones are old folk riddles, free for anyone; the last group is about this game's world.
 // q: the riddle, c: what kind of thing the answer is, a: the answer, o: three wrong choices of the same kind, w: why (for the
@@ -75,6 +82,28 @@ const TALK = {
     win:['了不起！%題答對了%題。燈謎館這一關，你過了！'],
     lose:['%題答對了%題，差一點點。休息一下再來吧，爺爺隨時都在。'],
     bye:['慢走啊，路上小心。', '有空再來陪爺爺說說話。', '下次見，小袋熊。'],
+    more:'還有什麼想跟爺爺說的嗎？', gift:['這些都是你的了。有空常來陪爺爺說說話。', '今天的禮物已經送過囉，不過答得好，爺爺還是很開心。'], thanks:'謝謝爺爺',
+  },
+  dolphin:{
+    first:['嗨嗨～你就是新來的小袋熊吧？我是住在這片海裡的海豚姊姊！', '我最喜歡音樂了！這座貝殼音樂廳，是我跟海浪一起蓋的喔。',
+      '我的挑戰有兩關：先猜歌，五首猜對四首；再跟著音樂打節奏，拿到 80 分就過關！', '過關的話，姊姊有超棒的禮物送你！要不要來試試看？'],
+    again:['又來找姊姊玩啦？今天要不要挑戰音樂？', '海浪今天的節奏好棒喔，你聽到了嗎？', '來來來，姊姊剛練好幾首新歌！'],
+    cleared:['上次你好厲害喔！要不要再來一場？', '音樂徽章戴起來很帥吧？再來玩嘛～'],
+    night:['（在水面上輕輕漂著）嗯……晚上的海好安靜，唱歌要小聲一點喔。', '（睜開一隻眼睛）月亮好亮喔，你也睡不著嗎？'],
+    rain:['下雨了！雨滴打在海面上，滴滴答答的，好像在打鼓！', '雨天最適合在水裡跳舞了～'],
+    chat:['你知道嗎？海豚會用口哨聲叫彼此的名字，每隻海豚的口哨都不一樣喔。', '我們睡覺的時候，只讓一半的腦袋休息，另一半還醒著注意四周。',
+      '鯨魚大哥唱歌超好聽，有時候整片海都聽得到。', '海鷗老是想偷吃我的魚，真是的！', '烏龜爺爺的燈謎好難喔，我都猜不出來。',
+      '音樂就是要開心！唱錯了也沒關係，大聲唱就對了！', '跳出水面之前，要先吸一大口氣喔。', '看到我們一群一起游過去，就是要去找好吃的魚了。'],
+    start:['好，第一關：猜歌！仔細聽，這是哪一首歌？'],
+    ask:'這是哪一首歌呢？',
+    right:['答對了！耳朵好靈喔！', '沒錯～就是這首！', '哇，一下就聽出來了！', '好厲害，完全正確！'],
+    wrong:['可惜～這首是「%」。', '差一點點！答案是「%」。', '嘻嘻，被考倒了吧？是「%」喔。'],
+    lose:['%首猜對了%首，差一點點！多聽幾次就會了，下次再來喔。'],
+    beat:['第一關過了！第二關：打節奏！音符掉到線上的時候，點下面一樣顏色的按鈕。拿到 80 分就過關！'],
+    beatWin:['%分！太棒了，你的節奏感跟我一樣好！兩關都過了！'],
+    beatLose:['%分，差一點點！要 80 分才過關喔，再試一次吧！'],
+    bye:['掰掰～記得常來玩喔！', '下次見，小袋熊！', '要來聽我唱歌喔～掰掰！'],
+    more:'還有什麼想跟姊姊聊的嗎？', gift:['這些都是你的了！有空常來找姊姊玩喔！', '今天的禮物已經送過囉，不過你玩得好棒，姊姊好開心！'], thanks:'謝謝姊姊',
   },
 };
 
@@ -150,9 +179,71 @@ export function createMasters(G){
     return g;
   }
 
+  // ---------- the dolphin's music hall: a scallop-shell band shell on the sand, open to the sea, with coral columns ----------
+  function scallopTex(){
+    return canvasTex(512, 256, (x, w, h) => {
+      const gr = x.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#fbe3d6'); gr.addColorStop(1, '#f2b9a6'); x.fillStyle = gr; x.fillRect(0, 0, w, h);
+      for (let i=0;i<18;i++){ const cx = (i + 0.5)/18*w; x.fillStyle = i % 2 ? 'rgba(214,120,110,.28)' : 'rgba(255,255,255,.35)'; x.fillRect(cx - w/36, 0, w/18*0.55, h); }   // the shell's ribs
+      x.strokeStyle = 'rgba(160,80,70,.25)'; x.lineWidth = 3; for (let y = 30; y < h; y += 34){ x.beginPath(); x.moveTo(0, y); x.lineTo(w, y); x.stroke(); }   // growth lines
+    });
+  }
+  function noteTex(ch, col){ return canvasTex(128, 128, (x, w, h) => { x.font = 'bold 96px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.lineWidth = 8; x.strokeStyle = '#fff'; x.strokeText(ch, w/2, h/2); x.fillStyle = col; x.fillText(ch, w/2, h/2); }); }
+  function coral(h, col){
+    const g = new THREE.Group(), m_ = mat(col, 0.8), trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.24, h, 10), m_); trunk.position.y = h/2; g.add(trunk);
+    for (let i=0;i<5;i++){ const a = i*2.4, y = h*(0.35 + i*0.12), br = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.1, 0.6, 8), m_);
+      br.position.set(Math.cos(a)*0.22, y, Math.sin(a)*0.22); br.rotation.set(Math.sin(a)*0.7, 0, -Math.cos(a)*0.7); g.add(br);
+      const tip = new THREE.Mesh(new THREE.SphereGeometry(0.075, 8, 6), m_); tip.position.set(Math.cos(a)*0.42, y + 0.25, Math.sin(a)*0.42); g.add(tip); }
+    const top = new THREE.Mesh(new THREE.SphereGeometry(0.2, 10, 8), m_); top.position.y = h; g.add(top);
+    return g;
+  }
+  function shellBack(R){   // half a dome, ribbed like a scallop, open toward +z, with a scalloped rim and pearls
+    const g = new THREE.Group(), shellM = new THREE.MeshStandardMaterial({map:scallopTex(), roughness:0.55, side:THREE.DoubleSide});
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(R, 40, 16, Math.PI, Math.PI, 0, Math.PI/2), shellM); dome.scale.y = 1.15; g.add(dome);   // (phi π..2π: the back half, -z)
+    const rimM = mat('#f6d2c2', 0.5);
+    for (let i=0;i<=14;i++){ const a = Math.PI*i/14, b = new THREE.Mesh(new THREE.SphereGeometry(R*0.075, 10, 8), rimM); b.position.set(Math.cos(a)*R, Math.sin(a)*R*1.15, 0.02); g.add(b); }
+    const pearl = new THREE.MeshStandardMaterial({color:'#fffaf0', roughness:0.15, metalness:0.2, emissive:'#fff4d6', emissiveIntensity:0.15});
+    for (const a of [0.25, 0.5, 0.75]){ const p = new THREE.Mesh(new THREE.SphereGeometry(R*0.06, 14, 10), pearl); p.position.set(Math.cos(a*Math.PI)*R*0.86, Math.sin(a*Math.PI)*R*1.0, -0.05); g.add(p); }
+    return g;
+  }
+  function starfish(col){
+    const sh = new THREE.Shape(); for (let i=0;i<10;i++){ const a = i/10*Math.PI*2 + Math.PI/2, r = i % 2 ? 0.08 : 0.2; i ? sh.lineTo(Math.cos(a)*r, Math.sin(a)*r) : sh.moveTo(Math.cos(a)*r, Math.sin(a)*r); }
+    const s = new THREE.Mesh(new THREE.ExtrudeGeometry(sh, {depth:0.04, bevelEnabled:true, bevelSize:0.02, bevelThickness:0.02, bevelSegments:1}), mat(col, 0.8)); s.rotation.x = -Math.PI/2; return s;
+  }
+  function musicHall(){
+    const g = new THREE.Group(), sand = mat('#e6cf9e', 0.95);
+    const stage = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 2.7, 1.1, 40, 1, false, -Math.PI/2, Math.PI*2), sand); stage.position.y = -0.3; g.add(stage);   // (reaches down into the sloping sand)
+    const top = new THREE.Mesh(new THREE.CylinderGeometry(2.45, 2.45, 0.06, 40), mat('#c8a676', 0.8)); top.position.y = 0.27; g.add(top);
+    const back = shellBack(2.3); back.position.set(0, 0.3, -0.4); g.add(back);
+    for (const s of [-1, 1]){ const c = coral(2.6, s < 0 ? '#ef8a7a' : '#f3a35c'); c.position.set(s*2.3, 0.25, 0.9); g.add(c); }
+    const sf1 = starfish('#e2764e'); sf1.position.set(-1.0, 0.31, 1.3); sf1.rotation.z = 0.4; g.add(sf1);
+    const sf2 = starfish('#f0c04a'); sf2.position.set(1.2, 0.31, 1.6); g.add(sf2);
+    // a big conch on the stage, like a horn, and floating music notes that bob in the sea breeze
+    const conch = new THREE.Mesh(new THREE.ConeGeometry(0.35, 1.1, 14, 1, true), new THREE.MeshStandardMaterial({color:'#f7d9b8', roughness:0.5, side:THREE.DoubleSide})); conch.rotation.z = Math.PI/2.4; conch.position.set(0.9, 0.62, -0.2); g.add(conch);
+    g.userData.notes = [];
+    [['♪', '#3a7bd5', -1.0, 2.9], ['♫', '#d5456a', 0.2, 3.3], ['♪', '#2fa36b', 1.3, 2.8]].forEach(([c, col, x, y], i) => { const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:noteTex(c, col), transparent:true, depthWrite:false}));
+      sp.scale.setScalar(0.7); sp.position.set(x, y, 0.2); sp.userData = {y, ph:i*2.1}; g.add(sp); g.userData.notes.push(sp); });
+    const wood = mat('#8a6440', 0.85), post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.2, 8), wood); post.position.set(-2.0, 0.6, 2.4); g.add(post);
+    const side = mat('#b98b5a'), sign = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.36, 0.06), [side, side, side, side, new THREE.MeshStandardMaterial({map:signTex('音樂館'), roughness:0.9}), side]);
+    sign.position.set(-2.0, 1.2, 2.44); g.add(sign);
+    return g;
+  }
+  M.shellStage = function(){   // the reward: a little shell stage (its front faces +z)
+    const g = new THREE.Group(), sand = mat('#e6cf9e', 0.95);
+    const stage = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.1, 0.3, 28), sand); stage.position.y = 0.15; g.add(stage);
+    const back = shellBack(0.95); back.position.set(0, 0.3, -0.2); g.add(back);
+    const sf = starfish('#e2764e'); sf.position.set(0.4, 0.31, 0.5); sf.scale.setScalar(0.7); g.add(sf);
+    const n = new THREE.Sprite(new THREE.SpriteMaterial({map:noteTex('♫', '#3a7bd5'), transparent:true, depthWrite:false})); n.scale.setScalar(0.45); n.position.set(-0.3, 1.7, 0); g.add(n);
+    return g;
+  };
+  M.stagePlay = async () => {   // the shell stage plays one of the songs (when the wombat walks up to it)
+    const t = pick(TUNES.filter(x => x.ok !== false)), lead = pick(LEADS); await G.tune.load(lead);
+    if (!M.talking) G.tune.play(parseTune(t), {bpm:t.bpm, lead});
+  };
+
   // ---------- where each master lives: a dry, level, clear spot near its place (found once, then kept in the save) ----------
   function findSpot(id, m){
     const S = G.S(), saved = (S.masterSpots || {})[id]; if (saved) return saved;
+    if (m.sea) return seaSpot(id, m);
     const [cx, cz] = m.area.split(',').map(v => v*PLOT), P = world.data.bio.pond;
     const dry = (x, z) => world.inWorld(x, z) && !world.isWater(x, z) && world.slope(x, z) < 0.5;
     let best = null, bs = 1e9;
@@ -172,25 +263,69 @@ export function createMasters(G){
     const out = {x:+best.x.toFixed(2), z:+best.z.toFixed(2), ry:+ry.toFixed(3)};
     S.masterSpots = {...(S.masterSpots || {}), [id]:out}; G.save(); return out;
   }
+  // a sea master: the hall on the sand a few steps up from the waterline, facing the sea (+x), and deep, open water in front
+  // of it for the master to swim in
+  function seaSpot(id, m, loose){
+    const S = G.S(), [, cz] = m.area.split(',').map(v => v*PLOT), sx = world.shoreX;
+    const dry = (x, z) => world.inWorld(x, z) && !world.isWater(x, z) && world.slope(x, z) < 0.6;
+    const deep = (x, z) => x > sx(z) + 1 && world.H(x, z) < WATER_Y - 0.45;   // (the open sea runs on past the world's edge, where isSea says no)
+    let best = null, bs = 1e9;
+    for (let z = cz - PLOT/2 + 5; z <= cz + PLOT/2 - 5; z += 0.75){
+      const x = sx(z) - 5.2;
+      let ok = dry(x, z) && (loose || G.clear(x, z, 3.0));
+      for (let i=0;i<12 && ok;i++){ const a = i/12*Math.PI*2; if (!dry(x + Math.cos(a)*2.6, z + Math.sin(a)*2.6)) ok = false; }
+      if (!loose) for (const [f, sd] of [[3.4, 0], [2.4, -2.0]]){ if (!ok) break; const px = x + Math.sin(-0.35)*f + Math.cos(-0.35)*sd, pz = z + Math.cos(-0.35)*f - Math.sin(-0.35)*sd; ok = G.clear(px, pz, 1.3); }   // (the open front and the sign stay clear of trees too)
+      const wx = sx(z) + 6; for (let i=0;i<9 && ok;i++){ const a = i/9*Math.PI*2; if (!deep(wx + Math.cos(a)*(i ? 2.5 : 0), z + Math.sin(a)*(i ? 2.5 : 0))) ok = false; }
+      if (!ok) continue;
+      const sc = Math.abs(z - cz) + world.slope(x, z)*4; if (sc < bs){ bs = sc; best = {x, z, wx}; }
+    }
+    if (!best) return loose ? null : seaSpot(id, m, true);   // (a crowded beach: then trees may stand close by)
+    const out = {x:+best.x.toFixed(2), z:+best.z.toFixed(2), ry:-0.35, wx:+best.wx.toFixed(2)};   // (the shell opens along the beach, a little toward land, so it is seen from the shore; she swims beside it)
+    S.masterSpots = {...(S.masterSpots || {}), [id]:out}; G.save(); return out;
+  }
 
   // ---------- the masters in the world ----------
   function zzzTex(){ return canvasTex(128, 128, (x, w, h) => { x.fillStyle = '#f4f1ea'; x.strokeStyle = '#2c3a31'; x.lineWidth = 6; x.font = 'bold 64px sans-serif'; x.textAlign = 'center'; x.strokeText('z', w/2, h*0.7); x.fillText('z', w/2, h*0.7); }); }
   function place(id){
     const m = MASTERS[id], sp = findSpot(id, m); if (!sp) return;
     const home = new THREE.Group(); home.position.set(sp.x, gy(sp.x, sp.z), sp.z); home.rotation.y = sp.ry; scene.add(home);
-    home.add(turtleHouse());
+    const house = m.sea ? musicHall() : turtleHouse(); home.add(house);
     const hhb = new THREE.Mesh(new THREE.SphereGeometry(2.2, 10, 8), G.hbMat); hhb.position.y = 0.8; hhb.userData = {kind:'master', ref:id}; home.add(hhb);
     const body = G.real(m.model); if (!body) return;
     body.scale.multiplyScalar(m.size);
     // the master sits in front of the house, a little to the side of the door, on the ground
     const fwd = V3(Math.sin(sp.ry), 0, Math.cos(sp.ry)), side = V3(Math.cos(sp.ry), 0, -Math.sin(sp.ry));
-    const at = V3(sp.x, 0, sp.z).addScaledVector(fwd, 3.3).addScaledVector(side, 1.2); at.y = gy(at.x, at.z);
+    const at = m.sea ? V3(sp.wx, WATER_Y, sp.z) : V3(sp.x, 0, sp.z).addScaledVector(fwd, 3.3).addScaledVector(side, 1.2); if (!m.sea) at.y = gy(at.x, at.z);
     body.position.copy(at); body.rotation.y = sp.ry; scene.add(body);
     const hb = new THREE.Mesh(new THREE.SphereGeometry(1.0, 10, 8), G.hbMat); hb.position.y = 0.45/m.size; hb.scale.setScalar(1/m.size); hb.userData = {kind:'master', ref:id}; body.add(hb);
     const zz = new THREE.Sprite(new THREE.SpriteMaterial({map:zzzTex(), transparent:true, depthWrite:false})); zz.scale.setScalar(0.45); zz.visible = false; scene.add(zz);
     const u = body.userData, act = n => u.clips[n] && u.mixer.clipAction(u.clips[n]);
-    const a = {id, m, home, body, hb, hhb, zz, act, cur:null, t:0, eatT:rnd(15, 30), state:'idle', ry:sp.ry, at, spot:sp};
-    M.list.push(a); M.pick.push(hb, hhb); play(a, 'idle');
+    const a = {id, m, home, house, body, hb, hhb, zz, act, cur:null, t:0, eatT:rnd(15, 30), state:'idle', ry:sp.ry, at, spot:sp, th:0, leapT:rnd(8, 16)};
+    if (m.sea){ body.rotation.order = 'YXZ'; hb.scale.multiplyScalar(1.6); }
+    M.list.push(a); M.pick.push(hb, hhb); play(a, m.sea ? 'swim' : 'idle');
+  }
+  // the dolphin: circles in the water in front of her hall, leaping now and then; when the wombat comes close (or while
+  // talking) she swims up to the front and holds there with her head out of the water, looking at it; at night she rests
+  // at the surface. (Dolphins swim with their tail, so the swim clip plays slower when she is only treading water.)
+  function swim(a, dt, petPos){
+    const b = a.body, night = G.phase() === 'night' && !M.talking, d = petPos ? Math.hypot(petPos.x - a.at.x, petPos.z - a.at.z) : 99;
+    const near = M.talking === a.id || d < 11, ac = a.act('swim');
+    a.zz.visible = night; if (night){ const k = (a.t*0.4) % 1; a.zz.position.set(a.at.x, WATER_Y + 1.0 + k*0.8, a.at.z); a.zz.material.opacity = Math.sin(k*Math.PI); }
+    let tx, tz, ry, y = WATER_Y - 0.3, pitch = 0, roll = 0;
+    if (near || night){
+      tx = a.at.x; tz = a.at.z; const look = petPos && !night ? Math.atan2(petPos.x - b.position.x, petPos.z - b.position.z) : a.ry + Math.PI;
+      ry = b.rotation.y + wrapA(look - b.rotation.y)*Math.min(1, dt*2); y = WATER_Y - (night ? 0.25 : 0.12) + Math.sin(a.t*1.6)*0.05; pitch = night ? 0 : -0.32 + Math.sin(a.t*2.2)*0.05;
+      if (ac) ac.timeScale = night ? 0.25 : 0.55; a.leap = 0;
+    } else {
+      a.th += dt*0.4; const R = 2.2; tx = a.at.x + Math.cos(a.th)*R; tz = a.at.z + Math.sin(a.th)*R;
+      ry = Math.atan2(-Math.sin(a.th), Math.cos(a.th)); roll = 0.18;   // (heading along the circle, leaning into the turn)
+      if (ac) ac.timeScale = 1;
+      a.leapT -= dt; if (a.leapT <= 0 && !a.leap){ a.leap = 0.0001; a.leapT = rnd(12, 22); }
+      if (a.leap){ a.leap += dt/1.5; const u = Math.min(1, a.leap); y += Math.sin(u*Math.PI)*1.7; pitch = -Math.cos(u*Math.PI)*0.75; if (u >= 1) a.leap = 0; }
+    }
+    const k = Math.min(1, dt*(near ? 1.5 : 4)); b.position.x += (tx - b.position.x)*k; b.position.z += (tz - b.position.z)*k; b.position.y += (y - b.position.y)*Math.min(1, dt*(a.leap ? 20 : 3));
+    b.rotation.y = near || night ? ry : b.rotation.y + wrapA(ry - b.rotation.y)*Math.min(1, dt*3);
+    b.rotation.x += (pitch - b.rotation.x)*Math.min(1, dt*(a.leap ? 20 : 3)); b.rotation.z += (roll*(near || night ? 0 : 1) - b.rotation.z)*Math.min(1, dt*2);
   }
   function play(a, n, speed = 1, once = false){
     const ac = a.act(n); if (!ac) return; ac.timeScale = speed;
@@ -206,6 +341,8 @@ export function createMasters(G){
     for (const a of M.list){
       const open = world.isOpenKey(a.m.area); a.home.visible = a.body.visible = open; if (!open){ a.zz.visible = false; continue; }
       a.t += dt; a.body.userData.mixer.update(dt);
+      if (a.house.userData.notes) a.house.userData.notes.forEach(n => { n.position.y = n.userData.y + Math.sin(a.t*1.3 + n.userData.ph)*0.15; });
+      if (a.m.sea){ swim(a, dt, petPos); continue; }
       const night = G.phase() === 'night' && !M.talking;
       if (night){   // asleep in his shell
         if (a.state !== 'sleep'){ a.state = 'sleep'; play(a, 'hide', 1, true); }
@@ -229,16 +366,17 @@ export function createMasters(G){
   function portrait(id){
     if (PORTRAIT[id]) return PORTRAIT[id];
     const m = MASTERS[id], o = G.real(m.model); if (!o) return '';
-    const sc = new THREE.Scene(); sc.add(o); o.updateMatrixWorld(true);
-    const ac = o.userData.clips.idle && o.userData.mixer.clipAction(o.userData.clips.idle); if (ac){ ac.play(); o.userData.mixer.update(0.8); }
+    const sc = new THREE.Scene(); sc.add(o); o.updateMatrixWorld(true); o.traverse(n => { if (n.isMesh) n.frustumCulled = false; });   // (skinned meshes' bounds can be off)
+    const cl = o.userData.clips || {}, clip = cl.idle || cl.swim || Object.values(cl)[0];   // (some models only have a swim clip)
+    const ac = clip && o.userData.mixer.clipAction(clip); if (ac){ ac.play(); o.userData.mixer.update(0.8); }
     sc.add(new THREE.HemisphereLight(0xfff6e8, 0x8a7a60, 2.6)); const dl = new THREE.DirectionalLight(0xfff4e0, 2.4); dl.position.set(-2, 4, 6); sc.add(dl);
     const fl = new THREE.DirectionalLight(0xffffff, 1.2); fl.position.set(3, 1, 4); sc.add(fl);
     o.updateMatrixWorld(true);
     const box = new THREE.Box3(), v = V3(0, 0, 0); o.traverse(b => { if (b.isBone) box.expandByPoint(b.getWorldPosition(v)); });
     const head = o.userData.head ? o.userData.head.getWorldPosition(V3(0, 0, 0)) : box.getCenter(V3(0, 0, 0));
     // a three-quarter view from the front, the face a little above the middle and the front of the shell below it
-    const size = box.getSize(V3(0, 0, 0)).length(), look = head.clone().lerp(box.getCenter(V3(0, 0, 0)), 0.45);
-    const cam = new THREE.PerspectiveCamera(30, 1, 0.01, 100); cam.position.copy(look).add(V3(0.45, 0.22, 1).normalize().multiplyScalar(size*1.05)); cam.lookAt(look);
+    let size = box.getSize(V3(0, 0, 0)).length(), look = head.clone().lerp(box.getCenter(V3(0, 0, 0)), 0.45);
+    const cam = new THREE.PerspectiveCamera(30, 1, 0.01, 100); cam.position.copy(look).add(V3(...(m.por || [0.45, 0.22, 1])).normalize().multiplyScalar(size*(m.porD || 1.05))); cam.lookAt(look);
     const N = 512, rt = new THREE.WebGLRenderTarget(N, N, {samples:4}), px = new Uint8Array(N*N*4);
     const prev = renderer.getRenderTarget(); renderer.setRenderTarget(rt); renderer.setClearColor(0x000000, 0); renderer.clear(); renderer.render(sc, cam);
     renderer.readRenderTargetPixels(rt, 0, 0, N, N, px); renderer.setRenderTarget(prev); rt.dispose();
@@ -246,6 +384,7 @@ export function createMasters(G){
     for (let r=0;r<N;r++) im.data.set(px.subarray((N - 1 - r)*N*4, (N - r)*N*4), r*N*4);   // (GL rows run bottom-up)
     x.putImageData(im, 0, 0); return PORTRAIT[id] = cv.toDataURL('image/png');
   }
+  M.portrait = (id, fresh) => { if (fresh) delete PORTRAIT[id]; return portrait(id); };   // (for checking the picture in the console)
 
   // ---------- the talk panel ----------
   const el = document.createElement('div'); el.className = 'talk'; el.hidden = true;
@@ -259,7 +398,7 @@ export function createMasters(G){
   // index.json lists the lines that have a recording, so a line without one just stays silent
   const fnv = t => { let h = 0x811c9dc5; for (let i = 0; i < t.length; i++){ h ^= t.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(16).padStart(8, '0'); };
   const VIDX = {};
-  const vindex = id => VIDX[id] = VIDX[id] || fetch(`voice/${id}/index.json`).then(r => r.ok ? r.json() : {}).catch(() => ({}));
+  const vindex = id => VIDX[id] = VIDX[id] || !MASTERS[id].voice && Promise.resolve({}) || fetch(`voice/${id}/index.json`).then(r => r.ok ? r.json() : {}).catch(() => ({}));
   async function speak(lines){
     if (!G.voice || !M.talking) return; const id = M.talking, idx = await vindex(id); if (M.talking !== id) return;
     G.voice.play(lines.map(fnv).filter(k => idx[k]).map(k => `voice/${id}/${k}.mp3`));
@@ -281,9 +420,9 @@ export function createMasters(G){
   $('.talkX').onclick = () => { if (closeReq) closeReq(); end(); };
   function begin(a){
     M.talking = a.id; const m = a.m; $('.talkName').textContent = m.name; $('.talkPor img').src = portrait(a.id); $('.talkPor img').alt = m.name + '的立繪';
-    gameEl.hidden = true; el.hidden = false; vindex(a.id); G.music.play('riddle'); G.focus(a.body.position);
+    gameEl.hidden = true; el.hidden = false; vindex(a.id); G.music.play(m.song); G.focus(m.sea ? a.home.position.clone().lerp(a.at, 0.55) : a.body.position);
   }
-  function end(){ if (!M.talking) return; M.talking = null; G.voice && G.voice.stop(); clearInterval(typing); el.hidden = true; G.music.play(null); }
+  function end(){ if (!M.talking) return; M.talking = null; G.voice && G.voice.stop(); G.tune && G.tune.stop(); if (rhy) rhy.stop(); clearInterval(typing); el.hidden = true; G.music.play(null); }
 
   const fill = (s, ...v) => { let k = 0; return s.replace(/%/g, () => v[k++]); };
   const rec = id => { const S = G.S(); S.masters = S.masters || {}; return S.masters[id] = S.masters[id] || {}; };
@@ -295,12 +434,13 @@ export function createMasters(G){
     const night = G.phase() === 'night', rain = ['rain', 'storm'].includes(G.weather());
     const first = !r.met;
     if (first){ r.met = true; G.save(); for (const l of T.first.slice(0, -1)) if (await say(l) === -2) return; }
-    let line = first ? T.first[T.first.length - 1] : night ? pick(T.night) : rain ? pick(T.rain) : M.badge(id) ? pick(T.cleared) : pick(T.again);
+    let line = first ? T.first[T.first.length - 1] : rain ? pick(T.rain) : night ? pick(T.night) : M.badge(id) ? pick(T.cleared) : pick(T.again);
     for (;;){
-      const c = await say(line, [`挑戰${a.m.gameName}`, '聊聊天', {label:'下次再來', ghost:true}]);
-      if (c === 0){ if (await riddleGame(a) === 'quit') return; line = pick(T.again); continue; }
-      if (c === 1){ if (await say(pick(T.chat)) === -2) return; line = '還有什麼想跟爺爺說的嗎？'; continue; }
-      if (c === 2){ const bye = say(pick(T.bye)); await Promise.race([bye, new Promise(r => setTimeout(r, 4200))]); }   // (closes by itself after the goodbye)
+      const opts = [`挑戰${a.m.gameName}`, '聊聊天', ...(a.m.game === 'music' ? ['🎧 聽歌'] : []), {label:'下次再來', ghost:true}], c = await say(line, opts);
+      if (c === 0){ if (await GAMES[a.m.game](a) === 'quit') return; line = pick(T.again); continue; }
+      if (c === 1){ if (await say(pick(T.chat)) === -2) return; line = T.more; continue; }
+      if (opts[c] === '🎧 聽歌'){ if (await jukebox(a) === 'quit') return; line = T.more; continue; }
+      if (c === opts.length - 1){ const bye = say(pick(T.bye)); await Promise.race([bye, new Promise(r => setTimeout(r, 4200))]); }   // (closes by itself after the goodbye)
       end(); return;
     }
   }
@@ -326,11 +466,125 @@ export function createMasters(G){
     G.music.jingle(won ? 'win' : 'lose');
     if (!won){ const c = await say(fill(pick(T.lose), qs.length, n), ['再挑戰一次', {label:'先休息一下', ghost:true}]); gameEl.hidden = true; if (c === 0) return riddleGame(a); return c === -2 ? 'quit' : 'done'; }
     if (await say(fill(pick(T.win), qs.length, n)) === -2) return 'quit';
-    const got = reward(a);
+    return gifts(a);
+  }
+  async function gifts(a){
+    const T = TALK[a.id], got = reward(a);
     gameEl.innerHTML = `<div class="rdl"><p class="rdlQ">得到的獎勵</p><ul class="rdlGifts">${got.map(g => `<li>${g}</li>`).join('')}</ul></div>`;
-    const c = await say(got.length ? '這些都是你的了。有空常來陪爺爺說說話。' : '今天的禮物已經送過囉，不過答得好，爺爺還是很開心。', ['謝謝爺爺']);
+    const c = await say(T.gift[got.length ? 0 : 1], [T.thanks]);
     gameEl.hidden = true; return c === -2 ? 'quit' : 'done';
   }
+
+  // ---------- the music hall: guess the song (five, four right), then tap along in time (80 points) ----------
+  const dots = (n, res, i) => `<span class="rdlDots">${Array.from({length:n}, (_, k) => `<i class="${res[k] === true ? 'ok' : res[k] === false ? 'no' : k === i ? 'now' : ''}"></i>`).join('')}</span>`;
+  async function musicGame(a){
+    const T = TALK[a.id], m = a.m, pool = TUNES.filter(t => t.ok !== false), qs = shuffle(pool).slice(0, m.rounds), res = [];
+    G.music.preload(); gameEl.hidden = false;
+    gameEl.innerHTML = `<div class="rdl"><div class="rdlLantern" aria-hidden="true">🎼</div><p class="rdlC">樂器調音中……</p></div>`;
+    await G.tune.load(LEADS[0]); LEADS.slice(1).forEach(l => G.tune.load(l));
+    if (M.talking !== a.id) return 'quit';
+    if (await say(pick(T.start)) === -2) return 'quit';
+    for (let i=0;i<qs.length;i++){
+      const t = qs[i], P = parseTune(t), spb = 60/t.bpm, upTo = Math.min(P.beats, Math.ceil(11/spb)), lead = LEADS[i % LEADS.length];
+      const opts = shuffle([t, ...shuffle(pool.filter(x => x !== t)).slice(0, 3)]);
+      const draw = (playing, done) => { gameEl.innerHTML = `<div class="rdl"><div class="rdlTop"><span>猜歌 第 ${i + 1} / ${qs.length} 首</span>${dots(qs.length, res, i)}</div>
+        <div class="rdlLantern${playing ? ' beat' : ''}" aria-hidden="true">${done ? (res[i] ? '🎉' : '🎵') : '🎵'}</div><p class="rdlC">${done ? `「${t.name}」（${t.kind}）` : '仔細聽……是哪一首歌？'}</p></div>`; };
+      let c;
+      for (;;){
+        await G.tune.load(lead); if (M.talking !== a.id) return 'quit';
+        draw(true); G.tune.play(P, {bpm:t.bpm, upTo, lead});
+        c = await say(T.ask, [...opts.map(o => o.name), {label:'🔁 再聽一次', ghost:true}], true);
+        if (c !== 4) break;
+      }
+      G.tune.stop(); if (c === -2) return 'quit';
+      const ok = opts[c] === t; res[i] = ok; draw(false, true); G.sfx(ok ? 'happy' : 'sad');
+      if (await say(ok ? pick(T.right) : fill(pick(T.wrong), t.name), [i < qs.length - 1 ? '下一首' : '看結果']) === -2) return 'quit';
+    }
+    const n = res.filter(Boolean).length;
+    if (n < m.need){
+      gameEl.innerHTML = `<div class="rdl"><div class="rdlTop"><span>結果</span>${dots(qs.length, res, -1)}</div><div class="rdlLantern big" aria-hidden="true">🐚</div><p class="rdlQ">再接再厲</p></div>`;
+      G.music.jingle('lose');
+      const c = await say(fill(pick(T.lose), qs.length, n), ['再挑戰一次', {label:'先休息一下', ghost:true}]); gameEl.hidden = true;
+      if (c === 0) return musicGame(a); return c === -2 ? 'quit' : 'done';
+    }
+    return beatStage(a);
+  }
+  async function beatStage(a){
+    const T = TALK[a.id], m = a.m; gameEl.hidden = false;
+    gameEl.innerHTML = `<div class="rdl"><div class="rdlLantern" aria-hidden="true">🥁</div><p class="rdlQ">第二關：打節奏</p></div>`;
+    if (await say(pick(T.beat), ['開始！']) === -2) return 'quit';
+    const score = await rhythm(a); if (score < 0) return 'quit';
+    const won = score >= m.pass;
+    gameEl.innerHTML = `<div class="rdl"><div class="rdlLantern big" aria-hidden="true">${won ? m.badge.icon : '🐚'}</div><p class="rdlQ">${score} 分　${won ? '過關！' : '再接再厲'}</p></div>`;
+    G.music.jingle(won ? 'win' : 'lose');
+    if (!won){ const c = await say(fill(pick(T.beatLose), score), ['再打一次節奏', {label:'先休息一下', ghost:true}]); gameEl.hidden = true;
+      if (c === 0) return beatStage(a); return c === -2 ? 'quit' : 'done'; }
+    if (await say(fill(pick(T.beatWin), score)) === -2) return 'quit';
+    return gifts(a);
+  }
+  // 節奏: the song's notes fall in three lanes (low, middle, high notes); tap the lane's pad as a note reaches the line.
+  // On time (within 0.09 s) is a full point, close (0.2 s) is 0.7; the score is out of 100. Keys: A S D, J K L or ← ↓ →.
+  let rhy = null;
+  function rhythm(a){
+    return new Promise(async done => {
+      const id = pick(RHYTHM), t = TUNES.find(x => x.id === id), P = parseTune(t), lead = 'marimba';
+      const ps = [...new Set(P.notes.map(n => n.m))].sort((x, y) => x - y), laneOf = mm => Math.min(2, Math.floor(ps.indexOf(mm)/ps.length*3));
+      gameEl.innerHTML = `<div class="rhy"><div class="rhyTop"><span>🎶 ${t.name}</span><b class="rhyPct">0 分</b></div><canvas class="rhyC"></canvas><p class="rhyFx" aria-live="polite"></p>
+        <div class="rhyPads"><button class="rp0" aria-label="低音">◀</button><button class="rp1" aria-label="中音">●</button><button class="rp2" aria-label="高音">▶</button></div></div>`;
+      textEl.textContent = '跟著音樂，音符碰到線的時候點按鈕！'; textEl.classList.remove('more'); actsEl.innerHTML = ''; textEl.parentElement.onclick = null; G.voice && G.voice.stop();
+      const cv = gameEl.querySelector('.rhyC'), cx = cv.getContext('2d'), fx = gameEl.querySelector('.rhyFx'), pct = gameEl.querySelector('.rhyPct');
+      const dpr = Math.min(2, devicePixelRatio || 1), W = cv.clientWidth || 300, H = 200; cv.width = W*dpr; cv.height = H*dpr; cx.scale(dpr, dpr);
+      let over = false, raf = 0;
+      const KEYS = {a:0, s:1, d:2, j:0, k:1, l:2, ArrowLeft:0, ArrowDown:1, ArrowRight:2};
+      let key = null;
+      const finish = v => { if (over) return; over = true; cancelAnimationFrame(raf); if (key) removeEventListener('keydown', key); rhy = null; G.tune.stop(); done(v); };
+      rhy = {stop:() => finish(-1)}; closeReq = () => finish(-1);
+      await G.tune.load(lead); if (over || M.talking !== a.id){ finish(-1); return; }
+      const h = G.tune.play(P, {bpm:t.bpm, lead, lead_in:2.0}); if (!h){ finish(-1); return; }
+      const notes = P.notes.map(n => ({t:h.t0 + n.b*h.spb, l:laneOf(n.m), hit:0, miss:false})), LEAD = 1.6, hitY = H - 26, COL = ['#3a7bd5', '#2fa36b', '#d5456a'];
+      let pts = 0, judged = 0, flashT = 0;
+      const show = (txt, col) => { fx.textContent = txt; fx.style.color = col; flashT = performance.now(); };
+      const upd = () => { pct.textContent = `${Math.round(pts/notes.length*100)} 分`; };
+      const tap = l => { if (over) return; const now = G.tune.now(); let best = null, bd = 9;
+        for (const n of notes) if (!n.hit && !n.miss && n.l === l){ const d = Math.abs(n.t - now); if (d < bd){ bd = d; best = n; } }
+        const pad = gameEl.querySelector('.rp' + l); if (pad){ pad.classList.add('on'); setTimeout(() => pad.classList.remove('on'), 110); }
+        if (!best || bd > 0.2) return;
+        best.hit = bd <= 0.09 ? 1 : 0.7; pts += best.hit; judged++; upd(); show(best.hit === 1 ? '完美！' : '不錯！', best.hit === 1 ? '#e2a400' : '#2fa36b'); };
+      gameEl.querySelectorAll('.rhyPads button').forEach((b, l) => b.addEventListener('pointerdown', e => { e.preventDefault(); tap(l); }));
+      key = e => { if (e.key in KEYS && !e.repeat){ e.preventDefault(); tap(KEYS[e.key]); } }; addEventListener('keydown', key);
+      const draw = () => {
+        if (over) return;
+        const now = G.tune.now(); cx.clearRect(0, 0, W, H);
+        for (let l=0;l<3;l++){ cx.fillStyle = l % 2 ? 'rgba(80,140,200,.10)' : 'rgba(80,140,200,.18)'; cx.fillRect(l*W/3, 0, W/3, H); }
+        cx.fillStyle = 'rgba(40,70,110,.75)'; cx.fillRect(0, hitY - 2, W, 4);
+        for (const n of notes){
+          if (!n.hit && !n.miss && now - n.t > 0.2){ n.miss = true; judged++; show('漏掉了', '#888'); }
+          if (n.hit) continue; const y = hitY - (n.t - now)/LEAD*hitY; if (y < -20 || y > H + 20) continue;
+          cx.globalAlpha = n.miss ? 0.25 : 1; cx.fillStyle = COL[n.l]; cx.beginPath(); cx.arc((n.l + 0.5)*W/3, y, 13, 0, Math.PI*2); cx.fill();
+          cx.fillStyle = '#fff'; cx.font = 'bold 15px sans-serif'; cx.textAlign = 'center'; cx.textBaseline = 'middle'; cx.fillText('♪', (n.l + 0.5)*W/3, y + 1); cx.globalAlpha = 1;
+        }
+        if (performance.now() - flashT > 600) fx.textContent = '';
+        if (now > h.end + 0.3 || (judged >= notes.length && now > notes[notes.length - 1].t + 0.5)){ finish(Math.round(pts/notes.length*100)); return; }
+        raf = requestAnimationFrame(draw);
+      };
+      raf = requestAnimationFrame(draw);
+    });
+  }
+  // 聽歌: pick any song from the hall's list and she plays all of it (also how the songs get checked by ear)
+  async function jukebox(a){
+    await G.tune.load(LEADS[0]); if (M.talking !== a.id) return 'quit';
+    for (;;){
+      gameEl.hidden = false; gameEl.innerHTML = `<div class="rdl"><div class="rdlLantern" aria-hidden="true">🎧</div><p class="rdlC">想聽哪一首？</p></div>`;
+      const list = TUNES, c = await say('想聽哪一首？姊姊彈給你聽！', [...list.map(t => t.name + (t.ok === false ? '（試聽中）' : '')), {label:'不聽了', ghost:true}], true);
+      if (c === -2){ G.tune.stop(); return 'quit'; } if (c === list.length){ G.tune.stop(); gameEl.hidden = true; return 'done'; }
+      const t = list[c]; await G.tune.load(LEADS[c % LEADS.length]); if (M.talking !== a.id) return 'quit';
+      gameEl.innerHTML = `<div class="rdl"><div class="rdlLantern beat" aria-hidden="true">🎵</div><p class="rdlQ">${t.name}</p><p class="rdlC">${t.kind}</p></div>`;
+      G.tune.play(parseTune(t), {bpm:t.bpm, lead:LEADS[c % LEADS.length], pad:true});
+      const d = await say(`這首是「${t.name}」～`, ['換一首', {label:'不聽了', ghost:true}]);
+      G.tune.stop(); if (d === -2) return 'quit'; if (d === 1){ gameEl.hidden = true; return 'done'; }
+    }
+  }
+  const GAMES = {riddle:riddleGame, music:musicGame};
 
   // what a win gives: coins and the badge once in each life, coins once a day after that; the first win ever also unlocks the
   // master's building and teaches the life skill (both stay through later lives)

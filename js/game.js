@@ -209,7 +209,7 @@ const grassTex = canvasTex(256,256,(x,w,h)=>{
 grassTex.wrapS = grassTex.wrapT = THREE.RepeatWrapping; grassTex.repeat.set(9, 9); grassTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
 // The world (terrain, river, sea, nature: js/world.js) is built from S.world once the save is loaded; gy() is the ground height anywhere.
 let world = null;
-let MST = null;   // the area masters (js/masters.js), once created
+let stageT = 0, MST = null;   // the area masters (js/masters.js), once created
 const gy = (x, z) => world ? world.gy(x, z) : 0;
 
 // ---------- wombat (Blender model: assets/models/wombat.glb, built by blender/wombat_build.py) ----------
@@ -858,7 +858,8 @@ const BUILDS = [
   {id:'pumpkincart',name:'南瓜馬車', price:120, desc:'大南瓜做的馬車，晚上窗戶會亮。', holiday:'halloween', spot:295, size:[3,4]},
   {id:'sleigh',    name:'聖誕雪橇', price:110, desc:'紅色雪橇上堆滿了禮物。', holiday:'christmas', spot:325, size:[2,3]},
   // the area masters' gifts (js/masters.js): free, and in the shop only once the first win against that master unlocks them
-  {id:'riddlelanterns', name:'燈謎燈籠架', price:0, desc:'烏龜爺爺送的竹子燈籠架，燈籠下面掛著寫了謎題的紙條，晚上會亮。', reward:'turtle', size:[3,1]}
+  {id:'riddlelanterns', name:'燈謎燈籠架', price:0, desc:'烏龜爺爺送的竹子燈籠架，燈籠下面掛著寫了謎題的紙條，晚上會亮。', reward:'turtle', size:[3,1]},
+  {id:'shellstage', name:'貝殼音樂台', price:0, desc:'海豚姊姊送的小貝殼舞台。袋熊走近時，會自己演奏一首歌。', reward:'dolphin', size:[2,2]}
 ];
 BUILDS.forEach(b => { if (b.size) b.r = Math.max(0.5, Math.hypot(b.size[0], b.size[1])/2*0.72); });   // radius the wombat steers around
 const BG = {}, nightGlow = [], trees = [], fences = [];
@@ -952,6 +953,8 @@ function build(id){
     faceCenter(g, ringSpot(130));
   } else if (id === 'riddlelanterns'){
     g.add(masters.riddleLanterns()); faceCenter(g, ringSpot(345));
+  } else if (id === 'shellstage'){
+    g.add(masters.shellStage()); faceCenter(g, ringSpot(15));
   } else if (id === 'heartarch'){
     const pink = mat('#f2a6be',0.6);
     const arc = new THREE.Mesh(new THREE.TorusGeometry(1.3,0.14,12,40,Math.PI), pink); g.add(arc);
@@ -1453,7 +1456,7 @@ const SONG_INST = {morning:{lead:'flute', arp:'orchestral_harp'}, day:{lead:'mar
   midautumn:{lead:'ocarina', arp:'orchestral_harp'}, halloween:{lead:'pizzicato_strings', arp:'music_box'}, christmas:{lead:'music_box', pad:'string_ensemble_1'},
   jazz:{lead:'tenor_sax', comp:'electric_guitar_jazz', walk:true}, bossa:{lead:'alto_sax', arp:'acoustic_guitar_nylon'}, folk:{lead:'acoustic_guitar_steel', strum:'acoustic_guitar_steel'},
   rock:{lead:'overdriven_guitar', strum:'acoustic_guitar_steel'}, fanfare:{lead:'trumpet', strum:'acoustic_guitar_steel'},
-  riddle:{lead:'flute', arp:'orchestral_harp', pad:'string_ensemble_1'}};
+  riddle:{lead:'flute', arp:'orchestral_harp', pad:'string_ensemble_1'}, seaside:{lead:'marimba', arp:'acoustic_guitar_nylon', pad:'string_ensemble_1'}};
 // the music settings ("作曲"): pick a tune and which instrument plays the melody, the accompaniment and the drums
 const COMP_STYLE = {arp:'分解和弦', strum:'刷和弦', comp:'爵士和弦', pad:'長音'};
 function songInst(id){
@@ -1501,6 +1504,9 @@ Object.assign(SONGS, {
   // the tortoise master's lantern-riddle hall: a slow pentatonic flute tune over harp, strings and a wood block
   riddle: {bpm:84, lead:'soft', perc:'wood', mel:[74,0,76,74,71,0,69,71, 67,0,69,71,74,0,0,0, 76,0,79,76,74,71,69,0, 71,0,69,67,69,0,0,0,
     74,76,79,0,81,79,76,0, 74,0,71,74,76,0,0,0, 79,76,74,71,69,0,71,0, 67,0,0,0,0,0,0,0], bass:[[43,50],[40,47],[36,43],[38,45]], ch:[[71,74],[67,71],[67,72],[66,69]]},
+  // the dolphin's music hall: a bright marimba tune over nylon guitar, strings and a shaker, like a beach afternoon
+  seaside: {bpm:112, lead:'bell', perc:'shaker', mel:[72,0,76,79,0,76,72,0, 69,0,72,76,0,74,72,0, 77,0,76,74,72,0,69,72, 74,0,0,71,74,79,0,0,
+    79,0,77,76,0,72,76,0, 81,0,79,76,0,72,69,0, 72,74,77,0,76,74,72,0, 71,0,74,0,72,0,0,0], bass:[[48,55],[45,52],[41,48],[43,50]], ch:[[64,67],[64,69],[65,69],[62,67]]},
 });
 const SONG_NAME = {morning:'早晨', day:'午後', evening:'黃昏', night:'夜晚', rain:'雨天', storm:'雷雨', snow:'雪天', jazz:'爵士', bossa:'巴薩諾瓦', folk:'民謠', rock:'搖滾', fanfare:'號角'};
 const MUSIC_SONGS = ['morning', 'day', 'evening', 'night', 'rain', 'snow', 'jazz', 'bossa', 'folk', 'rock', 'fanfare'];
@@ -1586,6 +1592,34 @@ function jingle(kind){
     [0, 1.6].forEach(t => { const o = tone('sine', 110, t0 + t, 0.18, 0.4, out); o.frequency.exponentialRampToValueAtTime(50, t0 + t + 0.3); });
   }
 }
+// ---------- whole songs for the music hall (js/tunes.js): melody, bass, plucked chords and a shaker, the background tune stepping aside ----------
+const TUNE_INST = ['acoustic_bass', 'acoustic_guitar_nylon', 'string_ensemble_1'];
+let TUNE = null;
+function tuneLoad(lead){ const c = audio(); if (!c) return Promise.resolve(); if (c.state !== 'running') c.resume(); return Promise.all([lead, ...TUNE_INST].map(loadInst)); }
+function tuneStop(){
+  if (!TUNE) return; const c = SND.ctx, T = TUNE; TUNE = null;
+  T.bus.gain.setTargetAtTime(0.0001, c.currentTime, 0.06); setTimeout(() => T.bus.disconnect(), 400); clearTimeout(T.timer);
+  SND.music.gain.cancelScheduledValues(c.currentTime); SND.music.gain.setTargetAtTime(0.9, c.currentTime + 0.2, 0.5);
+}
+// plays parsed song P (or its first `upTo` beats); returns {t0, spb, end} in audio-clock seconds, or null without sound
+function tunePlay(P, o = {}){
+  tuneStop(); const c = audio(); if (!c) return null; if (c.state !== 'running') c.resume();
+  const spb = 60/(o.bpm || 100), t0 = c.currentTime + (o.lead_in == null ? 0.35 : o.lead_in), upTo = o.upTo || P.beats, lead = o.lead || 'marimba';
+  const bus = c.createGain(); bus.gain.value = 1; bus.connect(SND.musVol);
+  SND.music.gain.cancelScheduledValues(c.currentTime); SND.music.gain.setTargetAtTime(0.0001, c.currentTime, 0.08);   // (the hall's own tune waits)
+  const at = b => t0 + b*spb, n = (inst, m, b, v, d) => { if (!playI(inst, m, at(b) + Math.random()*0.008, v*(0.9 + Math.random()*0.2), d, bus)) tone('triangle', mtof(m), at(b), v*0.3, Math.min(d, 0.6), bus); };
+  for (const x of P.notes) if (x.b < upTo) n(lead, x.m, x.b, 0.55, Math.max(0.15, Math.min(x.len, upTo - x.b)*spb*0.92));
+  for (const ch of P.chords){ if (ch.b >= upTo) continue; const len = Math.min(ch.len, upTo - ch.b), root = 36 + ch.n[0];
+    n('acoustic_bass', root, ch.b, 0.5, len*spb*0.9);
+    if (len >= 2) n('acoustic_bass', root + 7, ch.b + len/2, 0.38, len/2*spb*0.9);
+    const voice = ch.n.slice(0, 3).map(s => 55 + ((s - 55) % 12 + 12) % 12).sort((a, b) => a - b);   // (the chord's notes between G3 and F#4)
+    for (let k = 0; k < Math.max(1, Math.floor(len)); k++) voice.forEach((m, j) => n('acoustic_guitar_nylon', m, ch.b + k + j*0.03, k % 2 ? 0.11 : 0.15, spb*1.4));
+    if (o.pad) ch.n.slice(0, 3).forEach(s => n('string_ensemble_1', 60 + s, ch.b, 0.08, len*spb)); }
+  for (let b = 0; b < upTo; b += 0.5) noiseHit(at(b), 0.05, b % 1 ? 0.012 : 0.022, 'highpass', 7000, bus);   // a soft shaker on the beat
+  const end = at(upTo) + 0.4; TUNE = {bus, timer:setTimeout(tuneStop, (end - c.currentTime)*1000 + 600)};
+  return {t0, spb, end};
+}
+const tuneNow = () => SND.ctx ? SND.ctx.currentTime - (SND.ctx.outputLatency || SND.ctx.baseLatency || 0) : 0;   // (what is being heard right now)
 function wantedSong(){
   if (MUSIC_OVR) return MUSIC_OVR;
   const P = S.music || {}; if (P.song && P.song !== 'auto' && SONGS[P.song]) return P.song;
@@ -3239,6 +3273,7 @@ const SKILLS = {
   gnaw:{icon:'🦫', name:'啃木頭', from:'beaver', need:1, desc:'跟河狸學會啃樹：砍樹免費，還會賺到木材錢；也學會了做木筏和碼頭的方法（之後可以划去別的島）'},
   // taught by an area master on the first win (js/masters.js)
   slowlife:{icon:'🍵', name:'慢活', master:'turtle', desc:'跟烏龜爺爺學會慢慢來：睡覺時體力恢復快 30%'},
+  rhythm:{icon:'🎵', name:'節奏感', master:'dolphin', desc:'跟海豚姊姊學會跟著音樂搖擺：心情掉得慢 15%'},
 };
 const hasSkill = k => !!(S.skills && S.skills[k]);
 const skillCount = k => stat('meetU:' + SKILLS[k].from);
@@ -3653,7 +3688,7 @@ function sim(m, offline){
   const E = S.evo, am = ageMin(), em = key => EV.mult(E, S.form, key, am);
   st.hunger -= 0.5*m*k*kb*fBaby*fOld*(S.form === 'm_chubby' ? 1.15 : 1)*em('hunger_decay_multiplier');
   st.thirst -= 0.65*m*k*kb*(w==='rain'||w==='storm' ? 0.6 : 1)*fOld*em('thirst_decay_multiplier');
-  st.happy  -= (0.45 + (dirty?0.3:0) + (badWeather()?0.1:0))*m*k*(BG.flowers ? 0.7 : 1)*(BG.fountain ? 0.85 : 1)*em('mood_decay_multiplier');
+  st.happy  -= (0.45 + (dirty?0.3:0) + (badWeather()?0.1:0))*m*k*(BG.flowers ? 0.7 : 1)*(BG.fountain ? 0.85 : 1)*(hasSkill('rhythm') ? 0.85 : 1)*em('mood_decay_multiplier');
   if (BG.fruittree){ S.fruitT = (S.fruitT ?? 120) - m; if (S.fruitT <= 0){ S.fruitT = 120; S.food = S.food || {}; if (!S.food.apple){ S.food.apple = true; if (!offline) toast('果樹結果了！以後蘋果隨時都能免費給牠吃。'); } else { S.coins += 3; if (!offline) toast('果樹結的蘋果賣了 3 代幣。'); } } }
   S.aff = clamp(S.aff - (0.05 + (st.hunger < 25 || dirty ? 0.04 : 0))*m*k, 0, 100);   // affection fades slowly unless you keep caring
   if (S.swollen){ st.happy -= 0.25*m*k; st.health -= 0.08*m*k; }   // bee-sting bumps hurt until treated
@@ -4476,6 +4511,8 @@ function updateWorld(dt, t){
   wild.update(dt, t, {cam:camTarget, home: BG.house ? BG.house.position : SPOTS.house, pet: petActive() && root.visible ? pos : null, night:di.n, wet: Date.now() < wetUntil, onSound: (n, at) => sfx(n, at),
     onEvent: (e, at) => { if (e === 'eagleCatch' && Math.hypot(at.x - camTarget.x, at.z - camTarget.z) < 35){ const first = !stat('eagleCatch'); track('eagleCatch'); if (first) toast('老鷹俯衝抓到獵物了！'); } }});
   try { masters.update(dt, petActive() && root.visible ? pos : null); } catch(e){ console.error(e); }   // (a slip in the masters must never stop the whole game)
+  if (BG.shellstage && SND.on && petActive() && !masters.talking){ stageT -= dt;   // the dolphin's shell stage plays a song when the wombat comes near (now and then)
+    if (stageT <= 0 && Math.hypot(pos.x - BG.shellstage.position.x, pos.z - BG.shellstage.position.z) < 3.2){ stageT = 90; masters.stagePlay(); } }
   fauna.update(dt, t, {bad:badWeather(), cam:camTarget, pet: petActive() && root.visible ? pos : null, night:di.n, onScare:animalScare, onSmile: p => floatSprite(emojiTex('😊'), p.add(V3(0, 0.9, 0)), {size:0.5, vy:0.5, max:1.6}), onZzz: p => floatSprite(textTex('Z','#5d6e8f','bold 90px sans-serif','rgba(255,255,255,.85)'), p, {size:0.35, vy:0.5, vx:0.2, max:2}),
     chips: p => floatSprite(radialTex('rgba(201,160,110,1)','rgba(201,160,110,0)'), p, {size:0.12, vx:rnd(-1,1), vz:rnd(-1,1), vy:rnd(1,2), g:8, max:0.6, grow:0}), treeNear:(x, z, r) => { const tr = trees.find(t => Math.hypot(t.d.x - x, t.d.z - z) < r); return tr ? tr.d : null; }});
   flashV *= Math.exp(-5*dt); $('#flash').style.opacity = (flashV*0.8).toFixed(3);
@@ -4682,7 +4719,7 @@ const TRICK_ICON = {flowerview:'🌸', nightwalk:'🔦', sit:'🐾', flip:'🤸'
 const TRICK_DESC = {dig:'用前腳拚命挖土，偶爾會挖到代幣！', zoomies:'突然興奮地繞圈暴衝。體力 -6，心情 +10', wave:'坐著舉起前腳跟你揮手。', bow:'低下頭鞠個躬。', hop:'往前跳三下。', stretch:'前腳往前伸，打個大哈欠。', sit:'乖乖坐下，看著你。心情 +6', flip:'原地一個後空翻！體力 -6，心情 +10', roll:'連續側翻滾三圈。體力 -6，心情 +10', spin:'跳起來轉一圈。體力 -6，心情 +10',
   belly:'翻過來露出肚子扭扭。體力 -6，心情 +10', shake:'甩甩全身的毛。體力 -6，心情 +10', dance:'跟著音樂跳舞。體力 -8，心情 +14', ballroll:'縮成一顆球往前滾。體力 -6，心情 +12'};
 const CLOTH_ICON = {party:'🥳', straw:'👒', glasses:'👓', bow:'🎀', scarf:'🧣', sweater:'🧶', nyband:'🎊', caishen:'🧧', heartgl:'😍', propeller:'🚁', sachet:'🎐', bunny:'🐰', witch:'🧙', santa:'🎅'};
-const BUILD_ICON = {cottage:'🏡', bench:'🪑', swing:'🎠', sandbox:'🏖️', well:'🪣', windmill:'🌬️', mailbox:'📮', scarecrow:'🌾', mushroom:'🍄', fruittree:'🍎', fountain:'⛲', house:'🕳️', pond:'🐟', lamp:'💡', flowers:'🌷', fence:'🪵', fireworks:'🎆', lanterns:'🏮', heartarch:'💗', slide:'🎢', dragonboat:'🐉', moonlamp:'🌕', pumpkins:'🎃', clocktower:'🕛', cnygate:'🧧', rosebed:'🌹', seesaw:'🛝', dragondrum:'🥁', rabbitlamp:'🐇', pumpkincart:'🎃', sleigh:'🛷', xmastree:'🎄', riddlelanterns:'🏮'};
+const BUILD_ICON = {cottage:'🏡', bench:'🪑', swing:'🎠', sandbox:'🏖️', well:'🪣', windmill:'🌬️', mailbox:'📮', scarecrow:'🌾', mushroom:'🍄', fruittree:'🍎', fountain:'⛲', house:'🕳️', pond:'🐟', lamp:'💡', flowers:'🌷', fence:'🪵', fireworks:'🎆', lanterns:'🏮', heartarch:'💗', slide:'🎢', dragonboat:'🐉', moonlamp:'🌕', pumpkins:'🎃', clocktower:'🕛', cnygate:'🧧', rosebed:'🌹', seesaw:'🛝', dragondrum:'🥁', rabbitlamp:'🐇', pumpkincart:'🎃', sleigh:'🛷', xmastree:'🎄', riddlelanterns:'🏮', shellstage:'🐚'};
 let shopTab = 'food', feedTab = 'food', detailQty = 1;
 const tabsHTML = (tabs, cur, attr) => `<div class="tabs" role="tablist">` + tabs.map(([k,l]) => `<button class="tab" role="tab" aria-selected="${k === cur}" data-${attr}="${k}">${l}</button>`).join('') + `</div>`;
 const tileHTML = (e, i) => `<button class="tile${e.dim ? ' dim' : ''}" data-tile="${i}" aria-label="${e.name}"><span class="ti">${e.icon}</span><span class="tn">${e.name}</span>${e.badge ? `<span class="tb">${e.badge}</span>` : ''}</button>`;
@@ -5443,7 +5480,7 @@ const masters = createMasters({scene, renderer, world, gy, mat, glowMat, canvasT
   phase:() => dayInfo().phase, weather:() => weatherNow(), focus:p => { const k = 1.3*zoom; panTarget.set(p.x + Math.sin(yaw)*k, 0, p.z + Math.cos(yaw)*k); clampPan(); },   // (a little toward the camera: the master shows above the talk panel)
   addCoins:n => addCoins(n), unlockBuild:id => { S.rewards = {...(S.rewards || {}), [id]:true}; save(); }, buildName:id => bdef(id).name,
   learn:k => { S.skills = {...(S.skills || {}), [k]:true}; save(); }, skillName:k => SKILLS[k].name,
-  music:{play:musicFor, preload:jinglePreload, jingle}, voice:{play:voicePlay, stop:voiceStop}});
+  music:{play:musicFor, preload:jinglePreload, jingle}, voice:{play:voicePlay, stop:voiceStop}, tune:{load:tuneLoad, play:tunePlay, stop:tuneStop, now:tuneNow}});
 Object.keys(S.builds).forEach(id => S.builds[id] && build(id));
 if (grew) (S.trees || []).forEach(t => { if (inBuild(t.x, t.z, 0.8)){ const q = freeNear(V3(t.x, 0, t.z), 0.8); t.x = +q.x.toFixed(2); t.z = +q.z.toFixed(2); } });   // buildings stayed put
 if (!S.trees) plantTrees();
