@@ -859,7 +859,8 @@ const BUILDS = [
   {id:'sleigh',    name:'聖誕雪橇', price:110, desc:'紅色雪橇上堆滿了禮物。', holiday:'christmas', spot:325, size:[2,3]},
   // the area masters' gifts (js/masters.js): free, and in the shop only once the first win against that master unlocks them
   {id:'riddlelanterns', name:'燈謎燈籠架', price:0, desc:'烏龜爺爺送的竹子燈籠架，燈籠下面掛著寫了謎題的紙條，晚上會亮。', reward:'turtle', size:[3,1]},
-  {id:'shellstage', name:'貝殼音樂台', price:0, desc:'海豚姊姊送的小貝殼舞台。袋熊走近時，會自己演奏一首歌。', reward:'dolphin', size:[2,2]}
+  {id:'shellstage', name:'貝殼音樂台', price:0, desc:'海豚姊姊送的小貝殼舞台。袋熊走近時，會自己演奏一首歌。', reward:'dolphin', size:[2,2]},
+  {id:'shellhut', name:'海螺小屋', price:0, desc:'寄居蟹弟弟小時候住過的大海螺殼，現在變成一間小屋，晚上窗戶會亮。', reward:'hermit', size:[2,2]}
 ];
 BUILDS.forEach(b => { if (b.size) b.r = Math.max(0.5, Math.hypot(b.size[0], b.size[1])/2*0.72); });   // radius the wombat steers around
 const BG = {}, nightGlow = [], trees = [], fences = [];
@@ -955,6 +956,8 @@ function build(id){
     g.add(masters.riddleLanterns()); faceCenter(g, ringSpot(345));
   } else if (id === 'shellstage'){
     g.add(masters.shellStage()); faceCenter(g, ringSpot(15));
+  } else if (id === 'shellhut'){
+    g.add(masters.shellHut()); faceCenter(g, ringSpot(70));
   } else if (id === 'heartarch'){
     const pink = mat('#f2a6be',0.6);
     const arc = new THREE.Mesh(new THREE.TorusGeometry(1.3,0.14,12,40,Math.PI), pink); g.add(arc);
@@ -1456,7 +1459,8 @@ const SONG_INST = {morning:{lead:'flute', arp:'orchestral_harp'}, day:{lead:'mar
   midautumn:{lead:'ocarina', arp:'orchestral_harp'}, halloween:{lead:'pizzicato_strings', arp:'music_box'}, christmas:{lead:'music_box', pad:'string_ensemble_1'},
   jazz:{lead:'tenor_sax', comp:'electric_guitar_jazz', walk:true}, bossa:{lead:'alto_sax', arp:'acoustic_guitar_nylon'}, folk:{lead:'acoustic_guitar_steel', strum:'acoustic_guitar_steel'},
   rock:{lead:'overdriven_guitar', strum:'acoustic_guitar_steel'}, fanfare:{lead:'trumpet', strum:'acoustic_guitar_steel'},
-  riddle:{lead:'flute', arp:'orchestral_harp', pad:'string_ensemble_1'}, seaside:{lead:'marimba', arp:'acoustic_guitar_nylon', pad:'string_ensemble_1'}};
+  riddle:{lead:'flute', arp:'orchestral_harp', pad:'string_ensemble_1'}, seaside:{lead:'marimba', arp:'acoustic_guitar_nylon', pad:'string_ensemble_1'},
+  tidepool:{lead:'pizzicato_strings', arp:'marimba'}};
 // the music settings ("作曲"): pick a tune and which instrument plays the melody, the accompaniment and the drums
 const COMP_STYLE = {arp:'分解和弦', strum:'刷和弦', comp:'爵士和弦', pad:'長音'};
 function songInst(id){
@@ -1507,6 +1511,9 @@ Object.assign(SONGS, {
   // the dolphin's music hall: a bright marimba tune over nylon guitar, strings and a shaker, like a beach afternoon
   seaside: {bpm:112, lead:'bell', perc:'shaker', mel:[72,0,76,79,0,76,72,0, 69,0,72,76,0,74,72,0, 77,0,76,74,72,0,69,72, 74,0,0,71,74,79,0,0,
     79,0,77,76,0,72,76,0, 81,0,79,76,0,72,69,0, 72,74,77,0,76,74,72,0, 71,0,74,0,72,0,0,0], bass:[[48,55],[45,52],[41,48],[43,50]], ch:[[64,67],[64,69],[65,69],[62,67]]},
+  // the hermit crab's sandcastle: a bouncy plucked-strings tune over marimba and a bossa beat, like running about on the sand
+  tidepool:{bpm:132, lead:'pluck', perc:'bossa', mel:[72,0,74,76,0,79,76,0, 77,0,76,74,72,0,74,0, 76,0,79,81,0,79,76,74, 71,0,0,74,71,0,67,0,
+    69,0,72,76,0,74,72,0, 74,0,77,76,74,0,72,0, 72,74,76,0,81,0,79,76, 74,0,71,0,72,0,0,0], bass:[[48,55],[41,48],[45,52],[43,50]], ch:[[64,67],[65,69],[64,69],[62,67]]},
 });
 const SONG_NAME = {morning:'早晨', day:'午後', evening:'黃昏', night:'夜晚', rain:'雨天', storm:'雷雨', snow:'雪天', jazz:'爵士', bossa:'巴薩諾瓦', folk:'民謠', rock:'搖滾', fanfare:'號角'};
 const MUSIC_SONGS = ['morning', 'day', 'evening', 'night', 'rain', 'snow', 'jazz', 'bossa', 'folk', 'rock', 'fanfare'];
@@ -2587,7 +2594,7 @@ function pickShell(s){
   if (!shells.includes(s)) return;
   shells.splice(shells.indexOf(s), 1); beachHit.splice(beachHit.indexOf(s.hb), 1); const at = s.g.position.clone();
   tools.push({t:0, dur:0.5, update(t){ s.g.position.y = at.y + t*1.5; s.g.scale.setScalar(Math.max(0.01, 1 - t*1.6)); }, done(){ scene.remove(s.g); }});
-  addCoins(1, at.add(V3(0, 0.5, 0))); S.shells = (S.shells || 0) + 1; track('shell');
+  addCoins(hasSkill('beachcomb') ? 2 : 1, at.add(V3(0, 0.5, 0))); S.shells = (S.shells || 0) + 1; track('shell');
   if (S.shells === 1 || S.shells % 10 === 0) toast(`撿到貝殼了！目前一共撿了 ${S.shells} 個。`);
 }
 let wetUntil = 0;
@@ -3274,6 +3281,7 @@ const SKILLS = {
   // taught by an area master on the first win (js/masters.js)
   slowlife:{icon:'🍵', name:'慢活', master:'turtle', desc:'跟烏龜爺爺學會慢慢來：睡覺時體力恢復快 30%'},
   rhythm:{icon:'🎵', name:'節奏感', master:'dolphin', desc:'跟海豚姊姊學會跟著音樂搖擺：心情掉得慢 15%'},
+  beachcomb:{icon:'🐚', name:'撿貝殼高手', master:'hermit', desc:'跟寄居蟹弟弟學會找貝殼：沙灘上撿到的貝殼代幣變兩倍'},
 };
 const hasSkill = k => !!(S.skills && S.skills[k]);
 const skillCount = k => stat('meetU:' + SKILLS[k].from);
@@ -4719,7 +4727,7 @@ const TRICK_ICON = {flowerview:'🌸', nightwalk:'🔦', sit:'🐾', flip:'🤸'
 const TRICK_DESC = {dig:'用前腳拚命挖土，偶爾會挖到代幣！', zoomies:'突然興奮地繞圈暴衝。體力 -6，心情 +10', wave:'坐著舉起前腳跟你揮手。', bow:'低下頭鞠個躬。', hop:'往前跳三下。', stretch:'前腳往前伸，打個大哈欠。', sit:'乖乖坐下，看著你。心情 +6', flip:'原地一個後空翻！體力 -6，心情 +10', roll:'連續側翻滾三圈。體力 -6，心情 +10', spin:'跳起來轉一圈。體力 -6，心情 +10',
   belly:'翻過來露出肚子扭扭。體力 -6，心情 +10', shake:'甩甩全身的毛。體力 -6，心情 +10', dance:'跟著音樂跳舞。體力 -8，心情 +14', ballroll:'縮成一顆球往前滾。體力 -6，心情 +12'};
 const CLOTH_ICON = {party:'🥳', straw:'👒', glasses:'👓', bow:'🎀', scarf:'🧣', sweater:'🧶', nyband:'🎊', caishen:'🧧', heartgl:'😍', propeller:'🚁', sachet:'🎐', bunny:'🐰', witch:'🧙', santa:'🎅'};
-const BUILD_ICON = {cottage:'🏡', bench:'🪑', swing:'🎠', sandbox:'🏖️', well:'🪣', windmill:'🌬️', mailbox:'📮', scarecrow:'🌾', mushroom:'🍄', fruittree:'🍎', fountain:'⛲', house:'🕳️', pond:'🐟', lamp:'💡', flowers:'🌷', fence:'🪵', fireworks:'🎆', lanterns:'🏮', heartarch:'💗', slide:'🎢', dragonboat:'🐉', moonlamp:'🌕', pumpkins:'🎃', clocktower:'🕛', cnygate:'🧧', rosebed:'🌹', seesaw:'🛝', dragondrum:'🥁', rabbitlamp:'🐇', pumpkincart:'🎃', sleigh:'🛷', xmastree:'🎄', riddlelanterns:'🏮', shellstage:'🐚'};
+const BUILD_ICON = {cottage:'🏡', bench:'🪑', swing:'🎠', sandbox:'🏖️', well:'🪣', windmill:'🌬️', mailbox:'📮', scarecrow:'🌾', mushroom:'🍄', fruittree:'🍎', fountain:'⛲', house:'🕳️', pond:'🐟', lamp:'💡', flowers:'🌷', fence:'🪵', fireworks:'🎆', lanterns:'🏮', heartarch:'💗', slide:'🎢', dragonboat:'🐉', moonlamp:'🌕', pumpkins:'🎃', clocktower:'🕛', cnygate:'🧧', rosebed:'🌹', seesaw:'🛝', dragondrum:'🥁', rabbitlamp:'🐇', pumpkincart:'🎃', sleigh:'🛷', xmastree:'🎄', riddlelanterns:'🏮', shellstage:'🐚', shellhut:'🐌'};
 let shopTab = 'food', feedTab = 'food', detailQty = 1;
 const tabsHTML = (tabs, cur, attr) => `<div class="tabs" role="tablist">` + tabs.map(([k,l]) => `<button class="tab" role="tab" aria-selected="${k === cur}" data-${attr}="${k}">${l}</button>`).join('') + `</div>`;
 const tileHTML = (e, i) => `<button class="tile${e.dim ? ' dim' : ''}" data-tile="${i}" aria-label="${e.name}"><span class="ti">${e.icon}</span><span class="tn">${e.name}</span>${e.badge ? `<span class="tb">${e.badge}</span>` : ''}</button>`;

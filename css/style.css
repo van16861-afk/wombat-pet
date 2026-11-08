@@ -216,6 +216,7 @@ body.placing .dock, body.placing .stats, body.placing .alert{display:none}
 .rhyC{position:static;inset:auto;width:100%;height:200px;border-radius:12px;background:linear-gradient(#e8f3fb,#cfe4f2);display:block;touch-action:none}
 .rhyFx{margin:0;height:20px;text-align:center;font-weight:700;font-size:16px}
 .rhyPads{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.rhyPads button{height:58px;border-radius:14px;border:0;font-size:22px;color:#fff;touch-action:manipulation;transition:transform .08s}
+.bch{display:flex;flex-direction:column;gap:6px}.bchC{position:static;inset:auto;width:100%;height:260px;border-radius:12px;display:block;touch-action:none;cursor:pointer}.bchN,.bchT{font-size:16px;font-weight:700}
 .rhyPads .rp0{background:#3a7bd5}.rhyPads .rp1{background:#2fa36b}.rhyPads .rp2{background:#d5456a}.rhyPads button.on{transform:scale(.93);filter:brightness(1.25)}
 .rdlQ{margin:4px 0 2px;font-size:21px;line-height:1.55;font-weight:700;color:#3a2614}
 .rdlC{margin:0;font-size:15px;color:#9c3e2c}

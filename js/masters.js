@@ -3,7 +3,8 @@
 // puzzle, riddles, rhythm or song guessing. Winning gives coins and a badge (once in each of the wombat's lives), and the
 // first win ever also unlocks a building and teaches a life skill; after that a win pays a little once a day.
 // 烏龜爺爺, the old tortoise by the lily pond, sets lantern riddles (燈謎); 海豚姊姊, the dolphin off the north-east beach,
-// runs the music hall: guess the song, then tap along in time (節奏).
+// runs the music hall: guess the song, then tap along in time (節奏); 寄居蟹弟弟, the hermit crab on the south-east beach, keeps a
+// sandcastle and sets a beach game: pick up shells and run from the waves (撿貝殼躲海浪).
 import * as THREE from 'three';
 import { PLOT, BIO, WATER_Y } from './world.js';
 import { TUNES, parseTune } from './tunes.js';
@@ -19,6 +20,8 @@ export const MASTERS = {
     badge:{icon:'🏮', name:'燈謎徽章'}, building:'riddlelanterns', skill:'slowlife', coins:100, daily:20, need:4, rounds:5, song:'riddle', call:'爺爺', voice:true},
   dolphin:{name:'海豚姊姊', area:'1,-1', areaName:'東北邊的海岸', model:'dolphinsis', size:1, stand:true, por:[0.35, 0.08, 1], porD:1.6, porUp:1.02, game:'music', gameName:'音樂挑戰', sea:true,
     badge:{icon:'🎵', name:'音樂徽章'}, building:'shellstage', skill:'rhythm', coins:100, daily:20, need:4, rounds:5, pass:80, song:'seaside', call:'姊姊', voice:true},
+  hermit:{name:'寄居蟹弟弟', area:'1,1', areaName:'東南邊的海岸', model:'hermit', size:2.3, game:'beach', gameName:'撿貝殼躲海浪', beach:true,
+    badge:{icon:'🐚', name:'貝殼徽章'}, building:'shellhut', skill:'beachcomb', coins:100, daily:20, pass:15, time:40, song:'tidepool', call:'弟弟', voice:true},
 };
 // the songs the rhythm game uses (steady, not too fast)
 const RHYTHM = ['twinkle', 'bee', 'lamb', 'joy', 'london', 'tigers', 'farm', 'surprise', 'largo'];
@@ -104,6 +107,23 @@ const TALK = {
     beatLose:['%分，差一點點！要 80 分才過關喔，再試一次吧！'],
     bye:['掰掰～記得常來玩喔！', '下次見，小袋熊！', '要來聽我唱歌喔～掰掰！'],
     more:'還有什麼想跟姊姊聊的嗎？', gift:['這些都是你的了！有空常來找姊姊玩喔！', '今天的禮物已經送過囉，不過你玩得好棒，姊姊好開心！'], thanks:'謝謝姊姊',
+  },
+  hermit:{
+    first:['嘿！你好你好！我是寄居蟹弟弟，住在這片沙灘上！', '我最喜歡撿貝殼了！因為我一直在長大，要常常找新的殼搬家喔。',
+      '我的挑戰是撿貝殼躲海浪：四十秒裡撿到十五個貝殼就過關！可是要小心，被海浪打到，貝殼會被沖走喔。', '過關的話，我把以前住過的大海螺殼送給你！要不要玩？'],
+    again:['又來沙灘玩啦？今天的浪很大喔！', '嘿嘿，我剛剛又撿到一個漂亮的貝殼！', '來來來，我們來比賽撿貝殼！'],
+    cleared:['你上次撿得好快喔！要不要再來一場？', '貝殼徽章亮晶晶的耶！再玩一次嘛！'],
+    night:['（從殼裡探出眼睛）嗯……晚上了喔？沙子涼涼的好舒服。', '（縮在殼裡小聲說）晚上的海浪聲好大，我有一點點怕怕的。'],
+    rain:['下雨了！雨滴打在我的殼上，咚咚咚的！', '下雨天沙子濕濕的，最容易挖到貝殼喔。'],
+    chat:['你知道嗎？寄居蟹沒有自己的殼，要找別人不要的貝殼來住。', '換殼的時候要很快，不然軟軟的肚子會被海鷗看到！',
+      '有時候好幾隻寄居蟹會從大排到小，一起換殼喔。', '我比較大的那隻螯是我的門，躲進殼裡的時候就用它把門擋起來。',
+      '海浪退下去的時候，沙灘上常常會留下新的貝殼。', '螃蟹哥哥都是橫著走，我是往前走的喔！', '海豚姊姊唱歌好好聽，我常常躲在石頭後面偷聽。',
+      '撿到空的貝殼可以留給我嗎？我一直在找更大的家！'],
+    start:['用手指點沙灘，袋熊就會走過去。看到海浪要來了，就趕快往岸上跑！準備好了嗎？'],
+    done:['哇！你好厲害，撿得比我還快！你過關了！'],
+    fail:['差一點點！要撿到十五個才過關喔，再試一次吧！'],
+    bye:['掰掰！記得來沙灘玩喔！', '下次見！我要去找貝殼囉！', '小心海浪喔，掰掰！'],
+    more:'還有什麼想跟我說的嗎？', gift:['這些都是你的了！那個海螺殼是我小時候的家，要好好照顧它喔！', '今天的禮物已經送過囉，不過跟你一起玩好開心！'], thanks:'謝謝弟弟',
   },
 };
 
@@ -240,6 +260,64 @@ export function createMasters(G){
     if (!M.talking) G.tune.play(parseTune(t), {bpm:t.bpm, lead});
   };
 
+  // ---------- the hermit crab's sandcastle: bucket-shaped towers round a keep, stuck all over with shells (its front faces +z) ----------
+  function sandTex(base, dot){ return canvasTex(256, 256, (x, w, h) => { x.fillStyle = base; x.fillRect(0, 0, w, h);
+    for (let i=0;i<1800;i++){ x.fillStyle = Math.random() < 0.5 ? dot : 'rgba(255,255,255,.25)'; x.fillRect(Math.random()*w, Math.random()*h, 1.5, 1.5); } }); }
+  function stuckShell(col){   // a little fan shell pressed into the sand, ribs showing
+    const g = new THREE.Group(), s = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 6, 0, Math.PI*2, 0, Math.PI/2), mat(col, 0.5)); s.scale.set(1, 0.35, 0.9); g.add(s);
+    for (let i=0;i<5;i++){ const r = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.025, 0.11), mat('#ffffff', 0.5)); r.rotation.y = (i - 2)*0.32; r.position.set(Math.sin((i - 2)*0.32)*0.05, 0.025, Math.cos((i - 2)*0.32)*0.05); g.add(r); }
+    return g;
+  }
+  function bucketTower(r, h, sandM){
+    const g = new THREE.Group(), t = new THREE.Mesh(new THREE.CylinderGeometry(r*0.8, r, h, 18), sandM); t.position.y = h/2; g.add(t);
+    for (let i=0;i<8;i+=2){ const a = i/8*Math.PI*2, b = new THREE.Mesh(new THREE.BoxGeometry(r*0.42, r*0.4, r*0.3), sandM); b.position.set(Math.cos(a)*r*0.68, h + r*0.18, Math.sin(a)*r*0.68); b.rotation.y = -a; g.add(b); }
+    for (let k=0;k<3;k++){ const ring = new THREE.Mesh(new THREE.TorusGeometry(r*(0.97 - k*0.06), 0.02, 4, 24), sandM); ring.rotation.x = Math.PI/2; ring.position.y = h*(0.25 + k*0.25); g.add(ring); }   // (the bucket's ridges)
+    return g;
+  }
+  function sandCastle(){
+    const g = new THREE.Group(), sandM = new THREE.MeshStandardMaterial({map:sandTex('#c9a062', 'rgba(120,85,40,.4)'), roughness:0.95}), dark = new THREE.MeshBasicMaterial({color:'#2a2014'});
+    const mound = new THREE.Mesh(new THREE.CylinderGeometry(2.3, 2.6, 1.1, 36), sandM); mound.position.y = -0.3; g.add(mound);   // (reaches down into the sloping sand)
+    const moat = new THREE.Mesh(new THREE.TorusGeometry(2.45, 0.16, 6, 40), new THREE.MeshStandardMaterial({color:'#7fb9c9', roughness:0.2, transparent:true, opacity:0.8})); moat.rotation.x = Math.PI/2; moat.position.y = 0.2; moat.scale.z = 0.4; g.add(moat);
+    const keep = new THREE.Mesh(new THREE.BoxGeometry(2.0, 1.5, 1.5), sandM); keep.position.set(0, 0.95, -0.2); g.add(keep);
+    for (let i=0;i<5;i++) for (const z of [-0.85, 0.45]){ const b = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.26, 0.26), sandM); b.position.set(-0.8 + i*0.4, 1.83, z); g.add(b); }
+    const big = bucketTower(0.55, 1.1, sandM); big.position.set(0, 1.7, -0.3); g.add(big);   // the bucket-shaped tower on top of the keep
+    for (const [x, z] of [[-1.3, 0.55], [1.3, 0.55], [-1.2, -1.0], [1.2, -1.0]]){ const t = bucketTower(0.42, 1.4, sandM); t.position.set(x, 0.2, z); g.add(t); }
+    // the door (an arch) and windows, then shells and a starfish pressed into the walls
+    const door = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 0.6), dark); door.position.set(0, 0.5, 0.561); g.add(door);
+    const dtop = new THREE.Mesh(new THREE.CircleGeometry(0.28, 20, 0, Math.PI), dark); dtop.position.set(0, 0.8, 0.561); g.add(dtop);
+    const win = glowMat('#f3e2b0', '#ffcf6b');
+    for (const x of [-0.6, 0.6]){ const w = new THREE.Mesh(new THREE.CircleGeometry(0.12, 14), win); w.position.set(x, 1.25, 0.562); g.add(w); }
+    const cols = ['#f6d7c8', '#e8b4b8', '#fbeee0', '#f3e3b5', '#d9e4f0'];
+    for (const [x, y, k] of [[-0.75, 1.55, 0], [-0.3, 1.6, 1], [0.3, 1.58, 2], [0.75, 1.52, 3], [-0.7, 0.4, 4], [0.7, 0.42, 0], [-0.5, 0.95, 2]]){
+      const sh = stuckShell(cols[k]); sh.rotation.x = Math.PI/2; sh.rotateY(rnd(-0.6, 0.6)); sh.position.set(x, y, 0.565); g.add(sh); }
+    for (const [x, z] of [[-1.3, 0.55], [1.3, 0.55]]) for (let k=0;k<3;k++){ const a = k*0.9 - 0.9, y = 0.6 + k*0.3, sh = stuckShell(cols[(k + 2) % 5]);
+      sh.position.set(x + Math.sin(a)*0.37, y, z + Math.cos(a)*0.37); sh.lookAt(x + Math.sin(a)*2, y, z + Math.cos(a)*2); sh.rotateX(Math.PI/2); g.add(sh); }
+    const sf = starfish('#e2764e'); sf.rotation.set(0, 0, 0.3); sf.position.set(0.5, 0.95, 0.57); sf.scale.setScalar(0.8); g.add(sf);
+    // a flag with a shell on it on the tall tower
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1.0, 6), mat('#8a6440', 0.8)); pole.position.set(0, 3.3, -0.3); g.add(pole);
+    const flag = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.38), new THREE.MeshStandardMaterial({map:canvasTex(128, 80, (x, w, h) => { x.fillStyle = '#e8504a'; x.fillRect(0, 0, w, h); x.font = '52px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('🐚', w/2, h/2 + 3); }), side:THREE.DoubleSide, roughness:0.8}));
+    flag.position.set(0.31, 3.6, -0.3); g.add(flag); g.userData.flag = flag;
+    // a bucket and spade left on the sand, and the sign: 沙堡館
+    const bucket = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.17, 0.32, 16, 1, true), new THREE.MeshStandardMaterial({color:'#3f8fd2', roughness:0.5, side:THREE.DoubleSide})); bucket.position.set(-1.9, 0.3, 1.9); bucket.rotation.z = 1.3; g.add(bucket);
+    const spade = new THREE.Group(), yel = mat('#f2c230', 0.5), blade = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.02, 0.24), yel), handle = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.5, 6), yel);
+    handle.rotation.x = Math.PI/2; handle.position.z = -0.36; spade.add(blade, handle); spade.position.set(-1.5, 0.22, 2.3); spade.rotation.y = 0.7; g.add(spade);
+    const wood = mat('#8a6440', 0.85), post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.2, 8), wood); post.position.set(1.75, 0.6, 2.1); g.add(post);
+    const side = mat('#b98b5a'), sign = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.36, 0.06), [side, side, side, side, new THREE.MeshStandardMaterial({map:signTex('沙堡館'), roughness:0.9}), side]);
+    sign.position.set(1.75, 1.2, 2.14); g.add(sign);
+    return g;
+  }
+  M.shellHut = function(){   // the reward: the hermit crab's old home, a big turban shell standing on the sand with a round door (front faces +z)
+    const g = new THREE.Group(), cols = ['#eebd94', '#c4724f'];
+    for (let i=0;i<7;i++){ const k = Math.pow(0.74, i), t = new THREE.Mesh(new THREE.TorusGeometry(0.62*k, 0.36*k, 12, 28), mat(cols[i % 2], 0.45));
+      t.rotation.x = Math.PI/2; t.position.y = 0.36 + 1.15*(1 - k); g.add(t); }
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.22, 10), mat(cols[1], 0.45)); tip.position.y = 1.62; g.add(tip);
+    const core = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.95, 0.72, 24), mat(cols[0], 0.5)); core.position.y = 0.36; g.add(core);
+    const door = new THREE.Mesh(new THREE.CircleGeometry(0.26, 20), new THREE.MeshBasicMaterial({color:'#2a2014'})); door.position.set(0, 0.36, 0.99); g.add(door);
+    const lip = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.05, 8, 24), mat('#fbe9da', 0.35)); lip.position.set(0, 0.36, 0.99); g.add(lip);
+    const w = new THREE.Mesh(new THREE.CircleGeometry(0.09, 12), glowMat('#f3e2b0', '#ffcf6b')); w.position.set(0.25, 0.92, 0.62); w.lookAt(0.6, 1.1, 1.6); g.add(w);
+    return g;
+  };
+
   // ---------- where each master lives: a dry, level, clear spot near its place (found once, then kept in the save) ----------
   function findSpot(id, m){
     const S = G.S(), saved = (S.masterSpots || {})[id]; if (saved) return saved;
@@ -254,8 +332,8 @@ export function createMasters(G){
       const ry = Math.atan2(-x, -z), lay = (f, s) => [x + Math.sin(ry)*f + Math.cos(ry)*s, z + Math.cos(ry)*f - Math.sin(ry)*s];
       for (const [f, s, r] of [[1.9, -2.6, 1.6], [3.3, 1.2, 1.6]]){ if (!ok) break; const [px, pz] = lay(f, s); ok = dry(px, pz) && G.clear(px, pz, r); }
       if (!ok) continue;
-      // close to the pond's shore (but not on it), and on the side facing home
-      const shore = world.pondD(x, z) - P.r, sc = Math.abs(shore - 4.5) + Math.max(0, cz - z)*0.15;
+      // close to the pond's shore (but not on it), and on the side facing home; a beach master: on the sand, a few steps up from the sea
+      const shore = world.pondD(x, z) - P.r, sc = m.beach ? Math.abs(x - (world.shoreX(z) - 4.2)) + Math.abs(z - cz)*0.15 : Math.abs(shore - 4.5) + Math.max(0, cz - z)*0.15;
       if (sc < bs){ bs = sc; best = {x, z}; }
     }
     if (!best) return null;
@@ -289,7 +367,7 @@ export function createMasters(G){
   function place(id){
     const m = MASTERS[id], sp = findSpot(id, m); if (!sp) return;
     const home = new THREE.Group(); home.position.set(sp.x, gy(sp.x, sp.z), sp.z); home.rotation.y = sp.ry; scene.add(home);
-    const house = m.sea ? musicHall() : turtleHouse(); home.add(house);
+    const house = m.sea ? musicHall() : m.beach ? sandCastle() : turtleHouse(); home.add(house);
     const hhb = new THREE.Mesh(new THREE.SphereGeometry(2.2, 10, 8), G.hbMat); hhb.position.y = 0.8; hhb.userData = {kind:'master', ref:id}; home.add(hhb);
     const body = G.real(m.model); if (!body) return;
     body.scale.multiplyScalar(m.size);
@@ -330,6 +408,32 @@ export function createMasters(G){
     b.rotation.y = stand || night ? ry : b.rotation.y + wrapA(ry - b.rotation.y)*Math.min(1, dt*3);
     b.rotation.x += (pitch - b.rotation.x)*Math.min(1, dt*(a.leap ? 20 : stand ? 2 : 3)); b.rotation.z += (roll - b.rotation.z)*Math.min(1, dt*2);
   }
+  // the hermit crab: wanders about in front of his castle, pulling his shell along with his front legs (his walk clip), and
+  // stands still with all his legs down when he stops; turns to face the wombat when it comes near; at night he stays tucked
+  // in by the door, asleep
+  function crawl(a, dt, petPos){
+    const b = a.body, night = G.phase() === 'night' && !M.talking, d = petPos ? Math.hypot(petPos.x - b.position.x, petPos.z - b.position.z) : 99;
+    const ac = a.act('walk'); if (ac && a.cur !== ac){ ac.play(); a.cur = ac; }
+    const step = (sp) => { if (!ac) return; if (sp > 0) ac.timeScale = sp; else if (ac.timeScale){ ac.timeScale = 0; ac.time = 0; } };   // (no rest clip: it stops with every leg down)
+    a.zz.visible = night; if (night){ const k = (a.t*0.4) % 1; a.zz.position.set(b.position.x, b.position.y + 1.0 + k*0.8, b.position.z); a.zz.material.opacity = Math.sin(k*Math.PI); step(0); return; }
+    if (a.cheer > 0) a.cheer -= dt;
+    let want = null, go = 0;
+    if (petPos && (M.talking === a.id || d < 7)) want = Math.atan2(petPos.x - b.position.x, petPos.z - b.position.z);
+    else {
+      a.wait = (a.wait ?? rnd(2, 5)) - dt;
+      if (!a.tgt || a.wait <= 0 && !a.walking){   // (somewhere near his spot, on dry sand and clear of the castle)
+        for (let i=0;i<8;i++){ const r = rnd(0, 2.2), t = rnd(0, Math.PI*2), p = a.at.clone().add(V3(Math.cos(t)*r, 0, Math.sin(t)*r));
+          if (Math.hypot(p.x - a.home.position.x, p.z - a.home.position.z) > 3.1 && !world.isWater(p.x, p.z)){ a.tgt = p; break; } }
+        a.tgt = a.tgt || a.at.clone(); a.walking = true; }
+      const dx = a.tgt.x - b.position.x, dz = a.tgt.z - b.position.z, L = Math.hypot(dx, dz);
+      if (a.walking && L > 0.08){ want = Math.atan2(dx, dz); if (Math.abs(wrapA(want - b.rotation.y)) < 0.5) go = Math.min(L, dt*0.45); }
+      else if (a.walking){ a.walking = false; a.wait = rnd(3, 8); }
+    }
+    const turn = want == null ? 0 : wrapA(want - b.rotation.y);
+    if (Math.abs(turn) > 0.08) b.rotation.y += Math.sign(turn)*Math.min(Math.abs(turn), dt*1.4);
+    if (go){ b.position.x += Math.sin(b.rotation.y)*go; b.position.z += Math.cos(b.rotation.y)*go; b.position.y = gy(b.position.x, b.position.z); }
+    step(go ? 0.9 : Math.abs(turn) > 0.08 ? 0.6 : 0);
+  }
   function play(a, n, speed = 1, once = false){
     const ac = a.act(n); if (!ac) return; ac.timeScale = speed;
     if (a.cur === ac) return;
@@ -346,6 +450,7 @@ export function createMasters(G){
       a.t += dt; a.body.userData.mixer.update(dt);
       if (a.house.userData.notes) a.house.userData.notes.forEach(n => { n.position.y = n.userData.y + Math.sin(a.t*1.3 + n.userData.ph)*0.15; });
       if (a.m.sea){ swim(a, dt, petPos); continue; }
+      if (a.m.beach){ crawl(a, dt, petPos); continue; }
       const night = G.phase() === 'night' && !M.talking;
       if (night){   // asleep in his shell
         if (a.state !== 'sleep'){ a.state = 'sleep'; play(a, 'hide', 1, true); }
@@ -589,7 +694,112 @@ export function createMasters(G){
       G.tune.stop(); if (d === -2) return 'quit'; if (d === 1){ gameEl.hidden = true; return 'done'; }
     }
   }
-  const GAMES = {riddle:riddleGame, music:musicGame};
+  // ---------- 撿貝殼躲海浪: the beach seen from above, the sea at the top. Tap (or hold) the sand and the wombat walks there;
+  // walking over a shell picks it up. Every few seconds the sea swells (a warning first) and a wave runs up the beach: if it
+  // catches the wombat, it washes up to three shells out of its paws and knocks it over for a moment. Each wave leaves new
+  // shells behind on the wet sand; golden ones (3 shells' worth) only turn up near the water. 15 in 40 seconds wins. ----------
+  async function beachGame(a){
+    const T = TALK[a.id], m = a.m; G.music.preload(); gameEl.hidden = false;
+    gameEl.innerHTML = `<div class="rdl"><div class="rdlLantern" aria-hidden="true">🐚</div><p class="rdlQ">撿貝殼躲海浪</p><p class="rdlC">${m.time} 秒內撿到 ${m.pass} 個貝殼就過關</p></div>`;
+    if (await say(pick(T.start), ['開始！']) === -2) return 'quit';
+    const n = await beachRun(a); if (n < 0) return 'quit';
+    const won = n >= m.pass;
+    gameEl.innerHTML = `<div class="rdl"><div class="rdlLantern big" aria-hidden="true">${won ? m.badge.icon : '🌊'}</div><p class="rdlQ">撿到 ${n} 個　${won ? '過關！' : '再接再厲'}</p></div>`;
+    G.music.jingle(won ? 'win' : 'lose'); if (won) a.cheer = 2;
+    if (!won){ const c = await say(pick(T.fail), ['再玩一次', {label:'先休息一下', ghost:true}]); gameEl.hidden = true;
+      if (c === 0) return beachGame(a); return c === -2 ? 'quit' : 'done'; }
+    if (await say(pick(T.done)) === -2) return 'quit';
+    return gifts(a);
+  }
+  function beachRun(a){
+    return new Promise(done => {
+      const m = a.m;
+      gameEl.innerHTML = `<div class="bch"><div class="rhyTop"><b class="bchN">🐚 0 / ${m.pass}</b><span class="bchT">⏱ ${m.time}</span></div><canvas class="bchC"></canvas><p class="rhyFx bchFx" aria-live="polite"></p></div>`;
+      textEl.textContent = '點沙灘讓袋熊走過去撿貝殼，海浪來了要往下面跑！'; textEl.classList.remove('more'); actsEl.innerHTML = ''; textEl.parentElement.onclick = null; G.voice && G.voice.stop();
+      const cv = gameEl.querySelector('.bchC'), cx = cv.getContext('2d'), fx = gameEl.querySelector('.bchFx'), nEl = gameEl.querySelector('.bchN'), tEl = gameEl.querySelector('.bchT');
+      const dpr = Math.min(2, devicePixelRatio || 1), W = cv.clientWidth || 300, H = 260; cv.width = W*dpr; cv.height = H*dpr; cx.scale(dpr, dpr);
+      const SEA = 46, LOW = H - 22;   // the calm waterline, and how far down the biggest wave can reach (a strip at the bottom always stays dry)
+      const P = {x:W/2, y:H - 50, tx:W/2, ty:H - 50, down:0, face:1};
+      let shells = [], got = 0, left = m.time, over = false, raf = 0, last = performance.now(), flashT = 0, trickle = 2;
+      let wave = {st:'calm', t:0, gap:2.2, reach:SEA, level:SEA, n:0, hit:false}, wet = SEA;
+      const show = (txt, col) => { fx.textContent = txt; fx.style.color = col; flashT = performance.now(); };
+      const addShell = (y0, y1) => { if (shells.length >= 11) return; for (let i=0;i<6;i++){ const x = rnd(16, W - 16), y = rnd(y0, y1);
+        if (Math.hypot(x - P.x, y - P.y) > 30 && shells.every(s => Math.hypot(s.x - x, s.y - y) > 26)){ shells.push({x, y, gold:y < SEA + 60 && Math.random() < 0.18, r:rnd(-0.5, 0.5), c:Math.floor(Math.random()*5), born:0}); return; } } };
+      for (let i=0;i<6;i++) addShell(SEA + 20, LOW - 10);
+      // a scallop: a fan of ribs above a little hinge, drawn at the origin
+      const SHC = ['#f2a48f', '#f6c7b4', '#e98aa0', '#f3d9a4', '#b9d3ec'];
+      const fan = (col, k) => { cx.scale(k, k); cx.fillStyle = col; cx.strokeStyle = 'rgba(120,60,40,.55)'; cx.lineWidth = 1.2;
+        cx.beginPath(); cx.moveTo(0, 7); cx.arc(0, 7, 15, -Math.PI*0.82, -Math.PI*0.18); cx.closePath(); cx.fill(); cx.stroke();
+        cx.strokeStyle = 'rgba(255,255,255,.75)'; for (let i=1;i<6;i++){ const a = -Math.PI*0.82 + i*Math.PI*0.64/6; cx.beginPath(); cx.moveTo(0, 7); cx.lineTo(Math.cos(a)*14, 7 + Math.sin(a)*14); cx.stroke(); }
+        cx.fillStyle = col; cx.strokeStyle = 'rgba(120,60,40,.55)'; cx.beginPath(); cx.rect(-4, 5, 8, 4); cx.fill(); cx.stroke(); };
+      const waterY = (x, lv, t) => lv + Math.sin(x*0.035 + t*2.2)*5 + Math.sin(x*0.09 - t*3.1)*2.5;
+      let key = null; const held = {};
+      const finish = v => { if (over) return; over = true; cancelAnimationFrame(raf); if (key){ removeEventListener('keydown', key); removeEventListener('keyup', key); } rhy = null; done(v); };
+      rhy = {stop:() => finish(-1)}; closeReq = () => finish(-1);
+      const aim = e => { const r = cv.getBoundingClientRect(); P.tx = Math.max(12, Math.min(W - 12, e.clientX - r.left)); P.ty = Math.max(SEA + 8, Math.min(H - 12, e.clientY - r.top)); };
+      cv.addEventListener('pointerdown', e => { e.preventDefault(); cv.setPointerCapture(e.pointerId); aim(e); });
+      cv.addEventListener('pointermove', e => { if (e.buttons) aim(e); });
+      const KEYS = {ArrowLeft:[-1, 0], ArrowRight:[1, 0], ArrowUp:[0, -1], ArrowDown:[0, 1], a:[-1, 0], d:[1, 0], w:[0, -1], s:[0, 1]};
+      key = e => { if (!(e.key in KEYS)) return; e.preventDefault(); held[e.key] = e.type === 'keydown'; }; addEventListener('keydown', key); addEventListener('keyup', key);
+      let T = 0;
+      const step = () => {
+        if (over) return;
+        const now = performance.now(), dt = Math.min(0.05, (now - last)/1000); last = now; T += dt; left -= dt;
+        // the wave: calm → 浪來了 (the sea swells, 1 s) → runs up the beach → stays a moment → slides back, leaving shells on the wet sand
+        const w = wave; w.t += dt;
+        if (w.st === 'calm' && w.t > w.gap){ w.st = 'warn'; w.t = 0; w.n++; w.hit = false; w.reach = SEA + (w.n % 4 === 0 ? 0.92 : rnd(0.35, 0.75))*(LOW - SEA); show(w.n % 4 === 0 ? '🌊 大浪來了！快往下跑！' : '🌊 浪來了！', '#2b6fb3'); }
+        else if (w.st === 'warn'){ w.level = SEA - 6*Math.sin(Math.min(1, w.t)*Math.PI); if (w.t > 1.0){ w.st = 'rush'; w.t = 0; } }
+        else if (w.st === 'rush'){ const u = Math.min(1, w.t/0.9); w.level = SEA + (w.reach - SEA)*(1 - (1 - u)*(1 - u)); if (u >= 1){ w.st = 'hold'; w.t = 0; } }
+        else if (w.st === 'hold'){ w.level = w.reach; if (w.t > 0.45){ w.st = 'back'; w.t = 0; for (let i=0, k = 2 + Math.floor(Math.random()*2); i<k; i++) addShell(SEA + 14, w.reach - 6); } }
+        else if (w.st === 'back'){ const u = Math.min(1, w.t/1.3); w.level = w.reach - (w.reach - SEA)*u*u; wet = Math.max(wet, w.reach); if (u >= 1){ w.st = 'calm'; w.t = 0; w.gap = rnd(1.6, 3.4); } }
+        wet = Math.max(w.level, wet - dt*14);
+        if ((trickle -= dt) <= 0){ trickle = 2.2; if (shells.length < 6) addShell(SEA + 20, LOW - 10); }
+        // the wombat walks toward where you tapped (or with the arrow keys); a wave catching it washes shells away
+        if (P.down > 0) P.down -= dt;
+        else {
+          let kx = 0, ky = 0; for (const k in held) if (held[k]){ kx += KEYS[k][0]; ky += KEYS[k][1]; }
+          if (kx || ky){ P.tx = Math.max(12, Math.min(W - 12, P.x + kx*40)); P.ty = Math.max(SEA + 8, Math.min(H - 12, P.y + ky*40)); }
+          const dx = P.tx - P.x, dy = P.ty - P.y, L = Math.hypot(dx, dy), sp = 150*dt*(P.y < wet ? 0.8 : 1);   // (a little slower on wet sand)
+          if (L > 1){ const k = Math.min(1, sp/L); P.x += dx*k; P.y += dy*k; if (Math.abs(dx) > 2) P.face = Math.sign(dx); }
+        }
+        if ((w.st === 'rush' || w.st === 'hold') && !w.hit && P.y - 8 < waterY(P.x, w.level, T)){
+          w.hit = true; P.down = 1.0; const lost = Math.min(3, got); got -= lost; G.sfx('sad');
+          show(lost ? `嘩啦！被浪打到，掉了 ${lost} 個貝殼` : '嘩啦！被浪打到了！', '#2b6fb3');
+          P.ty = P.y = Math.min(H - 14, P.y + 18); P.tx = P.x; }
+        for (const sh of shells){ sh.born += dt; if (!sh.taken && Math.hypot(sh.x - P.x, sh.y - P.y) < 20 && P.down <= 0){ sh.taken = true; const v = sh.gold ? 3 : 1; got += v; G.sfx('pop'); show(sh.gold ? '✨ 金貝殼！+3' : '+1', sh.gold ? '#d49a00' : '#2fa36b'); } }
+        shells = shells.filter(s => !s.taken);
+        nEl.textContent = `🐚 ${got} / ${m.pass}`; tEl.textContent = `⏱ ${Math.max(0, Math.ceil(left))}`; nEl.style.color = got >= m.pass ? '#2fa36b' : '';
+        if (performance.now() - flashT > 1100) fx.textContent = '';
+        draw(w);
+        if (left <= 0){ finish(got); return; }
+        raf = requestAnimationFrame(step);
+      };
+      const draw = w => {
+        // dry sand, darker wet sand where the last wave reached, then the sea with a foamy edge
+        cx.fillStyle = '#f0dba6'; cx.fillRect(0, 0, W, H);
+        cx.fillStyle = 'rgba(180,140,80,.35)'; cx.beginPath(); cx.moveTo(0, 0); for (let x=0;x<=W;x+=8) cx.lineTo(x, waterY(x, wet, T*0.3) + 4); cx.lineTo(W, 0); cx.fill();
+        for (const sh of shells){ const s = Math.min(1, sh.born*4); cx.save(); cx.translate(sh.x, sh.y); cx.rotate(sh.r); cx.scale(s, s);
+          if (sh.gold){ cx.shadowColor = '#ffd23c'; cx.shadowBlur = 12 + 6*Math.sin(T*6); }
+          fan(sh.gold ? '#f7c531' : SHC[sh.c], sh.gold ? 1.25 : 1); cx.restore();
+          if (sh.gold && Math.sin(T*5 + sh.x) > 0.6){ cx.fillStyle = '#fff'; cx.font = '12px sans-serif'; cx.fillText('✦', sh.x + 11, sh.y - 12); } }
+        const g = cx.createLinearGradient(0, 0, 0, Math.max(w.level, SEA) + 10); g.addColorStop(0, '#2b7fb8'); g.addColorStop(1, w.st === 'warn' ? '#3f9fd6' : '#5cc0e0');
+        cx.fillStyle = g; cx.beginPath(); cx.moveTo(0, 0); for (let x=0;x<=W;x+=6) cx.lineTo(x, waterY(x, w.level, T)); cx.lineTo(W, 0); cx.fill();
+        cx.strokeStyle = 'rgba(255,255,255,.9)'; cx.lineWidth = w.st === 'rush' || w.st === 'hold' ? 6 : 4; cx.beginPath(); for (let x=0;x<=W;x+=6) cx.lineTo(x, waterY(x, w.level, T)); cx.stroke();
+        if (w.st === 'warn'){ cx.strokeStyle = `rgba(255,255,255,${0.4 + 0.4*Math.sin(T*14)})`; cx.lineWidth = 3; cx.beginPath(); for (let x=0;x<=W;x+=6) cx.lineTo(x, waterY(x, SEA*0.45, T*1.5)); cx.stroke(); }   // (the swell building offshore)
+        // the wombat from above: round brown body, small ears, a dark nose (tipped over and dripping when a wave got it)
+        cx.save(); cx.translate(P.x, P.y); if (P.down > 0) cx.rotate(Math.sin(P.down*12)*0.4);
+        cx.fillStyle = 'rgba(0,0,0,.15)'; cx.beginPath(); cx.ellipse(2, 12, 15, 6, 0, 0, Math.PI*2); cx.fill();
+        cx.fillStyle = '#8a6a4a'; cx.beginPath(); cx.ellipse(0, 0, 16, 14, 0, 0, Math.PI*2); cx.fill();
+        cx.fillStyle = '#6e5238'; for (const s of [-1, 1]){ cx.beginPath(); cx.arc(s*9, -11, 5, 0, Math.PI*2); cx.fill(); }
+        cx.fillStyle = '#2a2018'; for (const s of [-1, 1]){ cx.beginPath(); cx.arc(s*5, -3, 2.2, 0, Math.PI*2); cx.fill(); }
+        cx.beginPath(); cx.ellipse(0, 3, 4.5, 3.2, 0, 0, Math.PI*2); cx.fill();
+        if (P.down > 0){ cx.font = '16px sans-serif'; cx.textAlign = 'center'; cx.fillText('💦', 14, -16); }
+        cx.restore();
+      };
+      raf = requestAnimationFrame(step);
+    });
+  }
+  const GAMES = {riddle:riddleGame, music:musicGame, beach:beachGame};
 
   // what a win gives: coins and the badge once in each life, coins once a day after that; the first win ever also unlocks the
   // master's building and teaches the life skill (both stay through later lives)

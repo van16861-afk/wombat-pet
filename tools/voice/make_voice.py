@@ -14,7 +14,7 @@ from opencc import OpenCC
 from pypinyin import lazy_pinyin, Style
 from cosyvoice.cli.cosyvoice import AutoModel
 
-ap = argparse.ArgumentParser(); ap.add_argument("id"); ap.add_argument("--redo", nargs="*", default=[]); a = ap.parse_args()
+ap = argparse.ArgumentParser(); ap.add_argument("id"); ap.add_argument("--redo", nargs="*", default=[]); ap.add_argument("--list", action="store_true"); a = ap.parse_args()
 ID = a.id
 GAME = r"C:\Users\User\Documents\wombat-pet"; OUT = os.path.join(GAME, "voice", ID); os.makedirs(OUT, exist_ok=True)
 TMP = os.path.join(r"E:\CosyVoice\out", ID); os.makedirs(TMP, exist_ok=True)
@@ -22,7 +22,13 @@ _t2s = OpenCC("t2s").convert
 def t2s(t): return _t2s(t.replace("牠", "它")).replace("姊", "姐")   # (the model reads 姊 as "zi")
 def prep(t):   # what the model reads: no stage directions or corner quotes, simplified characters
     t = re.sub(r"（[^）]*）", "", t).replace("……", "，").replace("「", "").replace("」", "").replace("～", "！")
-    return t2s(t).replace("啰", "喽").replace("80", "八十").replace("紫竹调", "紫竹吊").strip()
+    t = t2s(t).replace("啰", "喽").replace("80", "八十").replace("著", "着")   # (OpenCC leaves 著, which the model reads zhù)
+    for a, b in FIX: t = t.replace(a, b)
+    return t.strip()
+# polyphones the model gets wrong: spell them with a character that only has the right sound
+FIX = [("紫竹调", "紫竹吊"), ("曲", "取"), ("颈长", "颈常"), ("耳朵长", "耳朵常"), ("一样长", "一样常"), ("背着房子", "杯着房子"),
+       ("曾曾曾孙", "增增增孙"), ("待在", "呆在"), ("种庄稼", "众庄稼"), ("飞来将", "飞来酱"), ("弹给", "谈给"), ("都会跟", "兜会跟"),
+       ("转一大圈", "赚一大圈")]
 def fnv(s):
     h = 0x811c9dc5; b = s.encode("utf-16-le")
     for i in range(0, len(b), 2): h = ((h ^ (b[i] | b[i+1] << 8)) * 0x01000193) & 0xffffffff
@@ -64,6 +70,9 @@ if ID == "dolphin":
 seen, todo = set(), []
 for shown, spoken in lines:
     if shown not in seen: seen.add(shown); todo.append((shown, spoken))
+if a.list:   # just print every line as the model will read it, then stop
+    for s, p in todo: print(s, "	", prep(p))
+    sys.exit()
 idx_path = os.path.join(OUT, "index.json")
 index = json.load(open(idx_path, encoding="utf-8")) if os.path.exists(idx_path) else {}
 todo = [(s, p) for s, p in todo if s in a.redo or fnv(s) not in index or not os.path.exists(os.path.join(OUT, fnv(s) + ".mp3"))]
