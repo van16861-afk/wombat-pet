@@ -17,8 +17,8 @@ const shuffle = a => { a = a.slice(); for (let i=a.length-1;i>0;i--){ const j = 
 export const MASTERS = {
   turtle:{name:'烏龜爺爺', area:BIO.pond, areaName:'荷花池塘', model:'tortoise', size:1.6, game:'riddle', gameName:'猜燈謎',
     badge:{icon:'🏮', name:'燈謎徽章'}, building:'riddlelanterns', skill:'slowlife', coins:100, daily:20, need:4, rounds:5, song:'riddle', call:'爺爺', voice:true},
-  dolphin:{name:'海豚姊姊', area:'1,-1', areaName:'東北邊的海岸', model:'dolphin', size:0.62, por:[1, 0.35, -0.75], porD:1.3, game:'music', gameName:'音樂挑戰', sea:true,
-    badge:{icon:'🎵', name:'音樂徽章'}, building:'shellstage', skill:'rhythm', coins:100, daily:20, need:4, rounds:5, pass:80, song:'seaside', call:'姊姊'},
+  dolphin:{name:'海豚姊姊', area:'1,-1', areaName:'東北邊的海岸', model:'dolphinsis', size:1, stand:true, por:[0.35, 0.08, 1], porD:1.6, porUp:1.02, game:'music', gameName:'音樂挑戰', sea:true,
+    badge:{icon:'🎵', name:'音樂徽章'}, building:'shellstage', skill:'rhythm', coins:100, daily:20, need:4, rounds:5, pass:80, song:'seaside', call:'姊姊', voice:true},
 };
 // the songs the rhythm game uses (steady, not too fast)
 const RHYTHM = ['twinkle', 'bee', 'lamb', 'joy', 'london', 'tigers', 'farm', 'surprise', 'largo'];
@@ -304,28 +304,31 @@ export function createMasters(G){
     if (m.sea){ body.rotation.order = 'YXZ'; hb.scale.multiplyScalar(1.6); }
     M.list.push(a); M.pick.push(hb, hhb); play(a, m.sea ? 'swim' : 'idle');
   }
-  // the dolphin: circles in the water in front of her hall, leaping now and then; when the wombat comes close (or while
-  // talking) she swims up to the front and holds there with her head out of the water, looking at it; at night she rests
-  // at the surface. (Dolphins swim with their tail, so the swim clip plays slower when she is only treading water.)
+  // the dolphin: circles in the water off her hall, beating her tail up and down, leaping now and then; when the wombat comes
+  // close (or while talking) she swims up and stands on her tail with her upper body out of the water, the way she was drawn,
+  // treading water and facing it (she claps her flippers at a right answer); at night she rests at the surface
   function swim(a, dt, petPos){
     const b = a.body, night = G.phase() === 'night' && !M.talking, d = petPos ? Math.hypot(petPos.x - a.at.x, petPos.z - a.at.z) : 99;
-    const near = M.talking === a.id || d < 11, ac = a.act('swim');
-    a.zz.visible = night; if (night){ const k = (a.t*0.4) % 1; a.zz.position.set(a.at.x, WATER_Y + 1.0 + k*0.8, a.at.z); a.zz.material.opacity = Math.sin(k*Math.PI); }
-    let tx, tz, ry, y = WATER_Y - 0.3, pitch = 0, roll = 0;
-    if (near || night){
-      tx = a.at.x; tz = a.at.z; const look = petPos && !night ? Math.atan2(petPos.x - b.position.x, petPos.z - b.position.z) : a.ry + Math.PI;
-      ry = b.rotation.y + wrapA(look - b.rotation.y)*Math.min(1, dt*2); y = WATER_Y - (night ? 0.25 : 0.12) + Math.sin(a.t*1.6)*0.05; pitch = night ? 0 : -0.32 + Math.sin(a.t*2.2)*0.05;
-      if (ac) ac.timeScale = night ? 0.25 : 0.55; a.leap = 0;
-    } else {
+    const near = M.talking === a.id || d < 11;
+    a.zz.visible = night; if (night){ const k = (a.t*0.4) % 1; a.zz.position.set(a.at.x, WATER_Y + 0.9 + k*0.8, a.at.z); a.zz.material.opacity = Math.sin(k*Math.PI); }
+    if (a.cheer > 0) a.cheer -= dt;
+    let tx = a.at.x, tz = a.at.z, ry = b.rotation.y, y = WATER_Y - 0.75, pitch = 0, roll = 0;
+    if (near && !night){
+      const look = petPos ? Math.atan2(petPos.x - b.position.x, petPos.z - b.position.z) : a.ry + Math.PI;
+      ry = b.rotation.y + wrapA(look - b.rotation.y)*Math.min(1, dt*2); y = WATER_Y + 0.05 + Math.sin(a.t*1.6)*0.06; pitch = -Math.PI/2 + 0.1*Math.sin(a.t*0.9);
+      play(a, a.cheer > 0 ? 'happy' : 'idle'); a.leap = 0;
+    } else if (night){ y = WATER_Y - 0.72; play(a, 'idle', 0.35); a.leap = 0; }
+    else {
       a.th += dt*0.4; const R = 2.2; tx = a.at.x + Math.cos(a.th)*R; tz = a.at.z + Math.sin(a.th)*R;
       ry = Math.atan2(-Math.sin(a.th), Math.cos(a.th)); roll = 0.18;   // (heading along the circle, leaning into the turn)
-      if (ac) ac.timeScale = 1;
+      play(a, 'swim');
       a.leapT -= dt; if (a.leapT <= 0 && !a.leap){ a.leap = 0.0001; a.leapT = rnd(12, 22); }
-      if (a.leap){ a.leap += dt/1.5; const u = Math.min(1, a.leap); y += Math.sin(u*Math.PI)*1.7; pitch = -Math.cos(u*Math.PI)*0.75; if (u >= 1) a.leap = 0; }
+      if (a.leap){ a.leap += dt/1.5; const u = Math.min(1, a.leap); y += Math.sin(u*Math.PI)*2.2; pitch = -Math.cos(u*Math.PI)*0.75; if (u >= 1) a.leap = 0; }
     }
-    const k = Math.min(1, dt*(near ? 1.5 : 4)); b.position.x += (tx - b.position.x)*k; b.position.z += (tz - b.position.z)*k; b.position.y += (y - b.position.y)*Math.min(1, dt*(a.leap ? 20 : 3));
-    b.rotation.y = near || night ? ry : b.rotation.y + wrapA(ry - b.rotation.y)*Math.min(1, dt*3);
-    b.rotation.x += (pitch - b.rotation.x)*Math.min(1, dt*(a.leap ? 20 : 3)); b.rotation.z += (roll*(near || night ? 0 : 1) - b.rotation.z)*Math.min(1, dt*2);
+    const stand = near && !night, k = Math.min(1, dt*(near ? 1.5 : 4)), ky = Math.min(1, dt*(a.leap ? 20 : 3));
+    b.position.x += (tx - b.position.x)*k; b.position.z += (tz - b.position.z)*k; b.position.y += (y - b.position.y)*ky;
+    b.rotation.y = stand || night ? ry : b.rotation.y + wrapA(ry - b.rotation.y)*Math.min(1, dt*3);
+    b.rotation.x += (pitch - b.rotation.x)*Math.min(1, dt*(a.leap ? 20 : stand ? 2 : 3)); b.rotation.z += (roll - b.rotation.z)*Math.min(1, dt*2);
   }
   function play(a, n, speed = 1, once = false){
     const ac = a.act(n); if (!ac) return; ac.timeScale = speed;
@@ -366,7 +369,7 @@ export function createMasters(G){
   function portrait(id){
     if (PORTRAIT[id]) return PORTRAIT[id];
     const m = MASTERS[id], o = G.real(m.model); if (!o) return '';
-    const sc = new THREE.Scene(); sc.add(o); o.updateMatrixWorld(true); o.traverse(n => { if (n.isMesh) n.frustumCulled = false; });   // (skinned meshes' bounds can be off)
+    const sc = new THREE.Scene(); sc.add(o); if (m.stand) o.rotation.x = -Math.PI/2; o.updateMatrixWorld(true);   // (海豚姊姊: standing on her tail) o.traverse(n => { if (n.isMesh) n.frustumCulled = false; });   // (skinned meshes' bounds can be off)
     const cl = o.userData.clips || {}, clip = cl.idle || cl.swim || Object.values(cl)[0];   // (some models only have a swim clip)
     const ac = clip && o.userData.mixer.clipAction(clip); if (ac){ ac.play(); o.userData.mixer.update(0.8); }
     sc.add(new THREE.HemisphereLight(0xfff6e8, 0x8a7a60, 2.6)); const dl = new THREE.DirectionalLight(0xfff4e0, 2.4); dl.position.set(-2, 4, 6); sc.add(dl);
@@ -376,6 +379,7 @@ export function createMasters(G){
     const head = o.userData.head ? o.userData.head.getWorldPosition(V3(0, 0, 0)) : box.getCenter(V3(0, 0, 0));
     // a three-quarter view from the front, the face a little above the middle and the front of the shell below it
     let size = box.getSize(V3(0, 0, 0)).length(), look = head.clone().lerp(box.getCenter(V3(0, 0, 0)), 0.45);
+    if (m.porUp) look.y = box.min.y + (box.max.y - box.min.y)*m.porUp;   // (a tall master: frame the face, high up)
     const cam = new THREE.PerspectiveCamera(30, 1, 0.01, 100); cam.position.copy(look).add(V3(...(m.por || [0.45, 0.22, 1])).normalize().multiplyScalar(size*(m.porD || 1.05))); cam.lookAt(look);
     const N = 512, rt = new THREE.WebGLRenderTarget(N, N, {samples:4}), px = new Uint8Array(N*N*4);
     const prev = renderer.getRenderTarget(); renderer.setRenderTarget(rt); renderer.setClearColor(0x000000, 0); renderer.clear(); renderer.render(sc, cam);
@@ -420,7 +424,7 @@ export function createMasters(G){
   $('.talkX').onclick = () => { if (closeReq) closeReq(); end(); };
   function begin(a){
     M.talking = a.id; const m = a.m; $('.talkName').textContent = m.name; $('.talkPor img').src = portrait(a.id); $('.talkPor img').alt = m.name + '的立繪';
-    gameEl.hidden = true; el.hidden = false; vindex(a.id); G.music.play(m.song); G.focus(m.sea ? a.home.position.clone().lerp(a.at, 0.55) : a.body.position);
+    gameEl.hidden = true; el.hidden = false; vindex(a.id); G.music.play(m.song); G.focus(m.sea ? a.at.clone().lerp(a.home.position, 0.2) : a.body.position);
   }
   function end(){ if (!M.talking) return; M.talking = null; G.voice && G.voice.stop(); G.tune && G.tune.stop(); if (rhy) rhy.stop(); clearInterval(typing); el.hidden = true; G.music.play(null); }
 
@@ -497,7 +501,7 @@ export function createMasters(G){
         if (c !== 4) break;
       }
       G.tune.stop(); if (c === -2) return 'quit';
-      const ok = opts[c] === t; res[i] = ok; draw(false, true); G.sfx(ok ? 'happy' : 'sad');
+      const ok = opts[c] === t; res[i] = ok; draw(false, true); G.sfx(ok ? 'happy' : 'sad'); if (ok) a.cheer = 1.8;
       if (await say(ok ? pick(T.right) : fill(pick(T.wrong), t.name), [i < qs.length - 1 ? '下一首' : '看結果']) === -2) return 'quit';
     }
     const n = res.filter(Boolean).length;
@@ -517,9 +521,10 @@ export function createMasters(G){
     const won = score >= m.pass;
     gameEl.innerHTML = `<div class="rdl"><div class="rdlLantern big" aria-hidden="true">${won ? m.badge.icon : '🐚'}</div><p class="rdlQ">${score} 分　${won ? '過關！' : '再接再厲'}</p></div>`;
     G.music.jingle(won ? 'win' : 'lose');
-    if (!won){ const c = await say(fill(pick(T.beatLose), score), ['再打一次節奏', {label:'先休息一下', ghost:true}]); gameEl.hidden = true;
+    const tpl = pick(won ? T.beatWin : T.beatLose), tail = [tpl.replace(/^%分./, '')];   // (the score is only on screen; she says the rest)
+    if (!won){ const c = await say(fill(tpl, score), ['再打一次節奏', {label:'先休息一下', ghost:true}], false, tail); gameEl.hidden = true;
       if (c === 0) return beatStage(a); return c === -2 ? 'quit' : 'done'; }
-    if (await say(fill(pick(T.beatWin), score)) === -2) return 'quit';
+    if (await say(fill(tpl, score), null, false, tail) === -2) return 'quit';
     return gifts(a);
   }
   // 節奏: the song's notes fall in three lanes (low, middle, high notes); tap the lane's pad as a note reaches the line.

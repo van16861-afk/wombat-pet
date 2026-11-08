@@ -235,7 +235,7 @@ const REAL_CFG = {tiger:{yaw:Math.PI/2, like:'tiger', k:1.15}, deer:{like:'deer'
   rabbit2:{len:0.75, k:0.25},   // (k: their bones don't span the whole body, measured in game)
   whale2:{len:16}, trout:{len:0.45}, butterfly2:{len:0.28}, yacht:{raw:true}, shell_turban:{len:0.3}, shell_clam:{len:0.34}, shell_horn:{len:0.3},
   crane:{h:1.7, stride:{walk:0.24}}, emu:{h:1.85, stride:{walk:0.37, run:2.2}}, quokka:{len:1.1}, beaver2:{len:1.3, stride:{walk:0.31}}, frog2:{len:0.32, yaw:-Math.PI/2, split:{idle:[1.9, 6.9], hop:[7.2, 8.2]}},
-  snake2:{len:1.8, yaw:Math.PI/2, meshBox:true, split:{slither:[3.5, 7.75]}}, dfly:{len:0.3}, gecko:{len:0.6, yaw:Math.PI/2}, dolphin2:{len:3.6}, tang:{len:0.35}, bfish:{len:0.35}, koi:{len:0.45}};   // (koi: the pond scales them up 1.5-2.1x)
+  snake2:{len:1.8, yaw:Math.PI/2, meshBox:true, split:{slither:[3.5, 7.75]}}, dfly:{len:0.3}, gecko:{len:0.6, yaw:Math.PI/2}, dolphin2:{len:3.6}, dolphinsis:{len:2.1}, tang:{len:0.35}, bfish:{len:0.35}, koi:{len:0.45}};   // (koi: the pond scales them up 1.5-2.1x)
 // realistic replacements for the animals first made in Blender (fauna.js / wildlife.js ask for the old names)
 const REAL_ALIAS = {hippo:'hippo2', capybara:'capybara2', tortoise:'tortoise2', koala:'koala2', rabbit:'rabbit2', whale:'whale2', beaver:'beaver2', frog:'frog2', snake:'snake2', dragonfly:'dfly', lizard:'gecko', dolphin:'dolphin2'};   // (raw: built at game size, origin at the keel)
 const REAL_LOADS = Object.fromEntries(Object.keys(REAL_CFG).map(n => [n, new GLTFLoader().setDRACOLoader(draco).loadAsync(`assets/models/real/${n}.glb`)]));

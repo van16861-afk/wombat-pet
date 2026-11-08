@@ -14,7 +14,7 @@ PREP = r"C:\Users\User\Documents\wombat-pet\assets\source\rigprep"
 OUT = r"C:\Users\User\Documents\wombat-pet\assets\models\real"
 os.makedirs(PREP, exist_ok=True); os.makedirs(OUT, exist_ok=True)
 
-def prep(name, src, budget, flip=False, turn=0, drop=()):
+def prep(name, src, budget, flip=False, turn=0, drop=(), rotx=0):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=os.path.join(SRC, src + ".glb"))
     meshes = [o for o in bpy.data.objects if o.type == "MESH" and len(o.data.polygons) > 0 and not any(m and m.name.split(".")[0] in drop for m in o.data.materials)]   # (drop: e.g. a colour chart scanned with the animal)
@@ -27,6 +27,7 @@ def prep(name, src, budget, flip=False, turn=0, drop=()):
     bpy.context.view_layer.objects.active = meshes[0]
     if len(meshes) > 1: bpy.ops.object.join()
     ob = bpy.context.view_layer.objects.active; ob.name = name; me = ob.data
+    if rotx: me.transform(Matrix.Rotation(math.radians(rotx), 4, 'X'))   # (a model standing upright, like 海豚姊姊 drawn on her tail: laid down first)
     # scans come split into 65k-vertex pieces (and some with every triangle loose): weld them back into one surface first,
     # or the reduction below tears them apart
     bm = bmesh.new(); bm.from_mesh(me); dmax = max(ob.dimensions); bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=dmax*float(os.environ.get("WELD", "2e-5"))); bm.to_mesh(me); bm.free()
@@ -145,7 +146,7 @@ from rig_specs import SPECS   # bone lists and clips per animal (blender/rig_spe
 only = [s for s in os.environ.get("ONLY", "").split(",") if s]
 for name, sp in SPECS.items():
     if only and name not in only: continue
-    ob = prep(name, sp["src"], sp["budget"], sp.get("flip", False), sp.get("turn", 0), sp.get("drop", ()))
+    ob = prep(name, sp["src"], sp["budget"], sp.get("flip", False), sp.get("turn", 0), sp.get("drop", ()), sp.get("rotx", 0))
     if sp.get("paint"): sp["paint"](ob)   # (a new colour texture: the crane is repainted as a red-crowned crane)
     if os.environ.get("PREP"):
         export(os.path.join(PREP, name + ".glb"), False); continue

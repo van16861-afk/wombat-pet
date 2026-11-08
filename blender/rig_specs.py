@@ -661,3 +661,37 @@ SPECS["crane"]["paint"] = lambda ob: paint_zones(ob, "WC_texture", _tancho)
 # ---------------------------------------------------------------- beach shells (ffish.asia CC0 scans): static, prep only, copied to assets/models/real
 for _n in ("shell_turban", "shell_clam", "shell_horn"):
     SPECS[_n] = {"src": _n, "budget": 900, "bones": [], "clips": lambda lp: {}}
+
+# ---------------------------------------------------------------- 海豚姊姊 (the music hall's dolphin: made with Hunyuan3D from the author's four views,
+# drawn standing on her tail with her face forward, so laid down she looks at the floor). A real dolphin swims by beating its tail
+# up and down (not side to side like a fish): the wave runs from the back down the tail stock to the flukes; the flippers steer
+# and paddle. Swimming, the head bone lifts her face to look ahead; talking, the game stands her up on her tail (the drawn pose)
+# and she treads water: small tail strokes, flippers sculling, head tilts. Bone ends measured on the side and top views
+# (E:\Hunyuan3D\grid_views.py).
+def _dolphinsis_clips(lp):
+    TAU = 2*math.pi
+    def wave(t, a=1.0, fin=0.12, head=-0.95):
+        w = lambda ph: math.sin(t*TAU - ph)
+        return {"chest": (0.03*a*w(-0.6), 0, 0), "head": (head - 0.04*a*w(-0.3), 0, 0), "tail1": (0.12*a*w(0.0), 0, 0), "tail2": (0.2*a*w(0.7), 0, 0),
+                "tail3": (0.28*a*w(1.4), 0, 0), "fluke": (0.42*a*w(2.1), 0, 0), "finL": (fin*w(0.5), 0, 0.1*w(0.5)), "finR": (fin*w(0.5), 0, -0.1*w(0.5))}
+    swim = [(i/12, wave(i/12)) for i in range(13)]
+    idle = []
+    for i in range(17):
+        t = i/16; p = wave(t*2, 0.3, 0, 0)
+        p |= {"finL": (0.25*math.sin(t*2*TAU), 0.25*math.sin(t*2*TAU + 1), 0.3), "finR": (0.25*math.sin(t*2*TAU), -0.25*math.sin(t*2*TAU + 1), -0.3),
+              "head": (-0.06*math.sin(t*TAU), 0.12*math.sin(t*TAU + 0.5), 0.1*math.sin(t*TAU))}
+        idle.append((t, p))
+    happy = []   # flaps her flippers together (clapping) and bobs her head
+    for i in range(13):
+        t = i/12; c = math.sin(t*3*TAU)
+        happy.append((t, wave(t, 0.3, 0, 0) | {"finL": (0.2, 0.5 + 0.45*c, 0.4), "finR": (0.2, -0.5 - 0.45*c, -0.4), "head": (-0.12*abs(math.sin(t*3*TAU)), 0, 0)}))
+    return {"swim": (0.9, swim), "idle": (3.2, idle), "happy": (1.2, happy)}
+SPECS["dolphinsis"] = {"src": r"E:\Hunyuan3D\out\dolphin_textured", "budget": 16000, "rotx": 90, "clips": _dolphinsis_clips, "bones": [
+    {"n": "chest", "h": (0.45, 0.6), "t": (0.22, 0.55)},
+    {"n": "head", "p": "chest", "h": (0.22, 0.55), "t": (0.08, 0.35), "zone": lambda f, u, s: f < 0.3},
+    {"n": "tail1", "p": "chest", "h": (0.45, 0.6), "t": (0.62, 0.64), "zone": lambda f, u, s: f > 0.36},
+    {"n": "tail2", "p": "tail1", "h": (0.62, 0.64), "t": (0.76, 0.64), "zone": lambda f, u, s: f > 0.55},
+    {"n": "tail3", "p": "tail2", "h": (0.76, 0.64), "t": (0.87, 0.6), "zone": lambda f, u, s: f > 0.7},
+    {"n": "fluke", "p": "tail3", "h": (0.87, 0.6), "t": (1.0, 0.57), "zone": lambda f, u, s: f > 0.83},
+    {"n": "finL", "p": "chest", "h": (0.36, 0.55, 0.44), "t": (0.52, 0.6, 0.97), "zone": lambda f, u, s: 0.3 < f < 0.57 and s > 0.36 and 0.4 < u < 0.78},
+    {"n": "finR", "p": "chest", "h": (0.36, 0.55, -0.44), "t": (0.52, 0.6, -0.97), "zone": lambda f, u, s: 0.3 < f < 0.57 and s < -0.36 and 0.4 < u < 0.78}]}
