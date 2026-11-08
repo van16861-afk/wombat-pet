@@ -14,7 +14,7 @@ from opencc import OpenCC
 from pypinyin import lazy_pinyin, Style
 from cosyvoice.cli.cosyvoice import AutoModel
 
-ap = argparse.ArgumentParser(); ap.add_argument("id"); ap.add_argument("--redo", nargs="*", default=[]); ap.add_argument("--list", action="store_true"); a = ap.parse_args()
+ap = argparse.ArgumentParser(); ap.add_argument("id"); ap.add_argument("--redo", nargs="*", default=[]); ap.add_argument("--list", action="store_true"); ap.add_argument("--seed", type=int, default=0); a = ap.parse_args()
 ID = a.id
 GAME = r"C:\Users\User\Documents\wombat-pet"; OUT = os.path.join(GAME, "voice", ID); os.makedirs(OUT, exist_ok=True)
 TMP = os.path.join(r"E:\CosyVoice\out", ID); os.makedirs(TMP, exist_ok=True)
@@ -100,7 +100,7 @@ weak = []
 for i, (shown, spoken) in enumerate(todo):
     key = fnv(shown); text = prep(spoken); n = max(1, len(py(text))); best = None
     for tr in range(8):
-        random.seed(tr); np.random.seed(tr); torch.manual_seed(tr)
+        random.seed(tr + a.seed); np.random.seed(tr + a.seed); torch.manual_seed(tr + a.seed)
         y = trim(torch.cat([j["tts_speech"] for j in say(text)], dim=1).squeeze(0).numpy())
         wav = os.path.join(TMP, key + ".wav"); sf.write(wav, y, sr)
         heard = asr.transcribe(wav, language="zh", initial_prompt="以下是简体中文的句子。")["text"]
