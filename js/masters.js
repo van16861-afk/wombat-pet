@@ -255,8 +255,18 @@ export function createMasters(G){
   document.body.appendChild(el);
   const $ = s => el.querySelector(s), textEl = $('.talkText'), actsEl = $('.talkActs'), gameEl = $('.talkGame');
   let typing = null, closeReq = null;
+  // spoken lines: voice/<master>/<key>.mp3, key = FNV-1a of the exact text on screen (made by E:\CosyVoice\make_turtle.py);
+  // index.json lists the lines that have a recording, so a line without one just stays silent
+  const fnv = t => { let h = 0x811c9dc5; for (let i = 0; i < t.length; i++){ h ^= t.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(16).padStart(8, '0'); };
+  const VIDX = {};
+  const vindex = id => VIDX[id] = VIDX[id] || fetch(`voice/${id}/index.json`).then(r => r.ok ? r.json() : {}).catch(() => ({}));
+  async function speak(lines){
+    if (!G.voice || !M.talking) return; const id = M.talking, idx = await vindex(id); if (M.talking !== id) return;
+    G.voice.play(lines.map(fnv).filter(k => idx[k]).map(k => `voice/${id}/${k}.mp3`));
+  }
   // one line of the master's; with choices, resolves to the chosen index; without, waits for a tap to go on
-  function say(txt, choices, grid){
+  function say(txt, choices, grid, voice){
+    speak(voice || [txt]);
     return new Promise(res => {
       clearInterval(typing); actsEl.innerHTML = ''; actsEl.classList.toggle('grid', !!grid); textEl.textContent = ''; let i = 0;
       const done = () => { clearInterval(typing); typing = null; textEl.textContent = txt; if (choices) show(); else textEl.classList.add('more'); };
@@ -271,9 +281,9 @@ export function createMasters(G){
   $('.talkX').onclick = () => { if (closeReq) closeReq(); end(); };
   function begin(a){
     M.talking = a.id; const m = a.m; $('.talkName').textContent = m.name; $('.talkPor img').src = portrait(a.id); $('.talkPor img').alt = m.name + '的立繪';
-    gameEl.hidden = true; el.hidden = false; G.music.play('riddle'); G.focus(a.body.position);
+    gameEl.hidden = true; el.hidden = false; vindex(a.id); G.music.play('riddle'); G.focus(a.body.position);
   }
-  function end(){ if (!M.talking) return; M.talking = null; clearInterval(typing); el.hidden = true; G.music.play(null); }
+  function end(){ if (!M.talking) return; M.talking = null; G.voice && G.voice.stop(); clearInterval(typing); el.hidden = true; G.music.play(null); }
 
   const fill = (s, ...v) => { let k = 0; return s.replace(/%/g, () => v[k++]); };
   const rec = id => { const S = G.S(); S.masters = S.masters || {}; return S.masters[id] = S.masters[id] || {}; };
@@ -290,7 +300,7 @@ export function createMasters(G){
       const c = await say(line, [`挑戰${a.m.gameName}`, '聊聊天', {label:'下次再來', ghost:true}]);
       if (c === 0){ if (await riddleGame(a) === 'quit') return; line = pick(T.again); continue; }
       if (c === 1){ if (await say(pick(T.chat)) === -2) return; line = '還有什麼想跟爺爺說的嗎？'; continue; }
-      if (c === 2){ const bye = say(pick(T.bye)); await Promise.race([bye, new Promise(r => setTimeout(r, 2600))]); }   // (closes by itself after the goodbye)
+      if (c === 2){ const bye = say(pick(T.bye)); await Promise.race([bye, new Promise(r => setTimeout(r, 4200))]); }   // (closes by itself after the goodbye)
       end(); return;
     }
   }
@@ -305,10 +315,10 @@ export function createMasters(G){
     if (await say(pick(T.start)) === -2) return 'quit';
     for (let i=0;i<qs.length;i++){
       const q = qs[i], opts = shuffle([q.a, ...q.o]); draw(q, i);
-      const c = await say('答案是哪一個呢？', opts, true); if (c === -2) return 'quit';
+      const c = await say('答案是哪一個呢？', opts, true, [q.q + '（' + q.c + '）', '答案是哪一個呢？']); if (c === -2) return 'quit';   // (grandpa reads the riddle and its hint out)
       const ok = opts[c] === q.a; res[i] = ok; draw(q, i); G.sfx(ok ? 'happy' : 'sad');
-      const line = (ok ? pick(T.right) : fill(pick(T.wrong), q.a)) + (q.w ? ' ' + q.w : '');
-      if (await say(line, [i < qs.length - 1 ? '下一題' : '看結果']) === -2) return 'quit';
+      const head = ok ? pick(T.right) : fill(pick(T.wrong), q.a), line = head + (q.w ? ' ' + q.w : '');
+      if (await say(line, [i < qs.length - 1 ? '下一題' : '看結果'], false, q.w ? [head, q.w] : [head]) === -2) return 'quit';
     }
     const n = res.filter(Boolean).length, won = n >= m.need;
     gameEl.innerHTML = `<div class="rdl"><div class="rdlTop"><span>結果</span><span class="rdlDots">${res.map(v => `<i class="${v ? 'ok' : 'no'}"></i>`).join('')}</span></div>

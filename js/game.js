@@ -1373,7 +1373,7 @@ const WX = {
 const SND = {ctx:null, on:false, songId:null, song:null, step:0, next:0};
 const volOf = k => { const v = S && S[k]; return v == null ? 1 : Math.max(0, Math.min(1, v)); };
 function setVol(k, v){ S[k] = Math.round(v*100)/100; const c = SND.ctx; if (!c) return;
-  if (k === 'volM') SND.musVol.gain.setTargetAtTime(volOf('volM'), c.currentTime, 0.05); else SND.sfx.gain.setTargetAtTime(0.6*volOf('volS'), c.currentTime, 0.05); }
+  if (k === 'volM') SND.musVol.gain.setTargetAtTime(volOf('volM')*(VOICE.src ? 0.45 : 1), c.currentTime, 0.05); else if (k === 'volV') SND.voice.gain.setTargetAtTime(volOf('volV'), c.currentTime, 0.05); else SND.sfx.gain.setTargetAtTime(0.6*volOf('volS'), c.currentTime, 0.05); }
 function audio(){
   if (SND.ctx) return SND.ctx;
   const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null;
@@ -1388,10 +1388,35 @@ function audio(){
   rev.buffer = ir; const wet = c.createGain(); wet.gain.value = 0.32; music.connect(rev); rev.connect(wet); wet.connect(musVol);
   const sfxBus = c.createGain(); sfxBus.gain.value = 0.6*volOf('volS'); sfxBus.connect(master);
   const mk = sec => { const b = c.createBuffer(1, Math.floor(c.sampleRate*sec), c.sampleRate), d = b.getChannelData(0); for (let i=0;i<d.length;i++) d[i] = Math.random()*2-1; return b; };
-  Object.assign(SND, {master, music, musVol, sfx:sfxBus, noise:mk(0.1), noiseLong:mk(2.5)});
+  const voice = c.createGain(); voice.gain.value = volOf('volV'); voice.connect(master);   // (the masters' spoken lines)
+  Object.assign(SND, {master, music, musVol, voice, sfx:sfxBus, noise:mk(0.1), noiseLong:mk(2.5)});
   return c;
 }
 const mtof = m => 440*Math.pow(2,(m-69)/12);
+// ---------- character voices: the masters' lines, recorded ahead of time (voice/<master>/<key>.mp3) ----------
+// Plays a list of files one after another; the music dips while someone talks. A new line cuts off the last one.
+const VOICE = {cache:new Map(), token:0, src:null};
+const voiceOn = () => S.voiceOn !== false;
+function voiceBuf(url){
+  if (!VOICE.cache.has(url)) VOICE.cache.set(url, fetch(url).then(r => r.ok ? r.arrayBuffer() : null)
+    .then(b => b && new Promise((ok, no) => audio().decodeAudioData(b, ok, no))).catch(() => null));
+  return VOICE.cache.get(url);
+}
+function voiceDuck(on){ const c = SND.ctx; if (c && SND.musVol) SND.musVol.gain.setTargetAtTime(volOf('volM')*(on ? 0.45 : 1), c.currentTime, 0.12); }
+function voiceStop(){ VOICE.token++; if (VOICE.src){ try { VOICE.src.stop(); } catch(e){} VOICE.src = null; voiceDuck(false); } }
+async function voicePlay(urls){
+  voiceStop(); if (!voiceOn() || !urls.length) return;
+  const c = audio(); if (!c) return; if (c.state !== 'running') c.resume();
+  const tok = VOICE.token, bufs = urls.map(voiceBuf);
+  for (const p of bufs){
+    const b = await p; if (tok !== VOICE.token) return; if (!b) continue;
+    await new Promise(res => { const s = c.createBufferSource(); s.buffer = b; s.connect(SND.voice); s.onended = res; VOICE.src = s; voiceDuck(true); s.start(); });
+    if (tok !== VOICE.token) return;
+    await new Promise(r => setTimeout(r, 180));   // (a breath between the parts of one line)
+    if (tok !== VOICE.token) return;
+  }
+  VOICE.src = null; voiceDuck(false);
+}
 // ---------- sampled instruments (FluidR3 soundfont notes in assets/music, see tools/make_samples.py) ----------
 // Each instrument has a recording every minor third; other notes are the nearest recording played a little faster/slower.
 const INST_NOTES = {acoustic_grand_piano:[2,6], ocarina:[4,6], flute:[4,6], orchestral_harp:[3,6], marimba:[3,6], acoustic_guitar_nylon:[2,5],
@@ -4785,7 +4810,8 @@ function renderSheet(){
   } else if (sheetKind === 'settings'){
     const sp = [1,10,60], wx = [['auto','自動'],['sunny','晴'],['cloudy','多雲'],['rain','雨'],['snow','雪'],['storm','雷雨']];
     const vol = (k, label) => `<label class="volrow">${label} <input type="range" min="0" max="100" step="5" value="${Math.round(volOf(k)*100)}" data-vol="${k}" aria-label="${label}"><output>${Math.round(volOf(k)*100)}</output></label>`;
-    h = `<p class="sec">音量（音樂和音效分開調；進化演出的配樂跟著音樂音量）</p><div class="vols">${vol('volM', '🎵 音樂')}${vol('volS', '🔊 音效')}</div>`
+    h = `<p class="sec">音量（音樂和音效分開調；進化演出的配樂跟著音樂音量）</p><div class="vols">${vol('volM', '🎵 音樂')}${vol('volS', '🔊 音效')}${vol('volV', '🗣️ 角色說話聲')}</div>`
+      + `<p class="sec">角色說話聲（館主說話時念出台詞；字幕一直都在）</p><div class="opts"><button class="icon" data-voice="1" aria-pressed="${voiceOn()}">開啟</button><button class="icon" data-voice="0" aria-pressed="${!voiceOn()}">關閉</button></div>`
       + `<p class="sec">草原畫風（整張地圖又密又會隨風起伏的草；手機太燙可以先關掉）</p><div class="opts"><button class="icon" data-gt="1" aria-pressed="${meadowOn()}">開啟</button><button class="icon" data-gt="0" aria-pressed="${!meadowOn()}">關閉</button></div>`
       + `<p class="sec">減少動態效果（進化演出不晃動、不快轉，閃光較柔和）</p><div class="opts"><button class="icon" data-rm="auto" aria-pressed="${S.reduceMotion == null}">跟系統設定</button><button class="icon" data-rm="on" aria-pressed="${S.reduceMotion === true}">開啟</button><button class="icon" data-rm="off" aria-pressed="${S.reduceMotion === false}">關閉</button></div>`
       + `<p class="sec">畫風</p><div class="opts"><button class="icon" data-art="ghibli" aria-pressed="${S.art !== 'plain'}">吉卜力水彩（試作）</button><button class="icon" data-art="plain" aria-pressed="${S.art === 'plain'}">原本的畫風</button></div>`
@@ -4855,6 +4881,7 @@ sheetBody.addEventListener('click', e => {
   if (d.useskill !== undefined){ useFormSkill(); return; }
   if (d.bond !== undefined){ bondCeremony(); return; }
   if (d.gt){ setGrassTrial(d.gt === '1'); save(); renderSheet(); return; }
+  if (d.voice){ S.voiceOn = d.voice === '1'; if (!S.voiceOn) voiceStop(); save(); renderSheet(); return; }
   if (d.rm){ S.reduceMotion = d.rm === 'auto' ? null : d.rm === 'on'; save(); renderSheet(); return; }
   if (d.tile !== undefined){ const e = tiles[+d.tile]; if (e) detail(e); return; }
   if (d.act){ closeSheet(); startAct(d.act); return; }
@@ -5416,7 +5443,7 @@ const masters = createMasters({scene, renderer, world, gy, mat, glowMat, canvasT
   phase:() => dayInfo().phase, weather:() => weatherNow(), focus:p => { const k = 1.3*zoom; panTarget.set(p.x + Math.sin(yaw)*k, 0, p.z + Math.cos(yaw)*k); clampPan(); },   // (a little toward the camera: the master shows above the talk panel)
   addCoins:n => addCoins(n), unlockBuild:id => { S.rewards = {...(S.rewards || {}), [id]:true}; save(); }, buildName:id => bdef(id).name,
   learn:k => { S.skills = {...(S.skills || {}), [k]:true}; save(); }, skillName:k => SKILLS[k].name,
-  music:{play:musicFor, preload:jinglePreload, jingle}});
+  music:{play:musicFor, preload:jinglePreload, jingle}, voice:{play:voicePlay, stop:voiceStop}});
 Object.keys(S.builds).forEach(id => S.builds[id] && build(id));
 if (grew) (S.trees || []).forEach(t => { if (inBuild(t.x, t.z, 0.8)){ const q = freeNear(V3(t.x, 0, t.z), 0.8); t.x = +q.x.toFixed(2); t.z = +q.z.toFixed(2); } });   // buildings stayed put
 if (!S.trees) plantTrees();
