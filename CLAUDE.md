@@ -29,5 +29,5 @@
   - 獎勵：每一世第一次贏得代幣和徽章（`S.masters[id].gen`），之後每天第一次贏有小獎勵；第一次贏（永久）解鎖館主送的建築（`BUILDS` 裡有 `reward` 的，`S.rewards`）和生活技能（`SKILLS` 裡有 `master` 的）。
   - 音樂：挑戰時換成館主的曲子（`musicFor`），贏或輸有一小段配樂（`jingle`），都是多樂器。
   - 燈謎題目在 `RIDDLES`：傳統燈謎（民間流傳，無版權問題）加上遊戲世界的原創題。
-  - 館主說話聲：用遊戲作者自己錄的「老爺爺」聲音（22 秒），在本機的 CosyVoice2（`E:\CosyVoice`）複製聲音，把每一句台詞做成 `voice/<館主>/<key>.mp3`（key = 畫面上那句字的 FNV-1a 雜湊，`voice/<館主>/index.json` 列出有錄音的句子）。產生腳本：`tools/voice/make_turtle.py`（用 `E:\CosyVoiceenv\Scripts\python.exe` 執行），每句做好會用 Whisper 聽回來比對拼音（含聲調），對不上就重做；`make_turtle_redo.py` 只重做指定的句子。台詞先轉簡體字再給模型念（它是用簡體字訓練的），單字答案念成「○字」比較不會聽錯。**改了台詞或燈謎就要重新產生那幾句**，否則那句會沒有聲音。
+  - 館主說話聲：用遊戲作者自己錄的「老爺爺」聲音（22 秒），在本機的 CosyVoice2（`E:\CosyVoice`）複製聲音，把每一句台詞做成 `voice/<館主>/<key>.mp3`（key = 畫面上那句字的 FNV-1a 雜湊，`voice/<館主>/index.json` 列出有錄音的句子）。產生腳本：`tools/voice/make_turtle.py`（用 `E:\CosyVoice\venv\Scripts\python.exe` 執行），每句做好會用 Whisper 聽回來比對拼音（含聲調），對不上就重做；`make_turtle_redo.py` 只重做指定的句子。台詞先轉簡體字再給模型念（它是用簡體字訓練的），單字答案念成「○字」比較不會聽錯。**改了台詞或燈謎就要重新產生那幾句**，否則那句會沒有聲音。
   - 設定裡有「角色說話聲」開關和音量（`S.voiceOn`、`S.volV`）；說話時音樂會自動調小。
