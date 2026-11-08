@@ -31,6 +31,16 @@ export const TUNES = [
   {id:'kleine', name:'小夜曲（莫札特）', kind:'古典', bpm:120, key:60, mel:'1\' 0_ 5_ 1\' 0_ 5_ | 1\'_ 5_ 1\'_ 3\'_ 5\' 0 | 4\' 0_ 2\'_ 4\' 0_ 2\'_ | 4\'_ 2\'_ 7_ 2\'_ 5 0', ch:'C | C | G | G'},
   {id:'surprise', name:'驚愕交響曲', kind:'古典', bpm:100, key:60, mel:'1 1 3 3 | 5 5 3 - | 4 4 2 2 | 7, 7, 5, - | 1 1 3 3 | 5 5 3 - | 4 4 2 2 | 7, - - -', ch:'C | C | G | G | C | C | G | G'},
   {id:'brahms', name:'搖籃曲（布拉姆斯）', kind:'古典', bpm:88, key:60, mel:'3_ 3_ | 5 - 3_ 3_ | 5 - 3_ 5_ | 1\' 7 6 | 6 5 2_ 3_ | 4 2 2_ 3_ | 4 - 2_ 4_ | 7_ 6_ 5 7 | 1\' - -', ch:'- | C | C | C F | C G | G | G | G | C'},
+  // Taiwanese songs: 鄧雨賢's melodies (he died in 1944) read off printed numbered scores (sax.tw), and the folk song
+  // 丟丟銅仔 from a note-by-note listing (pitch and length of every note) on cariahwang.pixnet.net
+  {id:'springwind', name:'望春風', kind:'台灣歌謠', bpm:76, key:60, mel:'5,. 5,_ 6, 1 | 2 1_ 2_ 3 - | 5. 3_ 3_ 2_ 1 | 2 - - - | 3. 5_ 5 3_ 5_ | 1. 2_ 2 - | 5. 3_ 3 2_ 1= 2= | 1 - - - | 2. 2_ 3 2_ 1_ | 6, 5,_ 6,_ 1 - | 6,. 1_ 2 3 | 5 - - - | 5. 5_ 6 5_ 3_ | 3 2_ 1_ 6, - | 5. 3_ 3 2_ 1= 2= | 1 - - -',
+    ch:'C F | G7 E7 | G7 | Dm G7 | C | C | C C7 | C | Dm E7 | F C | Am G7 | G7 | C Am | G7 Am | C G7 | C'},
+  {id:'rainflower', name:'雨夜花', kind:'台灣歌謠', bpm:104, key:60, mel:'5,_ 6,_ 5, 3 | 3_ 2_ 1_ 6,_ 5, | 1_ 2_ 3 5_ 1= 2= | 3_ 3_ 2 - | 2 - - | 5_ 5_ 5_ 3= 5= 3 | 3_ 2= 3= 2_ 1_ 6, | 5,_ 6,_ 5, 3 | 3_ 2_ 1 - | 1 - -',
+    ch:'C | F | C A7 | Dm | G7 | C | Am | G7 | C | C'},
+  {id:'moonsorrow', name:'月夜愁', kind:'台灣歌謠', bpm:80, key:60, mel:'0 3, 5, 6, | 5, - - - | 0 6,_ 5,_ 1 2 | 3 - - - | 0 4 3 4 | 5 - - - | 0 5,_ 6,_ 5, 2 | 2 - - - | 0 3_ 2_ 1 2 | 1 - - - | 0 3_ 4_ 5 6 | 5 3_ 2_ 1 2 | 1 6,_ 1_ 6, 5,_ 6,_ | 5, - - 5 | 3 - - - | 0 2_ 3_ 2_ 1_ 5,_ 6,_ | 1 - - -',
+    ch:'- | C | Am | E7 | F | G7 | C G7 | Dm7 | G7 | C | Em7 | G7 C | F G7 | G7 | C | - | C'},
+  {id:'diudiu', name:'丟丟銅仔', kind:'台灣民謠', bpm:120, key:60, mel:'2\' 3\' | 2\'_ 3\'_ 2\'_ 1\'_ | 2\'_ 3\'_ 2\'_ 1\'_ | 2\' 1\'_ 6_ | 5 6_ 1\'_ | 5 - | 6 2\' | 6_ 1\'_ 1\'_ 6_ | 2\' 2\' | 6_ 1\'_ 1\'_ 6_ | 5_ 5_ 5_ 5_ | 6_ 1\'_ 6_ 5_ | 2 6 | 5 -',
+    ch:'G | G | G | Am | C | C | Dm G | Am | G | Am | C | Am C | G | C'},
   // folk songs of China (old folk tunes) and an old song with a 19th-century American melody
   {id:'jasmine', name:'茉莉花', kind:'中國民謠', bpm:72, key:60, mel:'3 3_ 5_ 6_ 1\'_ 1\'_ 6_ | 5 5_ 6_ 5 - | 3 3_ 5_ 6_ 1\'_ 1\'_ 6_ | 5 5_ 6_ 5 - | 5 5 5 3_ 5_ | 6 6 5 - | 3 2_ 3_ 5 3_ 2_ | 1 1_ 2_ 1 -', ch:'C | C | C | C | C | F C | Am G | C'},
   {id:'farewell', name:'送別', kind:'中國民謠', bpm:76, key:60, mel:'5 3_ 5_ 1\' - | 6 1\' 5 - | 5 1_ 2_ 3 2_ 1_ | 2 - - - | 5 3_ 5_ 1\'. 7_ | 6 1\' 5 - | 5 2_ 3_ 4. 7,_ | 1 - - -', ch:'C | F C | C | G | C | F C | G | C'},
